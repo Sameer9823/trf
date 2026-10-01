@@ -1,0 +1,15 @@
+{
+  "name": "trf-system",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build:shared": "npm run build -w @trf/shared",
+    "dev:server": "npm run build:shared && npm run dev -w @trf/server",
+    "dev:desktop": "npm run build:shared && npm run dev -w @trf/desktop",
+    "migrate": "npm run migrate -w @trf/server",
+    "typecheck": "npm run build:shared && npm run typecheck -w @trf/server && npm run typecheck -w @trf/desktop",
+    "test": "npm run build:shared && npm run test -w @trf/server",
+    "seed:admin": "npm run seed:admin -w @trf/server"
+  }
+}
