@@ -126,11 +126,21 @@ async function refreshTokens(): Promise<boolean> {
 }
 
 /**
+ * Endpoints the server itself does not protect. They are listed here so the
+ * renderer cannot get it wrong: the connection banner has to work *before*
+ * anyone signs in, and a health check that needs a token would report an
+ * unreachable server on a perfectly healthy one.
+ */
+const PUBLIC_PATHS = ['/api/health', '/api/health/live', '/api/health/ready'];
+
+/**
  * All API traffic goes through the main process: no CORS, one place for the auth
  * token. The renderer never sees a token; it only sees the signed-in profile.
  */
 ipcMain.handle('api:request', async (_e, req: { method: string; path: string; body?: unknown; auth?: boolean }): Promise<ApiResult> => {
-  const needsAuth = req.auth !== false;
+  // Health checks answer "is the server there?", which is exactly the question
+  // asked before there is a session, so they are never gated on one.
+  const needsAuth = req.auth !== false && !PUBLIC_PATHS.includes(req.path);
   if (needsAuth && !tokens) return { ok: false, status: 401, data: { error: { code: 'UNAUTHORIZED', message: 'Sign in to continue.' } } };
 
   // Refresh before the token expires rather than after a request fails.

@@ -19,7 +19,10 @@ import { TrfList } from './pages/TrfList';
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { status } = useAuth();
   if (status === 'checking') return <div className="page"><p className="muted">Checking your session…</p></div>;
-  if (status === 'signed-out') return <Navigate to="/login" replace />;
+  // A signed-out person is *not* redirected here. <Navigate> renders nothing at all,
+  // so returning one from this component would blank the window and, because the
+  // target is already the login route, would never change the URL either — the
+  // login screen could never appear. Root decides what a signed-out person sees.
   return children;
 }
 
