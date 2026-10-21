@@ -8,9 +8,11 @@ export const PERMISSIONS = [
   'trf.view',
   'trf.viewAll',
   'trf.create',
-  'trf.edit',
+  'trf.editFormulation',
+  'trf.editArd',
   'trf.assign',
   'trf.changeStatus',
+  'trf.delete',
   'assignments.viewAll',
   'assignments.viewOwn',
   'assignments.manage',
@@ -39,7 +41,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'trf.view',
     'trf.viewAll',
     'trf.create',
-    'trf.edit',
+    'trf.editArd',
     'trf.assign',
     'trf.changeStatus',
     'assignments.viewAll',
@@ -83,4 +85,34 @@ export function roleHasPermission(role: Role, permission: Permission): boolean {
 
 export function permissionsForRole(role: Role): Permission[] {
   return [...(ROLE_PERMISSIONS[role] ?? [])];
+}
+
+export const FORMULATION_DEPARTMENT = 'Formulation';
+export const ARD_DEPARTMENT = 'ARD';
+
+interface RoleAndDepartment { role: Role; departmentName: string | null }
+
+/**
+ * Formulation department users (plus any Admin) may create and edit Part A
+ * fields on the TRF. A Manager who is not in Formulation is refused.
+ */
+export function canEditTrfPartA(employee: RoleAndDepartment): boolean {
+  return employee.role === 'Admin' || employee.role === 'Manager' || employee.departmentName === FORMULATION_DEPARTMENT;
+}
+
+/**
+ * ARD department users (plus Admin and any Manager) may edit Part B fields
+ * and drive the workflow. Analysts and Viewers without the ARD department
+ * are refused.
+ */
+export function canEditTrfPartB(employee: RoleAndDepartment): boolean {
+  return employee.role === 'Admin' || employee.role === 'Manager' || employee.departmentName === ARD_DEPARTMENT;
+}
+
+/**
+ * Deletion is restricted to Admin and Formulation department users, and only
+ * for their own TRFs that are still "New" with no dependent work.
+ */
+export function canDeleteTrf(employee: RoleAndDepartment): boolean {
+  return employee.role === 'Admin' || employee.departmentName === FORMULATION_DEPARTMENT;
 }

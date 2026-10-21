@@ -15,6 +15,7 @@ import { Settings } from './pages/Settings';
 import { TrfDetailPage } from './pages/TrfDetail';
 import { TrfForm } from './pages/TrfForm';
 import { TrfList } from './pages/TrfList';
+import { TrfPrint } from './pages/TrfPrint';
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { status } = useAuth();
@@ -59,11 +60,14 @@ function Shell() {
         <Route path="trfs/new" element={
           <RequireModule module="trf"><TrfForm /></RequireModule>
         } />
-        <Route path="trfs/:id" element={
+         <Route path="trfs/:id" element={
           <RequireModule module="trf"><TrfDetailPage /></RequireModule>
         } />
         <Route path="trfs/:id/edit" element={
           <RequireModule module="trf"><TrfForm /></RequireModule>
+        } />
+        <Route path="trfs/:id/print" element={
+          <RequireModule module="trf"><TrfPrint /></RequireModule>
         } />
         <Route path="assignments" element={
           <RequireModule module="assignments"><Assignments /></RequireModule>

@@ -193,6 +193,11 @@ ipcMain.handle('coa:print', (event) => {
   return { ok: true as const };
 });
 
+ipcMain.handle('trf:print', (event) => {
+  event.sender.print({ silent: false, printBackground: true });
+  return { ok: true as const };
+});
+
 ipcMain.handle('auth:on-signed-out', (event) => {
   const listener: AuthListener = () => event.sender.send('auth:signed-out');
   authListeners.add(listener);

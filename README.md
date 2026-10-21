@@ -1,6 +1,6 @@
 # TRF & Analysis Management System
 
-Status: **all 11 phases complete** (scaffold, API skeleton, database migrations, connection-status shell, authentication, employees, roles and permissions, TRF management, work assignment, analysis results, certificates of analysis, dashboard, Excel reports and export, audit log, deployment, logging, backups, installer packaging, and the final integration pass).
+Status: **all 12 phases complete** (scaffold, API skeleton, database migrations, connection-status shell, authentication, employees, roles and permissions, TRF management, work assignment, analysis results, certificates of analysis, dashboard, Excel reports and export, audit log, deployment, logging, backups, installer packaging, ARD tracking and the TRF form rework, and the final integration pass).
 Deployment is documented in `docs/deployment.md`, packaging in `docs/installer.md`, and testing in `docs/testing.md`.
 
 ## Documentation
@@ -31,6 +31,15 @@ It creates the first Admin only when no active Admin exists, marks the password 
 ## Checks
 - `npm run typecheck` runs TypeScript checks for all workspaces.
 - `npm test` runs the server test suite. Tests that need a database report as *skipped* when PostgreSQL is not reachable, so a green run never claims untested coverage. See `docs/testing.md` for how to point the suite at a throwaway test database.
+
+## Behaviour implemented in Phase 12
+- **ARD Tracking on the TRF record.** ARD Analysis Details (Part B) live as columns directly on the `trfs` table — no separate `ards` table. An `ard_number` (`ARD-YYYY-NNNNN`) is generated when a TRF is created and stored on the same row. TAT is computed in SQL (`analysis_start_date` to today, or to the `finalized_at` timestamp on terminal states) and never stored. An `ard_status_history` table records every workflow transition.
+- **Department-based permissions.** Formulation department members (plus any Admin) may create and edit TRF fields (Part A). ARD department members (plus Admin and Manager) may edit ARD fields (Part B) and drive the ARD workflow. Analysts can view ARDs but cannot edit them; the existing test Analysts created without a department are still refused at the server.
+- **Workflow transitions and terminal lock.** ARDs move Received → In Progress → Completed (or Cancelled). Only Admin, Manager and ARD department users can reach the terminal states, which are locked thereafter: no further edits or transitions are accepted.
+- **Reworked TRF form.** Thirteen new columns from the Formulation Team's paper form are surfaced on the create and edit screens: batch size, dosage form, manufacturing location, label claim, pack size, pack type, storage condition, storage period, manufacturing date, expiry date, analysis purpose, sample given by, and signature date. The form splits into a Part A (Formulation) and Part B (ARD) section, with each section shown only to the department that owns it. Date validation rejects an expiry date at or before the manufacturing date and a required-completion date before the TRF date.
+- **Soft delete.** TRFs in `New` status can be soft-deleted (Admin or Formulation department only). The row is retained with `deleted_at` set so the number is never reused, but is hidden from every list and detail view.
+- **Printable TRF.** A print view renders the full TRF on a single document with a dedicated print stylesheet and a Print button on both the detail and edit pages.
+- **TRF list shows ARD status.** The TRF list now includes ARD Stage, ARD Analyst and TAT columns. Per-row edit and delete buttons appear based on department, and clicking a TRF number opens the detail page with an ARD Analysis Details panel and an ARD History tab.
 
 ## Behaviour implemented in Phase 11
 - **Global search does what the README said it would.** Phase 3 promised the top-bar box would grow to cover analysis tests and certificate numbers; it had not, so a person holding a `COA-…` reference had nowhere to paste it. `GET /api/search` now answers all three record types in one call and returns three grouped lists: TRFs (number, product, batch, customer), analysis tests (name, parent TRF, result text) and certificates (number, or the TRF they belong to).

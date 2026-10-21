@@ -1,4 +1,4 @@
-import { Paginated, TrfStatus } from './core';
+import { Paginated, TrfStatus, ArdWorkflowStatus, ArdReportingStatus, ArdCoaStatus, TERMINAL_ARD_STATUSES } from './core';
 
 export const PRIORITIES = ['Low', 'Normal', 'High', 'Urgent'] as const;
 export type Priority = (typeof PRIORITIES)[number];
@@ -23,6 +23,16 @@ export interface TrfListItem {
   createdAt: string;
   updatedAt: string;
   version: number;
+  /** Part B — ARD Analysis Details (nullable until the ARD team fills them). */
+  ardNumber: string | null;
+  ardAnalystId: number | null;
+  stage: ArdWorkflowStatus;
+  analystName: string | null;
+  analysisStartDate: string | null;
+  reportingStatus: ArdReportingStatus;
+  coaStatus: ArdCoaStatus;
+  tat: number | null;
+  workflowStatus: ArdWorkflowStatus;
 }
 
 export interface TrfDetail extends TrfListItem {
@@ -33,6 +43,32 @@ export interface TrfDetail extends TrfListItem {
   remarks: string | null;
   createdBy: number | null;
   createdByName: string | null;
+  /** Part A — Formulation Team fields. */
+  batchSize: string | null;
+  dosageForm: string | null;
+  manufacturingLocation: string | null;
+  labelClaim: string | null;
+  packSize: string | null;
+  packType: string | null;
+  storageCondition: string | null;
+  storagePeriod: string | null;
+  manufacturingDate: string | null;
+  expiryDate: string | null;
+  analysisPurpose: string | null;
+  sampleGivenBy: string | null;
+  signatureDate: string | null;
+  /** Part B — ARD Analysis Details, editable section. */
+  ardRemarks: string | null;
+  finalizedAt: string | null;
+}
+
+export interface ArdStatusHistoryEntry {
+  id: number;
+  oldStatus: ArdWorkflowStatus | null;
+  newStatus: ArdWorkflowStatus;
+  changedByName: string | null;
+  changedAt: string;
+  note: string | null;
 }
 
 export interface TrfStatusHistoryEntry {
@@ -65,7 +101,7 @@ export interface Product {
 
 export type TrfListPage = Paginated<TrfListItem>;
 
-export interface TrfFilters {  page: number;
+export interface TrfFilters { page: number;
   pageSize: number;
   search: string;
   status: TrfStatus[];
@@ -78,6 +114,8 @@ export interface TrfFilters {  page: number;
   dateTo?: string;
   dueFrom?: string;
   dueTo?: string;
+  workflowStatus?: ArdWorkflowStatus[];
+  analystId?: number;
   overdueOnly: boolean;
   sortBy: TrfSortField;
   sortDir: 'asc' | 'desc';
@@ -85,7 +123,8 @@ export interface TrfFilters {  page: number;
 
 export const TRF_SORT_FIELDS = [
   'trfNumber', 'trfDate', 'customerName', 'productName', 'batchNumber',
-  'priority', 'status', 'requiredCompletionDate', 'createdAt',
+  'priority', 'status', 'requiredCompletionDate', 'workflowStatus', 'tat',
+  'createdBy', 'createdAt',
 ] as const;
 export type TrfSortField = (typeof TRF_SORT_FIELDS)[number];
 

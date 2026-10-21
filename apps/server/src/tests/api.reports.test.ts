@@ -143,7 +143,12 @@ function rowsOf(sheet: ExcelJS.Worksheet | undefined): Record<string, unknown>[]
   for (let i = 2; i <= sheet.rowCount; i++) {
     const values = sheet.getRow(i).values as unknown[];
     const row: Record<string, unknown> = {};
-    header.forEach((h, c) => { if (typeof h === 'string') row[h] = values[c]; });
+    header.forEach((h, c) => {
+      if (typeof h !== 'string') return;
+      const v = values[c];
+      if (v === undefined || v === null) { row[h] = null; return; }
+      row[h] = typeof v === 'object' && 'result' in v ? (v as { result: unknown }).result : v;
+    });
     out.push(row);
   }
   return out;
@@ -228,6 +233,30 @@ maybe('a status filter narrows the sheet the same way the list does', async () =
   const rows = rowsOf(assigned.book.getWorksheet('TRF Master'));
   assert.ok(rows.length > 0, 'the seeded TRFs are Assigned once a test exists');
   assert.ok(rows.every((r) => r['Status'] === 'Assigned'));
+});
+
+maybe('the ARD Tracking sheet is present and lists the seeded ARDs', async () => {
+  const res = await exportBook('sheet=ARD%20Tracking', manager.token);
+  assert.ok(res.ok, 'Manager may export ARD Tracking');
+  const sheet = res.book.getWorksheet('ARD Tracking');
+  assert.ok(sheet, 'the ARD Tracking sheet is present');
+  const rows = rowsOf(sheet);
+  assert.ok(rows.length >= 2, 'both seeded TRFs have ARD rows');
+  for (const r of rows) {
+    assert.ok(r['ARD No.'], 'each row has an ARD number');
+    assert.equal(r['Stage'], 'Received', 'auto-created ARDs start as Received');
+    assert.equal(r['TAT (days)'], null, 'no start date means no TAT');
+  }
+});
+
+maybe('an analyst exporting ARD Tracking sees only their own rows', async () => {
+  const res = await exportBook('sheet=ARD%20Tracking', analyst.token);
+  assert.ok(res.ok);
+  const rows = rowsOf(res.book.getWorksheet('ARD Tracking'));
+  assert.ok(rows.length >= 1, 'their own TRF has an ARD');
+  const trfNumbers = rows.map((r) => String(r['TRF No.']));
+  assert.ok(trfNumbers.includes(myTrf), 'their own TRF is present');
+  assert.ok(!trfNumbers.includes(otherTrf), 'another analyst\'s TRF is not');
 });
 
 maybe('an analyst exports their own work and nobody else\'s', async () => {

@@ -9,6 +9,7 @@ export interface TrfBridge {
   logout(): Promise<{ ok: true }>;
   session(): Promise<{ ok: true; signedIn: boolean }>;
   printCoa(): Promise<{ ok: boolean }>;
+  printTrf(): Promise<{ ok: boolean }>;
   exportReport(query: string): Promise<{
     ok: boolean; cancelled?: boolean; message?: string; path?: string; meta?: unknown;
   }>;

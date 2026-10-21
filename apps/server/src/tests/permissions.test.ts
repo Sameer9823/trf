@@ -32,11 +32,20 @@ test('only Admin manages employees and settings', () => {
 
 test('Manager manages TRFs, assignments and monitoring but not employee accounts', () => {
   assert.equal(roleHasPermission('Manager', 'trf.create'), true);
+  assert.equal(roleHasPermission('Manager', 'trf.editArd'), true);
+  assert.equal(roleHasPermission('Manager', 'trf.editFormulation'), false);
+  assert.equal(roleHasPermission('Manager', 'trf.delete'), false);
   assert.equal(roleHasPermission('Manager', 'assignments.manage'), true);
   assert.equal(roleHasPermission('Manager', 'analysis.viewAll'), true);
   assert.equal(roleHasPermission('Manager', 'employees.view'), true);
   assert.equal(roleHasPermission('Manager', 'employees.manage'), false);
   assert.equal(roleHasPermission('Manager', 'analysis.enterResults'), false);
+});
+
+test('Analyst sees ARD data via TRFs but cannot edit them', () => {
+  assert.equal(roleHasPermission('Analyst', 'trf.view'), true);
+  assert.equal(roleHasPermission('Analyst', 'trf.editArd'), false);
+  assert.equal(roleHasPermission('Analyst', 'trf.editFormulation'), false);
 });
 
 test('Analyst sees own work only and cannot see all TRFs or the audit log', () => {
@@ -51,7 +60,7 @@ test('Analyst sees own work only and cannot see all TRFs or the audit log', () =
   // An Analyst may save their own work as a file, but the export is scoped to
   // them and carries no Employees or Audit Log sheet.
   assert.equal(roleHasPermission('Analyst', 'reports.export'), true);
-  assert.deepEqual(sheetsFor('own', 'Analyst'), ['TRF Master', 'Analysis', 'Assignments', 'COA', 'Dashboard Data']);
+  assert.deepEqual(sheetsFor('own', 'Analyst'), ['TRF Master', 'ARD Tracking', 'Analysis', 'Assignments', 'COA', 'Dashboard Data']);
   assert.ok(!sheetsFor('own', 'Analyst').includes('Audit Log'));
   assert.ok(!sheetsFor('all', 'Analyst').includes('Employees'), 'a scoped export never widens by asking for everything');
 });
@@ -72,7 +81,7 @@ test('Viewer is read-only and cannot create, assign or approve', () => {
   assert.equal(roleHasPermission('Viewer', 'analysis.view'), true);
   assert.equal(roleHasPermission('Viewer', 'coa.view'), true);
   assert.equal(roleHasPermission('Viewer', 'reports.export'), true);
-  for (const permission of ['trf.create', 'trf.assign', 'trf.edit', 'assignments.manage',
+  for (const permission of ['trf.create', 'trf.assign', 'trf.editFormulation', 'trf.editArd', 'trf.delete', 'assignments.manage',
     'analysis.enterResults', 'coa.approve', 'coa.issue', 'employees.view'] as const) {
     assert.equal(roleHasPermission('Viewer', permission), false, `Viewer must not hold ${permission}`);
   }

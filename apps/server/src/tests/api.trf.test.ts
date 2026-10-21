@@ -47,7 +47,7 @@ async function api<T = unknown>(path: string, init: RequestInit = {}, token?: st
     },
   });
   const text = await res.text();
-  return { status: res.status, body: (text ? JSON.parse(text) : null) as T & { error?: { message: string; fields?: Record<string, string> } } };
+  return { status: res.status, body: (text ? JSON.parse(text) : null) as T & { error?: { code: string; message: string; fields?: Record<string, string> }; requestId?: string } };
 }
 
 const ADMIN_PASSWORD = 'Trf-Phase-Admin-42';
@@ -93,6 +93,10 @@ const TRF_BODY = {
   customerId: null, productId: null, batchNumber: null, sampleQuantity: null,
   sampleReceivedDate: null, requiredCompletionDate: null, priority: 'Normal',
   requestedAnalysis: null, specialInstructions: null, departmentId: null, remarks: null,
+  batchSize: null, dosageForm: null, manufacturingLocation: null,
+  labelClaim: null, packSize: null, packType: null, storageCondition: null,
+  storagePeriod: null, manufacturingDate: null, expiryDate: null,
+  analysisPurpose: null, sampleGivenBy: null, signatureDate: null,
 };
 
 async function createTrf(overrides: Record<string, unknown> = {}, token = adminToken) {
@@ -119,7 +123,35 @@ maybe('a created TRF gets the TRF-YYYY-NNNNN format and starts as New', async ()
   assert.equal(trf.version, 1);
   assert.equal(trf.isOverdue, false);
   assert.equal(trf.priority, 'Normal');
-  await pool.query('DELETE FROM trfs WHERE id = $1', [trf.id]);
+    await pool.query('DELETE FROM trfs WHERE id = $1', [trf.id]);
+  });
+
+  maybe('creating a TRF auto-creates ARD tracking fields with Received status', async () => {
+    const res = await createTrf({ batchNumber: `ARD-TEST-${Date.now()}` });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.match(res.body.ardNumber ?? '', /^ARD-\d{4}-\d{5}$/);
+    assert.equal(res.body.workflowStatus, 'Received');
+    assert.equal(res.body.stage, 'Received');
+    await pool.query('DELETE FROM trfs WHERE id = $1', [res.body.id]);
+  });
+
+  maybe('a TRF with expiry date earlier than manufacturing date is rejected', async () => {
+    const res = await createTrf({
+      manufacturingDate: '2026-01-10',
+      expiryDate: '2026-01-05',
+    });
+    assert.equal(res.status, 400);
+    assert.ok(res.body.error?.fields?.expiryDate);
+  });
+
+maybe('a TRF with a past required completion date is accepted and starts overdue', async () => {
+  const res = await createTrf({
+    trfDate: today,
+    requiredCompletionDate: '2000-01-01',
+  });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(res.body.isOverdue, true);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [res.body.id]);
 });
 
 maybe('creating a TRF writes the first status history row', async () => {
@@ -511,4 +543,162 @@ maybe('a TRF number is not reused after the TRF is deleted', async () => {
   assert.notEqual(next.body.trfNumber, number);
   assert.equal(Number(next.body.trfNumber.slice(-5)), Number(number.slice(-5)) + 1);
   await pool.query('DELETE FROM trfs WHERE id = $1', [next.body.id]);
+});
+
+maybe('a TRF in New status can be soft-deleted by an Admin', async () => {
+  const created = await createTrf({ batchNumber: 'DELETE-TEST' });
+  const id = created.body.id;
+
+  const res = await api(`/api/trfs/${id}`, { method: 'DELETE', body: JSON.stringify({ version: created.body.version }) }, adminToken);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  // The TRF is gone from the list (soft-deleted).
+  const detail = await api(`/api/trfs/${id}`, {}, adminToken);
+  assert.equal(detail.status, 404);
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
+});
+
+maybe('a TRF that is not New cannot be deleted', async () => {
+  const created = await createTrf();
+  const id = created.body.id;
+
+  // Move to Assigned first.
+  await api(`/api/trfs/${id}/status`, {
+    method: 'POST', body: JSON.stringify({ status: 'Assigned', version: created.body.version }),
+  }, adminToken);
+
+  const moved = await api<TrfDetail>(`/api/trfs/${id}`, {}, adminToken);
+  const res = await api(`/api/trfs/${id}`, { method: 'DELETE', body: JSON.stringify({ version: moved.body.version }) }, adminToken);
+  assert.equal(res.status, 409);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
+});
+
+maybe('a TRF with analysis tests cannot be deleted', async () => {
+  const created = await createTrf({ batchNumber: 'DEP-TEST' });
+  const id = created.body.id;
+
+  // Insert a dependent analysis test directly.
+  await pool.query(
+    `INSERT INTO analysis_tests (trf_id, test_name, status) VALUES ($1, $2, 'Assigned')`,
+    [id, 'Dependent Test'],
+  );
+
+  const res = await api(`/api/trfs/${id}`, { method: 'DELETE', body: JSON.stringify({ version: created.body.version }) }, adminToken);
+  assert.equal(res.status, 409);
+  assert.ok(res.body.error?.message.includes('analysis tests') || res.body.error?.message.includes('certificates'));
+
+  // Cleanup
+  await pool.query('DELETE FROM analysis_tests WHERE trf_id = $1', [id]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
+});
+
+maybe('ARD workflow status can transition from Received to In Progress to Completed', async () => {
+  const created = await createTrf();
+  const id = created.body.id;
+  let detail = created.body;
+
+  const inProgress = await api<TrfDetail>(`/api/trfs/${id}/ard-status`, {
+    method: 'POST', body: JSON.stringify({ status: 'In Progress', version: detail.version }),
+  }, adminToken);
+  assert.equal(inProgress.status, 200);
+  assert.equal(inProgress.body.workflowStatus, 'In Progress');
+
+  const refreshed = await api<TrfDetail>(`/api/trfs/${id}`, {}, adminToken);
+  detail = refreshed.body;
+
+  const completed = await api<TrfDetail>(`/api/trfs/${id}/ard-status`, {
+    method: 'POST', body: JSON.stringify({ status: 'Completed', version: detail.version }),
+  }, adminToken);
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.workflowStatus, 'Completed');
+
+  // ARD history is recorded.
+  const history = await api<{ items: unknown[] }>(`/api/trfs/${id}/ard-history`, {}, adminToken);
+  assert.equal(history.status, 200);
+  assert.equal(history.body.items.length, 2);
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
+});
+
+maybe('an Analyst cannot edit ARD fields (no ARD department)', async () => {
+  const analyst = await createAnalyst();
+  const token = await tokenFor(analyst.username, analyst.password);
+  const target = await createTrf();
+
+  const edit = await api(`/api/trfs/${target.body.id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: target.body.version, coaStatus: 'Draft' }),
+  }, token);
+  assert.equal(edit.status, 403);
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [target.body.id]);
+});
+
+maybe('creating a TRF with the full field set returns 201 with ARD tracking', async () => {
+  const suffix = Date.now().toString(36);
+  const customer = await api<{ id: number; name: string }>('/api/lookups/customers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: `Full Test Customer ${suffix}`, code: `FTC-${suffix}` }),
+  }, adminToken);
+  assert.equal(customer.status, 201);
+  const product = await api<{ id: number }>('/api/lookups/products', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: `Full Test Product ${suffix}` }),
+  }, adminToken);
+  assert.equal(product.status, 201);
+
+  const res = await createTrf({
+    customerId: customer.body.id,
+    productId: product.body.id,
+    batchNumber: 'FULL-BATCH',
+    sampleQuantity: '100g',
+     sampleReceivedDate: today,
+    requiredCompletionDate: '2026-11-30',
+    priority: 'High',
+    requestedAnalysis: 'Full potency panel',
+    specialInstructions: 'Keep cold',
+    remarks: 'Handle with care',
+    batchSize: '1000',
+    dosageForm: 'Tablet',
+    manufacturingLocation: 'Plant A',
+    labelClaim: '100mg',
+    packSize: '1000',
+    packType: 'Bottle',
+    storageCondition: '2-8C',
+    storagePeriod: '24 months',
+    manufacturingDate: '2026-01-15',
+    expiryDate: '2028-01-15',
+    analysisPurpose: 'Stability',
+    sampleGivenBy: 'QA Dept',
+     signatureDate: today,
+  });
+
+  assert.equal(res.status, 201);
+  assert.ok(res.body.trfNumber?.startsWith('TRF-'));
+  assert.ok(res.body.ardNumber?.startsWith('ARD-'));
+  assert.equal(res.body.workflowStatus, 'Received');
+  assert.equal(res.body.stage, 'Received');
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [res.body.id]);
+  await pool.query('DELETE FROM products WHERE id = $1', [product.body.id]);
+  await pool.query('DELETE FROM customers WHERE id = $1', [customer.body.id]);
+});
+
+maybe('creating a TRF with only required fields returns 201', async () => {
+  const res = await createTrf({});
+  assert.equal(res.status, 201);
+  assert.ok(res.body.trfNumber);
+  assert.ok(res.body.ardNumber);
+  assert.equal(res.body.priority, 'Normal');
+  assert.equal(res.body.workflowStatus, 'Received');
+  await pool.query('DELETE FROM trfs WHERE id = $1', [res.body.id]);
+});
+
+maybe('creating a TRF with a non-existent customer ID returns 400', async () => {
+  const res = await createTrf({ customerId: 999999 });
+  assert.equal(res.status, 400);
+  assert.ok(res.body.error);
+  assert.equal(res.body.error!.code, 'BAD_REQUEST');
+  assert.ok(res.body.requestId);
+  assert.ok(res.body.error!.fields?.customerId);
 });

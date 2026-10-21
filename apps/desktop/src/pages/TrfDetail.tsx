@@ -1,25 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
-import type { Assignment, EmployeeProfile, TrfDetail, TrfStatus, TrfStatusHistoryEntry } from '@trf/shared';
-import { MESSAGES } from '@trf/shared';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import type { Assignment, ArdWorkflowStatus, EmployeeProfile, TrfDetail, TrfStatus, TrfStatusHistoryEntry, ArdStatusHistoryEntry } from '@trf/shared';
+import { MESSAGES, canEditTrfPartA, canEditTrfPartB, canDeleteTrf } from '@trf/shared';
 import { messageOf } from '../lib/api';
 import { assignmentApi, assignmentStatusLabel, assignmentStatusTone } from '../lib/assignments';
 import { useAuth } from '../lib/auth';
 import { BulkAssign } from '../components/BulkAssign';
-import { OverdueBadge, PriorityBadge, StatusBadge, allowedNextStatuses, formatDate } from '../components/Badges';
+import { OverdueBadge, PriorityBadge, StatusBadge, ArdWorkflowBadge, ArdCoaBadge, allowedNextStatuses, allowedNextArdStatuses, formatDate } from '../components/Badges';
 import { OfflineNotice } from '../components/OfflineNotice';
 import { useServerStatus } from '../lib/server-status';
 
-type Tab = 'details' | 'history';
+type Tab = 'details' | 'history' | 'ard-history';
 
 export function TrfDetailPage() {
-  const { id } = useParams();
-  const [searchParams, setSearchParams] = useSearchParams();
+   const { id } = useParams();
+   const navigate = useNavigate();
+   const [searchParams, setSearchParams] = useSearchParams();
   const { state } = useServerStatus();
   const { can, employee } = useAuth();
 
   const [trf, setTrf] = useState<TrfDetail | null>(null);
   const [history, setHistory] = useState<TrfStatusHistoryEntry[]>([]);
+  const [ardHistory, setArdHistory] = useState<ArdStatusHistoryEntry[]>([]);
   const [tab, setTab] = useState<Tab>('details');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +64,12 @@ export function TrfDetailPage() {
 
   useEffect(() => {
     if (state === 'offline') return;
+    void window.trf.request<{ items: ArdStatusHistoryEntry[] }>({ method: 'GET', path: `/api/trfs/${id}/ard-history` })
+      .then((r) => { if (r.ok && r.data) setArdHistory(r.data.items); });
+  }, [id, state, trf?.version, trf?.workflowStatus]);
+
+  useEffect(() => {
+    if (state === 'offline') return;
     void assignmentApi.byTrf(Number(id)).then(setTests);
   }, [id, state, trf?.status, trf?.version]);
 
@@ -93,6 +101,25 @@ export function TrfDetailPage() {
     setTrf(res.data);
   }
 
+  async function changeArdStatus(next: ArdWorkflowStatus) {
+    if (!trf) return;
+    setBusy(true);
+    setActionError(null);
+    setConflict(false);
+    const res = await window.trf.request<TrfDetail>({
+      method: 'POST', path: `/api/trfs/${trf.id}/ard-status`,
+      body: { status: next, version: trf.version },
+    });
+    setBusy(false);
+    if (!res.ok || !res.data) {
+      const message = messageOf(res.data, 'The ARD status could not be changed.');
+      setActionError(message);
+      setConflict(message === MESSAGES.CONFLICT);
+      return;
+    }
+    setTrf(res.data);
+  }
+
   async function assign() {
     if (!trf) return;
     setBusy(true);
@@ -117,7 +144,11 @@ export function TrfDetailPage() {
   if (error || !trf) return <div className="page"><p className="error-text">{error ?? MESSAGES.NOT_FOUND}</p></div>;
 
   const nextStatuses = allowedNextStatuses(trf.status);
-  const editable = can('trf.edit') && trf.status !== 'Completed' && trf.status !== 'Cancelled';
+  const nextArdStatuses = allowedNextArdStatuses(trf.workflowStatus);
+  const canEditA = employee ? canEditTrfPartA(employee) : false;
+  const canEditB = employee ? canEditTrfPartB(employee) : false;
+  const editable = (canEditA || canEditB) && trf.status !== 'Completed' && trf.status !== 'Cancelled';
+  const canDelete = employee && canDeleteTrf(employee) && trf.status === 'New';
 
   return (
     <div className="page page--wide">
@@ -129,6 +160,18 @@ export function TrfDetailPage() {
         </h1>
         <div className="row">
           {editable && <a className="btn" href={`#/trfs/${trf.id}/edit`}>Edit</a>}
+          {editable && <a className="btn" href={`#/trfs/${trf.id}/print`} onClick={() => navigate(`/trfs/${trf.id}/print`)}>Print</a>}
+          {canDelete && (
+            <button className="btn btn--danger" onClick={() => {
+              if (confirm(`Delete TRF ${trf.trfNumber}? This cannot be undone.`)) {
+                void window.trf.request<TrfDetail>({ method: 'DELETE', path: `/api/trfs/${trf.id}` })
+                  .then((res) => {
+                    if (res.ok) navigate('/trf');
+                    else setActionError(messageOf(res.data, 'This TRF could not be deleted.'));
+                  });
+              }
+            }}>Delete</button>
+          )}
           <a className="btn" href="#/trf">Back to list</a>
         </div>
       </div>
@@ -150,6 +193,9 @@ export function TrfDetailPage() {
         <button className={`tab ${tab === 'history' ? 'tab--active' : ''}`} onClick={() => setTab('history')}>
           History{history.length > 0 ? ` (${history.length})` : ''}
         </button>
+        <button className={`tab ${tab === 'ard-history' ? 'tab--active' : ''}`} onClick={() => setTab('ard-history')}>
+          ARD History{ardHistory.length > 0 ? ` (${ardHistory.length})` : ''}
+        </button>
       </div>
 
       {tab === 'details' && (
@@ -170,7 +216,44 @@ export function TrfDetailPage() {
             <dt>Requested analysis</dt><dd className="pre">{trf.requestedAnalysis ?? '—'}</dd>
             <dt>Special instructions</dt><dd className="pre">{trf.specialInstructions ?? '—'}</dd>
             <dt>Remarks</dt><dd className="pre">{trf.remarks ?? '—'}</dd>
+            <dt>Batch size</dt><dd>{trf.batchSize ?? '—'}</dd>
+            <dt>Dosage form</dt><dd>{trf.dosageForm ?? '—'}</dd>
+            <dt>Manufacturing location</dt><dd>{trf.manufacturingLocation ?? '—'}</dd>
+            <dt>Label claim</dt><dd>{trf.labelClaim ?? '—'}</dd>
+            <dt>Pack size</dt><dd>{trf.packSize ?? '—'}</dd>
+            <dt>Pack type</dt><dd>{trf.packType ?? '—'}</dd>
+            <dt>Storage condition</dt><dd>{trf.storageCondition ?? '—'}</dd>
+            <dt>Storage period</dt><dd>{trf.storagePeriod ?? '—'}</dd>
+            <dt>Manufacturing date</dt><dd>{formatDate(trf.manufacturingDate)}</dd>
+            <dt>Expiry date</dt><dd>{formatDate(trf.expiryDate)}</dd>
+            <dt>Analysis purpose</dt><dd>{trf.analysisPurpose ?? '—'}</dd>
+            <dt>Sample given by</dt><dd>{trf.sampleGivenBy ?? '—'}</dd>
+            <dt>Signature date</dt><dd>{formatDate(trf.signatureDate)}</dd>
           </dl>
+
+          <section className="panel panel--ard">
+            <h2>ARD Analysis Details</h2>
+            <dl className="facts facts--wide">
+              <dt>ARD No.</dt><dd>{trf.ardNumber ?? '—'}</dd>
+              <dt>ARD Stage</dt><dd><ArdWorkflowBadge status={trf.workflowStatus} /></dd>
+              <dt>Analyst</dt><dd>{trf.analystName ?? 'Not assigned'}</dd>
+              <dt>Analysis start date</dt><dd>{formatDate(trf.analysisStartDate)}</dd>
+              <dt>Reporting status</dt><dd>{trf.reportingStatus}</dd>
+              <dt>COA status</dt><dd><ArdCoaBadge status={trf.coaStatus} /></dd>
+              <dt>TAT (days)</dt><dd>{trf.tat?.toString() ?? '—'}</dd>
+              <dt>ARD remarks</dt><dd className="pre">{trf.ardRemarks ?? '—'}</dd>
+            </dl>
+
+            {canEditB && nextArdStatuses.length > 0 && (
+              <div className="row">
+                {nextArdStatuses.map((next) => (
+                  <button key={next} className="btn" disabled={busy} onClick={() => changeArdStatus(next)}>
+                    {next}
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
 
           <section className="panel">
             <div className="group__head">
@@ -261,6 +344,28 @@ export function TrfDetailPage() {
                 <td>{new Date(entry.changedAt).toLocaleString()}</td>
                 <td>{entry.oldStatus ?? '—'}</td>
                 <td><StatusBadge status={entry.newStatus} /></td>
+                <td>{entry.changedByName ?? '—'}</td>
+                <td>{entry.note ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {tab === 'ard-history' && (
+        <table className="table">
+          <thead>
+            <tr><th>When</th><th>From</th><th>To</th><th>Changed by</th><th>Note</th></tr>
+          </thead>
+          <tbody>
+            {ardHistory.length === 0 && (
+              <tr><td colSpan={5} className="muted">No ARD status changes recorded yet.</td></tr>
+            )}
+            {ardHistory.map((entry) => (
+              <tr key={entry.id}>
+                <td>{new Date(entry.changedAt).toLocaleString()}</td>
+                <td>{entry.oldStatus ?? '—'}</td>
+                <td><ArdWorkflowBadge status={entry.newStatus} /></td>
                 <td>{entry.changedByName ?? '—'}</td>
                 <td>{entry.note ?? '—'}</td>
               </tr>

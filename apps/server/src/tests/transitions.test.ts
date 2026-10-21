@@ -2,7 +2,8 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import {
   ANALYSIS_STATUS_TRANSITIONS, COA_STATUS_TRANSITIONS, TRF_STATUS_TRANSITIONS,
-  canTransitionAnalysis, canTransitionTrf,
+  ARD_WORKFLOW_TRANSITIONS, TERMINAL_ARD_STATUSES,
+  canTransitionAnalysis, canTransitionTrf, canTransitionArd,
 } from '@trf/shared';
 
 test('a TRF cannot leave a terminal status', () => {
@@ -44,4 +45,18 @@ test('COA moves Pending to Issued without skipping review', () => {
 test('an unknown status allows nothing', () => {
   assert.equal(canTransitionTrf('Cancelled', 'Draft' as never), false);
   assert.equal(canTransitionAnalysis('Cancelled', 'Completed' as never), false);
+});
+
+test('ARD workflow moves forward from Received', () => {
+  assert.deepEqual(ARD_WORKFLOW_TRANSITIONS.Received, ['In Progress', 'Cancelled']);
+  assert.equal(canTransitionArd('Received', 'In Progress'), true);
+  assert.equal(canTransitionArd('Received', 'Completed'), false);
+});
+
+test('a terminal ARD status has no outgoing transitions', () => {
+  for (const status of TERMINAL_ARD_STATUSES) {
+    assert.deepEqual(ARD_WORKFLOW_TRANSITIONS[status], []);
+  }
+  assert.equal(canTransitionArd('Completed', 'In Progress'), false);
+  assert.equal(canTransitionArd('Cancelled', 'Completed'), false);
 });

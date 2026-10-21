@@ -4,6 +4,7 @@ import { pool } from '../db';
 import { writeAudit } from './audit';
 import { OUTCOME_SQL } from './analysis-query';
 import { OVERDUE_SQL } from './trf-query';
+import { ARD_TAT_SQL } from './trf-query';
 import { DELAYED_SQL } from './assignment-query';
 
 /**
@@ -245,6 +246,58 @@ export async function buildExportWorkbook(
       is_overdue: r.is_overdue ? 'Yes' : 'No',
       requested_analysis: text(r.requested_analysis),
     })), { statusKey: 'status' }) });
+  }
+
+  if (sheets.includes('ARD Tracking')) {
+    const where = new Clauses();
+    if (self) where.bind('(t.assigned_employee_id = ? OR t.created_by = ?)', self);
+    where.contains(['t.ard_number', 't.trf_number', 'cu.name', 'p.name', 't.batch_number', 'an.full_name'], filters.search);
+    where.anyOf('t.workflow_status', filters.status);
+    where.contains(['t.trf_number'], filters.trfNumber);
+    dateRange(where, 't.trf_date', filters.dateFrom, filters.dateTo);
+
+    const { rows } = await pool.query(
+      `SELECT t.ard_number, t.trf_number, t.trf_date, cu.name AS customer_name, p.name AS product_name,
+              t.batch_number, t.workflow_status, an.full_name AS analyst_name,
+              t.analysis_start_date, t.reporting_status, t.coa_status, t.ard_remarks,
+              (${ARD_TAT_SQL}) AS tat
+       FROM trfs t
+       LEFT JOIN customers cu ON cu.id = t.customer_id
+       LEFT JOIN products p ON p.id = t.product_id
+       LEFT JOIN employees an ON an.id = t.ard_analyst_id
+       ${where.where}
+       ORDER BY t.ard_number ASC NULLS LAST
+       LIMIT ${cap + 1}`, where.params);
+
+    results.push({ name: 'ARD Tracking', rowCount: addSheet(book, 'ARD Tracking', [
+      { header: 'ARD No.', key: 'ard_number', width: 18 },
+      { header: 'TRF No.', key: 'trf_number', width: 18 },
+      { header: 'TRF Date', key: 'trf_date' },
+      { header: 'Customer', key: 'customer_name', width: 26 },
+      { header: 'Product', key: 'product_name', width: 26 },
+      { header: 'Batch No.', key: 'batch_number', width: 18 },
+      { header: 'Stage', key: 'workflow_status', width: 18 },
+      { header: 'Analyst', key: 'analyst_name', width: 24 },
+      { header: 'Analysis Start Date', key: 'analysis_start_date' },
+      { header: 'Reporting Status', key: 'reporting_status', width: 18 },
+      { header: 'COA Status', key: 'coa_status', width: 16 },
+      { header: 'TAT (days)', key: 'tat' },
+      { header: 'Remarks', key: 'remarks', width: 30 },
+    ], rows.map((r) => ({
+      ard_number: text(r.ard_number) ?? '—',
+      trf_number: r.trf_number,
+      trf_date: asDate(r.trf_date),
+      customer_name: text(r.customer_name),
+      product_name: text(r.product_name),
+      batch_number: text(r.batch_number),
+      workflow_status: text(r.workflow_status),
+      analyst_name: text(r.analyst_name),
+      analysis_start_date: asDate(r.analysis_start_date),
+      reporting_status: text(r.reporting_status),
+      coa_status: text(r.coa_status),
+      tat: r.tat ?? null,
+      remarks: text(r.ard_remarks),
+    })), { statusKey: 'workflow_status' }) });
   }
 
   if (sheets.includes('Analysis')) {

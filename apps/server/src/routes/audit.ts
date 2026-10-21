@@ -46,8 +46,8 @@ interface AuditRow {
   module: string;
   record_type: string | null;
   record_ref: string | null;
-  old_value: Record<string, unknown> | null;
-  new_value: Record<string, unknown> | null;
+  old_value: unknown;
+  new_value: unknown;
   created_at: Date | string;
 }
 
@@ -61,10 +61,18 @@ interface AuditRow {
  * sides, because one audit row covers one field. That shape is recognised here so
  * the entry reads "remarks: nothing → text" rather than a field called "value".
  */
-function toChanges(oldValue: Record<string, unknown> | null, newValue: Record<string, unknown> | null):
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function toChanges(oldValue: unknown, newValue: unknown):
 { changes: AuditChange[]; summary: Record<string, string> | null } {
-  const before = oldValue ?? {};
-  const after = newValue ?? {};
+  // Audit JSON values are usually objects, but some entries (e.g. employee field
+  // changes) store raw values such as a name string. node-postgres returns those
+  // as their primitive type, not an object, so Object.keys / `in` would crash.
+  // Treat any non-object as a summary fact rather than a field-by-field diff.
+  const before = isPlainObject(oldValue) ? oldValue : {};
+  const after = isPlainObject(newValue) ? newValue : {};
 
   if (typeof after.field === 'string' && 'value' in after) {
     return { changes: [{ field: after.field, old: before.value ?? null, new: after.value ?? null }], summary: null };

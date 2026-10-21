@@ -34,17 +34,17 @@ on; use something other than `5432` when an unrelated server already owns it.
 Without these variables the database tests report as skipped:
 
 ```
-ℹ tests 192
-ℹ pass 31
+ℹ tests 207
+ℹ pass 37
 ℹ fail 0
-ℹ skipped 161
+ℹ skipped 170
 ```
 
 With them, the run must end with zero failures and zero skips:
 
 ```
-ℹ tests 192
-ℹ pass 192
+ℹ tests 207
+ℹ pass 207
 ℹ fail 0
 ℹ skipped 0
 ```
@@ -90,7 +90,7 @@ Each test removes the rows it created. A run that ends with rows left in
 `trfs` means a test failed before its cleanup line; reset before re-running:
 
 ```sql
-TRUNCATE trfs, trf_status_history, audit_logs, refresh_tokens CASCADE;
+TRUNCATE trfs, trf_status_history, ard_status_history, audit_logs, refresh_tokens CASCADE;
 ```
 
 Migrations are applied once and recorded in `schema_migrations`. During
@@ -115,7 +115,36 @@ DELETE FROM schema_migrations WHERE name = '005_analysis.sql';
 -- Phase 6
 DROP TABLE IF EXISTS coa_lines, coas;
 DELETE FROM schema_migrations WHERE name = '006_coa.sql';
-```
+
+  -- Phase 12
+  DROP TABLE IF EXISTS ard_status_history;
+  DROP TABLE IF EXISTS ards;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS ard_number;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS ard_stage;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS ard_analyst_id;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS analysis_start_date;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS reporting_status;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS coa_status;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS workflow_status;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS ard_remarks;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS finalized_at;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS deleted_at;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS deleted_by;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS batch_size;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS dosage_form;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS manufacturing_location;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS label_claim;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS pack_size;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS pack_type;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS storage_condition;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS storage_period;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS manufacturing_date;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS expiry_date;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS analysis_purpose;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS sample_given_by;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS signature_date;
+  DELETE FROM schema_migrations WHERE name IN ('007_ard_tracking.sql', '008_ard_columns_on_trfs.sql');
+  ```
 
 ## Never point this at a real database
 

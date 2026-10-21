@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   PRIORITIES, TRF_SORT_FIELDS, TRF_STATUSES, TrfDetail, TrfFilters, TrfListItem, TrfStatus, Priority,
+  ArdWorkflowStatus, ArdReportingStatus, ArdCoaStatus,
 } from '@trf/shared';
 
 /** One parser for the list endpoint's query string, so the client cannot inject SQL fragments. */
@@ -18,6 +19,8 @@ export const trfListQuerySchema = z.object({
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the date format yyyy-mm-dd.').optional(),
   dueFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dueTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  workflowStatus: z.string().default(''),
+  analystId: z.coerce.number().int().positive().optional(),
   overdueOnly: z.enum(['true', 'false']).default('false'),
   sortBy: z.enum(TRF_SORT_FIELDS).default('trfDate'),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
@@ -41,6 +44,8 @@ export function toFilters(q: z.infer<typeof trfListQuerySchema>): TrfFilters {
     dateTo: q.dateTo,
     dueFrom: q.dueFrom,
     dueTo: q.dueTo,
+    workflowStatus: splitList(q.workflowStatus, ArdWorkflowStatus) as ArdWorkflowStatus[],
+    analystId: q.analystId,
     overdueOnly: q.overdueOnly === 'true',
     sortBy: q.sortBy,
     sortDir: q.sortDir,
@@ -57,12 +62,25 @@ export const TRF_SORT_SQL: Record<string, string> = {
   priority: 't.priority',
   status: 't.status',
   requiredCompletionDate: 't.required_completion_date',
+  workflowStatus: 't.workflow_status',
+  tat: 'tat',
+  createdBy: 't.created_by',
   createdAt: 't.created_at',
 };
 
 /** Overdue is always this expression: due date passed and status not terminal. Never stored. */
 export const OVERDUE_SQL = `(t.required_completion_date IS NOT NULL AND t.required_completion_date < CURRENT_DATE
   AND t.status NOT IN ('Completed', 'Cancelled'))`;
+
+/**
+ * TAT for the ARD workflow: days from analysis start to completion (or today,
+ * if still in progress). NULL when no start date has been recorded. Computed on
+ * the fly, never stored, so it always reflects the current date.
+ */
+export const ARD_TAT_SQL = `CASE WHEN t.analysis_start_date IS NULL THEN NULL
+  WHEN t.workflow_status IN ('Completed', 'Cancelled')
+    THEN COALESCE(t.finalized_at, t.analysis_start_date)::date - t.analysis_start_date
+  ELSE CURRENT_DATE - t.analysis_start_date END`;
 
 export const TRF_SELECT = `
   t.id, t.trf_number, t.trf_date, t.customer_id, c.name AS customer_name,
@@ -79,6 +97,11 @@ export const TRF_FROM = `
   LEFT JOIN departments d ON d.id = t.department_id
 `;
 
+/** ARD analyst joined so the list can show their name. */
+export const TRF_DETAIL_FROM = `${TRF_FROM}
+  LEFT JOIN employees cb ON cb.id = t.created_by
+  LEFT JOIN employees an ON an.id = t.ard_analyst_id`;
+
 const dateOnly = (value: Date | string | null): string | null => {
   if (!value) return null;
   if (typeof value === 'string') return value.slice(0, 10);
@@ -94,10 +117,18 @@ export interface TrfRow {
   status: TrfStatus; required_completion_date: string | null; assigned_employee_id: number | null;
   assigned_employee_name: string | null; department_id: number | null; department_name: string | null;
   created_at: Date; updated_at: Date; version: number;
-  // detail-only columns
   sample_quantity: string | null; sample_received_date: string | null; requested_analysis: string | null;
   special_instructions: string | null; remarks: string | null; created_by: number | null;
   created_by_name: string | null;
+  batch_size: string | null; dosage_form: string | null; manufacturing_location: string | null;
+  label_claim: string | null; pack_size: string | null; pack_type: string | null;
+  storage_condition: string | null; storage_period: string | null;
+  manufacturing_date: string | null; expiry_date: string | null; analysis_purpose: string | null;
+  sample_given_by: string | null; signature_date: string | null;
+  ard_number: string | null; ard_stage: string; ard_analyst_id: number | null; analyst_name: string | null;
+  analysis_start_date: string | null; reporting_status: string; coa_status: string;
+  workflow_status: string; ard_remarks: string | null; finalized_at: Date | string | null;
+  tat: number | null; deleted_at: Date | string | null;
 }
 
 export function toListItem(row: TrfRow, overdue: boolean): TrfListItem {
@@ -121,6 +152,15 @@ export function toListItem(row: TrfRow, overdue: boolean): TrfListItem {
     createdAt: timestamp(row.created_at)!,
     updatedAt: timestamp(row.updated_at)!,
     version: row.version,
+    ardNumber: row.ard_number,
+    ardAnalystId: row.ard_analyst_id,
+    stage: (row.ard_stage ?? 'Received') as ArdWorkflowStatus,
+    analystName: row.analyst_name,
+    analysisStartDate: dateOnly(row.analysis_start_date),
+    reportingStatus: (row.reporting_status ?? 'Pending') as ArdReportingStatus,
+    coaStatus: (row.coa_status ?? 'Pending') as ArdCoaStatus,
+    tat: row.tat,
+    workflowStatus: (row.workflow_status ?? 'Received') as ArdWorkflowStatus,
   };
 }
 
@@ -134,12 +174,31 @@ export function toDetail(row: TrfRow, overdue: boolean): TrfDetail {
     remarks: row.remarks,
     createdBy: row.created_by,
     createdByName: row.created_by_name,
+    batchSize: row.batch_size,
+    dosageForm: row.dosage_form,
+    manufacturingLocation: row.manufacturing_location,
+    labelClaim: row.label_claim,
+    packSize: row.pack_size,
+    packType: row.pack_type,
+    storageCondition: row.storage_condition,
+    storagePeriod: row.storage_period,
+    manufacturingDate: dateOnly(row.manufacturing_date),
+    expiryDate: dateOnly(row.expiry_date),
+    analysisPurpose: row.analysis_purpose,
+    sampleGivenBy: row.sample_given_by,
+    signatureDate: dateOnly(row.signature_date),
+    ardRemarks: row.ard_remarks,
+    finalizedAt: timestamp(row.finalized_at),
   };
 }
 
 export const TRF_DETAIL_SELECT = `${TRF_SELECT},
   t.sample_quantity, t.sample_received_date, t.requested_analysis, t.special_instructions,
-  t.remarks, t.created_by, cb.full_name AS created_by_name`;
-
-export const TRF_DETAIL_FROM = `${TRF_FROM}
-  LEFT JOIN employees cb ON cb.id = t.created_by`;
+  t.remarks, t.created_by, cb.full_name AS created_by_name,
+  t.batch_size, t.dosage_form, t.manufacturing_location, t.label_claim,
+  t.pack_size, t.pack_type, t.storage_condition, t.storage_period,
+  t.manufacturing_date, t.expiry_date, t.analysis_purpose, t.sample_given_by, t.signature_date,
+  t.ard_number, t.ard_stage, t.ard_analyst_id, an.full_name AS analyst_name,
+  t.analysis_start_date, t.reporting_status, t.coa_status, t.workflow_status,
+  t.ard_remarks, t.finalized_at,
+  (${ARD_TAT_SQL}) AS tat, t.deleted_at`;

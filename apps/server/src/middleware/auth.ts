@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { ZodSchema } from 'zod';
-import { Role, permissionsForRole, roleHasPermission, Permission, EmployeeProfile } from '@trf/shared';
+import { Role, canEditTrfPartA, canEditTrfPartB, canDeleteTrf, permissionsForRole, roleHasPermission, Permission, EmployeeProfile } from '@trf/shared';
 import { AppError, badRequest, forbidden, notFound, unauthorized } from '../lib/errors';
 import { verifyAccessToken } from '../lib/tokens';
 import { pool } from '../db';
@@ -101,4 +101,41 @@ export function currentEmployee(req: Request): EmployeeProfile {
 
 export function employeePermissions(role: Role) {
   return permissionsForRole(role);
+}
+
+/**
+ * Formulation department users (plus any Admin) may create and edit Part A
+ * fields on the TRF, and anyone who can also edit Part B may update those.
+ * The server is the authority: the UI only hides the buttons it already knows
+ * it cannot use.
+ */
+export function requireTrfEdit() {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.employee) return next(unauthorized('Sign in to continue.'));
+    if (!canEditTrfPartA(req.employee) && !canEditTrfPartB(req.employee)) return next(forbidden());
+    next();
+  };
+}
+
+/**
+ * ARD department users (plus Admin and Manager) may edit ARD fields and change
+ * the workflow status.
+ */
+export function requireArdEdit() {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.employee) return next(unauthorized('Sign in to continue.'));
+    if (!canEditTrfPartB(req.employee)) return next(forbidden());
+    next();
+  };
+}
+
+/**
+ * Deletion is restricted to Admin and Formulation department users.
+ */
+export function requireTrfDelete() {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.employee) return next(unauthorized('Sign in to continue.'));
+    if (!canDeleteTrf(req.employee)) return next(forbidden());
+    next();
+  };
 }

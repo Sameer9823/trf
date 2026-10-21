@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { Customer, Department, Priority, Product, TrfDetail } from '@trf/shared';
-import { PRIORITIES } from '@trf/shared';
+import type { Customer, Department, Priority, Product, TrfDetail, EmployeeProfile } from '@trf/shared';
+import { PRIORITIES, canEditTrfPartA, canEditTrfPartB } from '@trf/shared';
 import { MESSAGES } from '@trf/shared';
 import { fieldsOf, messageOf } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -19,6 +19,24 @@ interface FormState {
   specialInstructions: string;
   departmentId: string;
   remarks: string;
+  batchSize: string;
+  dosageForm: string;
+  manufacturingLocation: string;
+  labelClaim: string;
+  packSize: string;
+  packType: string;
+  storageCondition: string;
+  storagePeriod: string;
+  manufacturingDate: string;
+  expiryDate: string;
+  analysisPurpose: string;
+  sampleGivenBy: string;
+  signatureDate: string;
+  ardAnalystId: string;
+  analysisStartDate: string;
+  reportingStatus: string;
+  coaStatus: string;
+  ardRemarks: string;
 }
 
 const blank = (today: string): FormState => ({
@@ -26,11 +44,16 @@ const blank = (today: string): FormState => ({
   customerId: '', productId: '', batchNumber: '', sampleQuantity: '',
   sampleReceivedDate: '', requiredCompletionDate: '', priority: 'Normal',
   requestedAnalysis: '', specialInstructions: '', departmentId: '', remarks: '',
+  batchSize: '', dosageForm: '', manufacturingLocation: '',
+  labelClaim: '', packSize: '', packType: '', storageCondition: '',
+  storagePeriod: '', manufacturingDate: '', expiryDate: '',
+  analysisPurpose: '', sampleGivenBy: '', signatureDate: '',
+  ardAnalystId: '', analysisStartDate: '', reportingStatus: 'Pending',
+  coaStatus: 'Pending', ardRemarks: '',
 });
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-/** Customers and products can be created inline from this form, without leaving it. */
 function InlineNew({ kind, onCreated }: { kind: 'customer' | 'product'; onCreated: (name: string) => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -89,10 +112,13 @@ export function TrfForm() {
   const isEdit = Boolean(id);
   const navigate = useNavigate();
   const { employee, can } = useAuth();
+  const canEditA = employee ? canEditTrfPartA(employee) : false;
+  const canEditB = employee ? canEditTrfPartB(employee) : false;
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [analysts, setAnalysts] = useState<EmployeeProfile[]>([]);
   const [form, setForm] = useState<FormState>(() => blank(today()));
   const [version, setVersion] = useState<number | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -112,8 +138,8 @@ export function TrfForm() {
   const loadLookups = () => {
     reloadCustomers();
     reloadProducts();
-    void window.trf.request<{ items: Department[] }>({ method: 'GET', path: '/api/departments' })
-      .then((r) => { if (r.ok && r.data) setDepartments(r.data.items); });
+    void window.trf.request<{ items: EmployeeProfile[] }>({ method: 'GET', path: '/api/employees/assignable' })
+      .then((r) => { if (r.ok && r.data) setAnalysts(r.data.items); });
   };
 
   useEffect(() => { loadLookups(); }, []);
@@ -143,6 +169,24 @@ export function TrfForm() {
         specialInstructions: trf.specialInstructions ?? '',
         departmentId: trf.departmentId ? String(trf.departmentId) : '',
         remarks: trf.remarks ?? '',
+        batchSize: trf.batchSize ?? '',
+        dosageForm: trf.dosageForm ?? '',
+        manufacturingLocation: trf.manufacturingLocation ?? '',
+        labelClaim: trf.labelClaim ?? '',
+        packSize: trf.packSize ?? '',
+        packType: trf.packType ?? '',
+        storageCondition: trf.storageCondition ?? '',
+        storagePeriod: trf.storagePeriod ?? '',
+        manufacturingDate: trf.manufacturingDate ?? '',
+        expiryDate: trf.expiryDate ?? '',
+        analysisPurpose: trf.analysisPurpose ?? '',
+        sampleGivenBy: trf.sampleGivenBy ?? '',
+        signatureDate: trf.signatureDate ?? '',
+        ardAnalystId: trf.ardAnalystId ? String(trf.ardAnalystId) : '',
+        analysisStartDate: trf.analysisStartDate ?? '',
+        reportingStatus: trf.reportingStatus,
+        coaStatus: trf.coaStatus,
+        ardRemarks: trf.ardRemarks ?? '',
       });
     });
     return () => { cancelled = true; };
@@ -170,7 +214,29 @@ export function TrfForm() {
       specialInstructions: form.specialInstructions.trim() || null,
       departmentId: form.departmentId ? Number(form.departmentId) : null,
       remarks: form.remarks.trim() || null,
+      batchSize: form.batchSize.trim() || null,
+      dosageForm: form.dosageForm.trim() || null,
+      manufacturingLocation: form.manufacturingLocation.trim() || null,
+      labelClaim: form.labelClaim.trim() || null,
+      packSize: form.packSize.trim() || null,
+      packType: form.packType.trim() || null,
+      storageCondition: form.storageCondition.trim() || null,
+      storagePeriod: form.storagePeriod.trim() || null,
+      manufacturingDate: form.manufacturingDate || null,
+      expiryDate: form.expiryDate || null,
+      analysisPurpose: form.analysisPurpose.trim() || null,
+      sampleGivenBy: form.sampleGivenBy.trim() || null,
+      signatureDate: form.signatureDate || null,
     };
+
+    // ARD Part B fields are only sent when the user has ARD edit access.
+    if (canEditB) {
+      body.ardAnalystId = form.ardAnalystId ? Number(form.ardAnalystId) : null;
+      body.analysisStartDate = form.analysisStartDate || null;
+      body.reportingStatus = form.reportingStatus;
+      body.coaStatus = form.coaStatus;
+      body.ardRemarks = form.ardRemarks.trim() || null;
+    }
 
     const res = isEdit
       ? await window.trf.request<TrfDetail>({
@@ -181,23 +247,28 @@ export function TrfForm() {
 
     if (!res.ok || !res.data) {
       setFields(fieldsOf(res.data));
-      const message = messageOf(res.data, isEdit ? 'The TRF could not be saved.' : 'The TRF could not be created.');
-      setError(message);
-      // A lost-update race: offer a reload instead of overwriting silently.
-      if (message === MESSAGES.CONFLICT) return;
+      setError(messageOf(res.data, isEdit ? 'The TRF could not be saved.' : 'The TRF could not be created.'));
+      if (messageOf(res.data, '') === MESSAGES.CONFLICT) return;
       return;
     }
     navigate(`/trfs/${res.data.id}`, { replace: true });
   }
 
-  if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
+   if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
   if (!isEdit && !can('trf.create')) return <div className="page"><p className="error-text">{MESSAGES.NO_PERMISSION}</p></div>;
+  if (!isEdit && !canEditA) return <div className="page"><p className="error-text">Only Formulation department users can create TRFs.</p></div>;
+  if (isEdit && !canEditA && !canEditB) return <div className="page"><p className="error-text">{MESSAGES.NO_PERMISSION}</p></div>;
 
   return (
     <div className="page">
       <div className="page__head">
         <h1>{isEdit ? 'Edit TRF' : 'New TRF'}</h1>
-        <a className="btn" href={isEdit ? `#/trfs/${id}` : '#/trf'}>Cancel</a>
+        <div className="row">
+          {isEdit && (
+            <a className="btn" href={`#/trfs/${id}/print`} onClick={() => navigate(`/trfs/${id}/print`)}>Print</a>
+          )}
+          <a className="btn" href={isEdit ? `#/trfs/${id}` : '#/trf'}>Cancel</a>
+        </div>
       </div>
 
       {error && <p className="error-text" role="alert">{error}</p>}
@@ -240,32 +311,12 @@ export function TrfForm() {
 
         <div className="field-pair">
           <div>
-            <label htmlFor="trf-received">Sample received date</label>
-            <input id="trf-received" type="date" value={form.sampleReceivedDate}
-              onChange={(e) => set('sampleReceivedDate', e.target.value)} />
-            {fields.sampleReceivedDate && <p className="field-error">{fields.sampleReceivedDate}</p>}
-          </div>
-          <div>
             <label htmlFor="trf-due">Required completion date</label>
             <input id="trf-due" type="date" value={form.requiredCompletionDate}
               onChange={(e) => set('requiredCompletionDate', e.target.value)} />
+            {fields.requiredCompletionDate && <p className="field-error">{fields.requiredCompletionDate}</p>}
           </div>
-        </div>
-
-        <div className="field-pair">
-          <div>
-            <label htmlFor="trf-priority">Priority</label>
-            <select id="trf-priority" value={form.priority} onChange={(e) => set('priority', e.target.value as Priority)}>
-              {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="trf-dept">Department</label>
-            <select id="trf-dept" value={form.departmentId} onChange={(e) => set('departmentId', e.target.value)}>
-              <option value="">Not set</option>
-              {departments.filter((d) => d.isActive).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-          </div>
+          <div />
         </div>
 
         <label htmlFor="trf-requested">Requested analysis</label>
@@ -276,8 +327,134 @@ export function TrfForm() {
         <textarea id="trf-special" rows={2} value={form.specialInstructions}
           onChange={(e) => set('specialInstructions', e.target.value)} />
 
+        <h2>Product Details</h2>
+        <div className="field-pair">
+          <div>
+            <label htmlFor="trf-batch-size">Batch size</label>
+            <input id="trf-batch-size" value={form.batchSize} onChange={(e) => set('batchSize', e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="trf-dosage">Dosage form</label>
+            <input id="trf-dosage" value={form.dosageForm} onChange={(e) => set('dosageForm', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="field-pair">
+          <div>
+            <label htmlFor="trf-location">Manufacturing location</label>
+            <input id="trf-location" value={form.manufacturingLocation} onChange={(e) => set('manufacturingLocation', e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="trf-label-claim">Label claim</label>
+            <input id="trf-label-claim" value={form.labelClaim} onChange={(e) => set('labelClaim', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="field-pair">
+          <div>
+            <label htmlFor="trf-pack-size">Pack size</label>
+            <input id="trf-pack-size" value={form.packSize} onChange={(e) => set('packSize', e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="trf-pack-type">Pack type</label>
+            <input id="trf-pack-type" value={form.packType} onChange={(e) => set('packType', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="field-pair">
+          <div>
+            <label htmlFor="trf-storage-condition">Storage condition</label>
+            <input id="trf-storage-condition" value={form.storageCondition} onChange={(e) => set('storageCondition', e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="trf-storage-period">Storage period</label>
+            <input id="trf-storage-period" value={form.storagePeriod} onChange={(e) => set('storagePeriod', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="field-pair">
+          <div>
+            <label htmlFor="trf-mfg-date">Manufacturing date</label>
+            <input id="trf-mfg-date" type="date" value={form.manufacturingDate}
+              onChange={(e) => set('manufacturingDate', e.target.value)} />
+            {fields.manufacturingDate && <p className="field-error">{fields.manufacturingDate}</p>}
+          </div>
+          <div>
+            <label htmlFor="trf-expiry-date">Expiry date</label>
+            <input id="trf-expiry-date" type="date" value={form.expiryDate}
+              onChange={(e) => set('expiryDate', e.target.value)} />
+            {fields.expiryDate && <p className="field-error">{fields.expiryDate}</p>}
+          </div>
+        </div>
+
+        <h2>Analysis Details</h2>
+        <div className="field-pair">
+          <div>
+            <label htmlFor="trf-analysis-purpose">Analysis purpose</label>
+            <input id="trf-analysis-purpose" value={form.analysisPurpose} onChange={(e) => set('analysisPurpose', e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="trf-sample-given-by">Sample given by</label>
+            <input id="trf-sample-given-by" value={form.sampleGivenBy} onChange={(e) => set('sampleGivenBy', e.target.value)} />
+          </div>
+        </div>
+        <div className="field-pair">
+          <div>
+            <label htmlFor="trf-signature-date">Signature date</label>
+            <input id="trf-signature-date" type="date" value={form.signatureDate}
+              onChange={(e) => set('signatureDate', e.target.value)} />
+          </div>
+          <div />
+        </div>
+
         <label htmlFor="trf-remarks">Remarks</label>
         <textarea id="trf-remarks" rows={2} value={form.remarks} onChange={(e) => set('remarks', e.target.value)} />
+
+        {canEditB && (
+          <>
+            <h2>ARD Analysis Details</h2>
+            <div className="field-pair">
+              <div>
+                <label htmlFor="trf-ard-analyst">ARD Analyst</label>
+                <select id="trf-ard-analyst" value={form.ardAnalystId} onChange={(e) => set('ardAnalystId', e.target.value)}>
+                  <option value="">Not assigned</option>
+                  {analysts.map((a) => <option key={a.id} value={a.id}>{a.fullName}{a.departmentName ? ` (${a.departmentName})` : ''}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="trf-analysis-start">Analysis start date</label>
+                <input id="trf-analysis-start" type="date" value={form.analysisStartDate}
+                  onChange={(e) => set('analysisStartDate', e.target.value)} />
+              </div>
+            </div>
+
+            <div className="field-pair">
+              <div>
+                <label>Reporting status</label>
+                <select value={form.reportingStatus} onChange={(e) => set('reportingStatus', e.target.value)}>
+                  <option value="Pending">Pending</option>
+                  <option value="Draft">Draft</option>
+                  <option value="Submitted">Submitted</option>
+                  <option value="Reviewed">Reviewed</option>
+                  <option value="Approved">Approved</option>
+                </select>
+              </div>
+              <div>
+                <label>COA status</label>
+                <select value={form.coaStatus} onChange={(e) => set('coaStatus', e.target.value)}>
+                  <option value="Pending">Pending</option>
+                  <option value="Draft">Draft</option>
+                  <option value="Under Review">Under Review</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Issued">Issued</option>
+                </select>
+              </div>
+            </div>
+
+            <label htmlFor="trf-ard-remarks">ARD remarks</label>
+            <textarea id="trf-ard-remarks" rows={2} value={form.ardRemarks} onChange={(e) => set('ardRemarks', e.target.value)} />
+          </>
+        )}
 
         <div className="row">
           <button className="btn btn--primary" type="submit" disabled={busy}>

@@ -111,17 +111,24 @@ export function buildApp() {
   });
 
   // Technical details go to the server log only; employees get a plain message.
-  app.use((err: Error & { status?: number; code?: string }, req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: Error & { status?: number; code?: string; constraint?: string; column?: string; detail?: string }, req: Request, res: Response, _next: NextFunction) => {
+    const requestId = req.id;
     if (err instanceof AppError) {
-      if (err.status >= 500) req.log.error({ err }, 'Request failed');
-      return res.status(err.status).json(err.toBody());
+      if (err.status >= 500) req.log.error({ err, requestId }, 'Request failed');
+      return res.status(err.status).json({ ...err.toBody(), requestId });
     }
-    req.log.error({ err }, 'Request failed');
-    if (err.code === '23505') return res.status(409).json(apiError('DUPLICATE', 'This record already exists.'));
+    // Log the PostgreSQL error code, constraint, column and detail so a support
+    // engineer can find the cause in one search using the request ID.
+    req.log.error({
+      err: { message: err.message, code: err.code, constraint: err.constraint, column: err.column, detail: err.detail },
+      requestId, stack: err.stack,
+    }, 'Request failed');
+    if (err.code === '23505') return res.status(409).json({ ...apiError('DUPLICATE', 'This record already exists.'), requestId });
     if (err.code === 'ECONNREFUSED' || err.code === '57P01') {
-      return res.status(503).json(apiError('SERVER_UNAVAILABLE', MESSAGES.SERVER_UNAVAILABLE));
+      return res.status(503).json({ ...apiError('SERVER_UNAVAILABLE', MESSAGES.SERVER_UNAVAILABLE), requestId });
     }
-    return res.status(500).json(apiError('SERVER_ERROR', 'Something went wrong on the server. Please try again or contact your administrator.'));
+    if (err.code === '23503') return res.status(400).json({ ...apiError('BAD_REQUEST', 'A referenced record does not exist.'), requestId });
+    return res.status(500).json({ ...apiError('SERVER_ERROR', 'Something went wrong on the server. Please try again or contact your administrator.'), requestId });
   });
 
   return app;

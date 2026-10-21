@@ -45,6 +45,9 @@ export const AUDIT_ACTIONS = [
   'trf.status_changed',
   'trf.assigned',
   'trf.assignment_note',
+  'trf.ard_changed',
+  'trf.ard_status_changed',
+  'trf.deleted',
   'assignment.created',
   'assignment.reassigned',
   'assignment.cancelled',
@@ -144,6 +147,9 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   'coa.review_cleared': 'Review cleared',
   'report.exported': 'Report exported',
   'settings.updated': 'Settings changed',
+  'trf.ard_changed': 'ARD field changed',
+  'trf.ard_status_changed': 'ARD status changed',
+  'trf.deleted': 'TRF deleted',
 };
 
 /** What a value looked like before and after, one entry per changed field. */

@@ -54,6 +54,26 @@ export function canTransitionCoa(from: CoaStatus, to: CoaStatus): boolean {
   return (COA_STATUS_TRANSITIONS[from] ?? []).includes(to);
 }
 
+export const ArdWorkflowStatus = ['Received', 'In Progress', 'Completed', 'Cancelled'] as const;
+export type ArdWorkflowStatus = (typeof ArdWorkflowStatus)[number];
+export const TERMINAL_ARD_STATUSES: readonly ArdWorkflowStatus[] = ['Completed', 'Cancelled'];
+export const ArdReportingStatus = ['Pending', 'Draft', 'Submitted', 'Reviewed', 'Approved'] as const;
+export type ArdReportingStatus = (typeof ArdReportingStatus)[number];
+export const ArdCoaStatus = ['Pending', 'Draft', 'Under Review', 'Approved', 'Issued'] as const;
+export type ArdCoaStatus = (typeof ArdCoaStatus)[number];
+
+/** Forward moves for an ARD workflow. Terminal states have no outgoing transitions. */
+export const ARD_WORKFLOW_TRANSITIONS: Record<ArdWorkflowStatus, readonly ArdWorkflowStatus[]> = {
+  Received: ['In Progress', 'Cancelled'],
+  'In Progress': ['Completed', 'Cancelled'],
+  Completed: [],
+  Cancelled: [],
+};
+
+export function canTransitionArd(from: ArdWorkflowStatus, to: ArdWorkflowStatus): boolean {
+  return (ARD_WORKFLOW_TRANSITIONS[from] ?? []).includes(to);
+}
+
 export interface Paginated<T> {
   items: T[];
   total: number;
@@ -77,9 +97,6 @@ export const MODULE_ACCESS: Record<string, readonly Role[]> = {
   coa: ['Admin', 'Manager', 'Viewer'],
   employees: ['Admin', 'Manager'],
   reports: ['Admin', 'Manager', 'Viewer'],
-  // Only Admin and Manager may read the trail. A Viewer holds reports.export, so
-  // sheetsFor separately gates the Audit Log sheet on audit.view: holding the
-  // export permission must not become a way around this one.
   audit: ['Admin', 'Manager'],
   settings: ['Admin'],
 };
@@ -97,4 +114,5 @@ export interface HealthResponse {
 
 export interface ApiError {
   error: { code: string; message: string; fields?: Record<string, string> };
+  requestId?: string;
 }

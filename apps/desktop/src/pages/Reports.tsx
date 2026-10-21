@@ -17,6 +17,7 @@ const SHEET_NOTES: Record<ExportSheetName, string> = {
   'TRF Master': 'Every request with its status, due date and the people involved.',
   Analysis: 'Test results with their outcome and the delay flag.',
   Assignments: 'Who holds which test, and what is overdue.',
+  'ARD Tracking': 'ARD tracking rows with TAT, status and analyst details.',
   Employees: 'Employee records. Managers and administrators only.',
   COA: 'Certificates with their preparation, approval and issue trail.',
   'Dashboard Data': 'The counts behind the dashboard, scope-aware.',

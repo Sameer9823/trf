@@ -9,6 +9,7 @@ import type { Role } from './permissions';
 
 export const EXPORT_SHEETS = [
   'TRF Master',
+  'ARD Tracking',
   'Analysis',
   'Assignments',
   'Employees',
@@ -60,7 +61,7 @@ export function sheetsFor(scope: ExportScope, role?: Role): ExportSheetName[] {
     ? [...EXPORT_SHEETS]
     // A scoped caller (an Analyst) gets their own work only: no employee directory,
     // no audit log, and no other person's rows in any sheet.
-    : ['TRF Master', 'Analysis', 'Assignments', 'COA', 'Dashboard Data'];
+     : ['TRF Master', 'ARD Tracking', 'Analysis', 'Assignments', 'COA', 'Dashboard Data'];
   if (!role) return base;
   return base.filter((name) => {
     if (name === 'Employees') return roleHasPermission(role, 'employees.view');

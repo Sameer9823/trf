@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('trf', {
   logout: () => ipcRenderer.invoke('auth:logout'),
   session: () => ipcRenderer.invoke('auth:session'),
   printCoa: () => ipcRenderer.invoke('coa:print') as Promise<{ ok: boolean }>,
+  printTrf: () => ipcRenderer.invoke('trf:print') as Promise<{ ok: boolean }>,
   // Asks the main process to save the report; the renderer never handles the file.
   exportReport: (query: string) => ipcRenderer.invoke('reports:export', query) as Promise<{
     ok: boolean; cancelled?: boolean; message?: string; path?: string; meta?: unknown;

@@ -1,4 +1,4 @@
-import { MESSAGES, TrfStatus, canTransitionTrf } from '@trf/shared';
+import { MESSAGES, TrfStatus, canTransitionTrf, canTransitionArd, ArdWorkflowStatus } from '@trf/shared';
 
 const LABELS: Record<TrfStatus, string> = {
   New: 'New',
@@ -33,12 +33,40 @@ export function OverdueBadge() {
   return <span className="badge badge--danger">Overdue</span>;
 }
 
+const ARD_WORKFLOW_TONE: Record<string, string> = {
+  Received: 'badge--muted',
+  'In Progress': 'badge--info',
+  Completed: 'badge--ok',
+  Cancelled: 'badge--muted',
+};
+
+export function ArdWorkflowBadge({ status }: { status: string }) {
+  return <span className={`badge ${ARD_WORKFLOW_TONE[status] ?? 'badge--muted'}`}>{status}</span>;
+}
+
+export function ArdCoaBadge({ status }: { status: string }) {
+  const tone = ['Approved', 'Issued'].includes(status) ? 'badge--ok'
+    : status === 'Under Review' ? 'badge--warn' : 'badge--muted';
+  return <span className={`badge ${tone}`}>{status}</span>;
+}
+
+export function TatBadge({ tat }: { tat: number | null }): string {
+  if (tat === null) return '—';
+  if (tat > 5) return `${tat}d`;
+  return `${tat}d`;
+}
+
 const PRIORITY_RANK: Record<string, number> = { Urgent: 0, High: 1, Normal: 2, Low: 3 };
 
 /** Only the transitions the transition table allows are offered. */
 export function allowedNextStatuses(status: TrfStatus): TrfStatus[] {
   const all: TrfStatus[] = ['New', 'Assigned', 'In Progress', 'Analysis Completed', 'COA Pending', 'Completed', 'Cancelled'];
   return all.filter((candidate) => canTransitionTrf(status, candidate));
+}
+
+/** ARD workflow transitions offered to the ARD team. */
+export function allowedNextArdStatuses(status: ArdWorkflowStatus): ArdWorkflowStatus[] {
+  return ArdWorkflowStatus.filter((candidate) => canTransitionArd(status, candidate));
 }
 
 export function sortPriorities(priorities: string[]): string[] {

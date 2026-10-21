@@ -12,7 +12,7 @@ import { duplicateError } from './errors';
  */
 export async function nextNumber(
   client: PoolClient,
-  series: 'TRF' | 'COA',
+  series: 'TRF' | 'COA' | 'ARD',
   /** Year of the document itself, so a back-dated TRF still gets a number in its own year. */
   year?: number,
 ): Promise<string> {
