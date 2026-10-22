@@ -50,6 +50,25 @@ export function ArdWorkflowBadge({ status }: { status: string }) {
   return <span className={`badge ${ARD_WORKFLOW_TONE[status] ?? 'badge--muted'}`}>{status}</span>;
 }
 
+/**
+ * The Final Status of the ARD block, shown as a coloured pill everywhere: on
+ * the form, on the detail page, in the list and on the printable TRF.
+ */
+export function ArdFinalStatusBadge({ status }: { status: string }) {
+  const tone = status === 'Completed' ? 'badge--ok'
+    : status === 'In Progress' ? 'badge--info'
+      : status === 'Cancelled' ? 'badge--danger' : 'badge--muted';
+  return <span className={`badge ${tone}`}>{status}</span>;
+}
+
+/** The lab stage the sample has reached. */
+export function ArdStageBadge({ stage }: { stage: string }) {
+  const tone = stage === 'Completed' || stage === 'Reporting' || stage === 'COA Preparation' ? 'badge--ok'
+    : stage === 'Sample Received' || stage === 'Sample Preparation' ? 'badge--muted'
+      : 'badge--info';
+  return <span className={`badge ${tone}`}>{stage}</span>;
+}
+
 export function RemarksStatusBadge({ status }: { status: RemarksStatus | string }) {
   const tone = REMARKS_STATUS_TONE[status as RemarksStatus] ?? 'badge--muted';
   return <span className={`badge ${tone}`}>{status}</span>;
@@ -73,6 +92,14 @@ export function ArdRemarksStatusBadge({ status }: { status: ArdRemarksStatus | s
 export function ArdCoaBadge({ status }: { status: string }) {
   const tone = ['Approved', 'Issued'].includes(status) ? 'badge--ok'
     : status === 'Under Review' ? 'badge--warn' : 'badge--muted';
+  return <span className={`badge ${tone}`}>{status}</span>;
+}
+
+/** Reporting status as a coloured pill: Approved green, Rejected red, Pending amber, the rest neutral. */
+export function ArdReportingBadge({ status }: { status: string }) {
+  const tone = status === 'Approved' ? 'badge--ok'
+    : status === 'Rejected' ? 'badge--danger'
+      : status === 'Pending' ? 'badge--warn' : 'badge--muted';
   return <span className={`badge ${tone}`}>{status}</span>;
 }
 

@@ -21,8 +21,9 @@ async function checkRequiredColumns(): Promise<string[]> {
     'batch_size', 'dosage_form', 'manufacturing_location', 'label_claim',
     'pack_size', 'pack_type', 'storage_condition', 'storage_period',
     'manufacturing_date', 'expiry_date', 'analysis_purpose',
-    'sample_given_by', 'signature_date',
-    'ard_number', 'ard_stage', 'ard_analyst_id', 'analysis_start_date',
+     'sample_given_by', 'signature_date',
+     'sample_submitted_by_id',
+     'ard_number', 'ard_stage', 'ard_analyst_id', 'analysis_start_date',
     'reporting_status', 'coa_status', 'workflow_status', 'ard_remarks',
     'finalized_at', 'remarks_status', 'sample_received_by',
   ];

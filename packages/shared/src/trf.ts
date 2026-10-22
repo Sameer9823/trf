@@ -1,4 +1,4 @@
-import { Paginated, TrfStatus, ArdWorkflowStatus, ArdReportingStatus, ArdCoaStatus, TERMINAL_ARD_STATUSES, RemarksStatus, ArdRemarksStatus } from './core';
+import { Paginated, TrfStatus, ArdWorkflowStatus, ArdStage, ArdReportingStatus, ArdCoaStatus, TERMINAL_ARD_STATUSES, RemarksStatus, ArdRemarksStatus, DEFAULT_ARD_STAGE } from './core';
 
 export const PRIORITIES = ['Low', 'Normal', 'High', 'Urgent'] as const;
 export type Priority = (typeof PRIORITIES)[number];
@@ -41,14 +41,16 @@ export interface TrfListItem {
   storagePeriod: string | null;
   manufacturingDate: string | null;
   expiryDate: string | null;
-  analysisPurpose: string | null;
-  sampleGivenBy: string | null;
-  signatureDate: string | null;
+   analysisPurpose: string | null;
+   sampleGivenBy: string | null;
+   sampleSubmittedById: number | null;
+   sampleSubmittedByName: string | null;
+   signatureDate: string | null;
   /** Part B — ARD Analysis Details. */
-  ardNumber: string | null;
-  ardAnalystId: number | null;
-  stage: ArdWorkflowStatus;
-  analystName: string | null;
+   ardNumber: string | null;
+   ardAnalystId: number | null;
+   stage: ArdStage;
+   analystName: string | null;
   analysisStartDate: string | null;
   reportingStatus: ArdReportingStatus;
   coaStatus: ArdCoaStatus;
@@ -57,7 +59,7 @@ export interface TrfListItem {
   remarksStatus: RemarksStatus;
   sampleReceivedBy: number | null;
   sampleReceivedByName: string | null;
-  /** ARD remarks status dropdown. */
+  /** ARD remark Status dropdown. */
   ardRemarksStatus: ArdRemarksStatus;
   ardRemarks: string | null;
   finalizedAt: string | null;
@@ -133,9 +135,10 @@ export const TRF_SORT_FIELDS = [
    'batchSize', 'dosageForm', 'manufacturingLocation', 'labelClaim', 'packSize',
    'packType', 'storageCondition', 'storagePeriod', 'manufacturingDate', 'expiryDate',
    'sampleQuantity', 'requestedAnalysis', 'specialInstructions', 'analysisPurpose',
-   'remarks', 'sampleGivenBy', 'signatureDate', 'ardNumber', 'analystName',
+   'remarks', 'sampleGivenBy', 'sampleSubmittedByName', 'signatureDate', 'ardNumber', 'analystName',
    'analysisStartDate', 'reportingStatus', 'coaStatus', 'ardRemarks', 'sampleReceivedByName',
- ] as const;
+   'sampleReceivedDate', 'stage',
+  ] as const;
 export type TrfSortField = (typeof TRF_SORT_FIELDS)[number];
 
 export const DEFAULT_TRF_FILTERS: TrfFilters = {

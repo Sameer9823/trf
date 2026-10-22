@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import type { EmployeeProfile, ExportFilterSet, ExportScope, ExportSheetName } from '@trf/shared';
+import { LIST_FIELD_ORDER, listFieldLabel } from '@trf/shared';
 import { pool } from '../db';
 import { writeAudit } from './audit';
 import { OUTCOME_SQL } from './analysis-query';
@@ -37,6 +38,59 @@ const STATUS_FILL: Record<string, string> = {
 };
 
 type Row = Record<string, unknown>;
+
+/**
+ * The TRF Master sheet writes one column per field of the TRF, in the order
+ * the shared field list gives. The order is the order the form, the detail
+ * page, the printable TRF and the list columns all use, so a reader sees the
+ * same sequence everywhere.
+ */
+const TRF_MASTER_COLUMN: Record<string, { key: string; width?: number }> = {
+  trfNumber: { key: 'trf_number', width: 18 },
+  trfDate: { key: 'trf_date' },
+  productName: { key: 'product_name', width: 26 },
+  batchNumber: { key: 'batch_number', width: 18 },
+  batchSize: { key: 'batch_size', width: 14 },
+  customerName: { key: 'customer_name', width: 26 },
+  dosageForm: { key: 'dosage_form', width: 16 },
+  manufacturingLocation: { key: 'manufacturing_location', width: 22 },
+  labelClaim: { key: 'label_claim', width: 20 },
+  packSize: { key: 'pack_size', width: 14 },
+  packType: { key: 'pack_type', width: 14 },
+  storageCondition: { key: 'storage_condition', width: 18 },
+  storagePeriod: { key: 'storage_period', width: 16 },
+  manufacturingDate: { key: 'manufacturing_date' },
+  expiryDate: { key: 'expiry_date' },
+  requestedAnalysis: { key: 'requested_analysis', width: 34 },
+  specialInstructions: { key: 'special_instructions', width: 30 },
+  analysisPurpose: { key: 'analysis_purpose', width: 24 },
+  requiredCompletionDate: { key: 'required_completion_date' },
+  sampleQuantity: { key: 'sample_quantity', width: 16 },
+  sampleSubmittedByName: { key: 'sample_submitted_by_name', width: 24 },
+  remarksStatus: { key: 'remarks_status', width: 16 },
+  remarks: { key: 'remarks', width: 30 },
+  signatureDate: { key: 'signature_date' },
+  ardNumber: { key: 'ard_number', width: 18 },
+  stage: { key: 'ard_stage', width: 20 },
+  analystName: { key: 'analyst_name', width: 24 },
+  analysisStartDate: { key: 'analysis_start_date' },
+  reportingStatus: { key: 'reporting_status', width: 18 },
+  coaStatus: { key: 'coa_status', width: 16 },
+  ardRemarksStatus: { key: 'ard_remarks_status', width: 20 },
+  ardRemarks: { key: 'ard_remarks', width: 30 },
+  tat: { key: 'tat', width: 10 },
+  workflowStatus: { key: 'workflow_status', width: 18 },
+  sampleReceivedByName: { key: 'sample_received_by_name', width: 24 },
+  sampleReceivedDate: { key: 'sample_received_date' },
+};
+
+/** The TRF Master columns in the shared field order. */
+function trfMasterColumns(): { header: string; key: string; width?: number }[] {
+  return LIST_FIELD_ORDER.map((field) => ({
+    header: listFieldLabel(field),
+    ...TRF_MASTER_COLUMN[field.key],
+  }));
+}
 
 /**
  * Builds a WHERE clause and its bound values together. Parameters are numbered as
@@ -202,7 +256,7 @@ export async function buildExportWorkbook(
   if (sheets.includes('TRF Master')) {
     const where = new Clauses();
     if (self) where.bind('(t.assigned_employee_id = ? OR t.created_by = ?)', self);
-    where.contains(['t.trf_number', 'cu.name', 'p.name', 't.batch_number', 'e.full_name'], filters.search);
+    where.contains(['t.trf_number', 'cu.name', 'p.name', 't.batch_number', 'e.full_name', 'ssb.full_name', 't.sample_given_by'], filters.search);
     where.anyOf('t.status', filters.status);
     where.eq('t.assigned_employee_id', filters.employeeId);
     where.contains(['t.trf_number'], filters.trfNumber);
@@ -215,42 +269,27 @@ export async function buildExportWorkbook(
               t.status, t.requested_analysis, t.special_instructions, t.analysis_purpose,
               t.dosage_form, t.manufacturing_location, t.label_claim, t.pack_size, t.pack_type,
               t.storage_condition, t.storage_period, t.manufacturing_date, t.expiry_date,
-              t.remarks, t.remarks_status, t.sample_given_by, t.signature_date,
+              t.remarks, t.remarks_status, t.sample_given_by, ssb.full_name AS sample_submitted_by_name,
+              t.signature_date,
+              t.ard_number, t.ard_stage, an.full_name AS analyst_name, t.analysis_start_date,
+              t.reporting_status, t.coa_status, t.ard_remarks_status, t.ard_remarks,
+              (${ARD_TAT_SQL}) AS tat, t.workflow_status,
+              srb.full_name AS sample_received_by_name, t.sample_received_date,
               e.full_name AS assigned_name,
               (${OVERDUE_SQL}) AS is_overdue
        FROM trfs t
        LEFT JOIN customers cu ON cu.id = t.customer_id
        LEFT JOIN products p ON p.id = t.product_id
        LEFT JOIN employees e ON e.id = t.assigned_employee_id
+       LEFT JOIN employees ssb ON ssb.id = t.sample_submitted_by_id
+       LEFT JOIN employees an ON an.id = t.ard_analyst_id
+       LEFT JOIN employees srb ON srb.id = t.sample_received_by
        ${where.where}
        ORDER BY t.trf_number ASC
        LIMIT ${cap + 1}`, where.params);
 
     results.push({ name: 'TRF Master', rowCount: addSheet(book, 'TRF Master', [
-      { header: 'TRF No.', key: 'trf_number', width: 18 },
-      { header: 'Date of Request', key: 'trf_date' },
-      { header: 'Product', key: 'product_name', width: 26 },
-      { header: 'Batch Number', key: 'batch_number', width: 18 },
-      { header: 'Batch Size', key: 'batch_size', width: 14 },
-      { header: 'Market/Customer', key: 'customer_name', width: 26 },
-      { header: 'Dosage Form', key: 'dosage_form', width: 16 },
-      { header: 'Manufacturing Location', key: 'manufacturing_location', width: 22 },
-      { header: 'Label Claim', key: 'label_claim', width: 20 },
-      { header: 'Pack Size', key: 'pack_size', width: 14 },
-      { header: 'Pack Type', key: 'pack_type', width: 14 },
-      { header: 'Storage Condition', key: 'storage_condition', width: 18 },
-      { header: 'Storage Period', key: 'storage_period', width: 16 },
-      { header: 'Manufacturing Date', key: 'manufacturing_date' },
-      { header: 'Expiry Date', key: 'expiry_date' },
-      { header: 'Sample Quantity', key: 'sample_quantity', width: 16 },
-      { header: 'Test Requested', key: 'requested_analysis', width: 34 },
-      { header: 'Test Details', key: 'special_instructions', width: 30 },
-      { header: 'Purpose', key: 'analysis_purpose', width: 22 },
-      { header: 'Required Completion Date', key: 'required_completion_date' },
-      { header: 'Remarks', key: 'remarks', width: 30 },
-      { header: 'Remarks Status', key: 'remarks_status', width: 16 },
-      { header: 'Sample Submitted By', key: 'sample_given_by', width: 22 },
-      { header: 'Signature/Date', key: 'signature_date' },
+      ...trfMasterColumns(),
       { header: 'Status', key: 'status', width: 20 },
       { header: 'Priority', key: 'priority' },
       { header: 'Assigned Employee', key: 'assigned_name', width: 24 },
@@ -258,10 +297,11 @@ export async function buildExportWorkbook(
     ], rows.map((r) => ({
       trf_number: r.trf_number,
       trf_date: asDate(r.trf_date),
+      customer_name: text(r.customer_name),
       product_name: text(r.product_name),
       batch_number: text(r.batch_number),
       batch_size: text(r.batch_size),
-      customer_name: text(r.customer_name),
+      sample_quantity: text(r.sample_quantity),
       dosage_form: text(r.dosage_form),
       manufacturing_location: text(r.manufacturing_location),
       label_claim: text(r.label_claim),
@@ -271,15 +311,26 @@ export async function buildExportWorkbook(
       storage_period: text(r.storage_period),
       manufacturing_date: asDate(r.manufacturing_date),
       expiry_date: asDate(r.expiry_date),
-      sample_quantity: text(r.sample_quantity),
       requested_analysis: text(r.requested_analysis),
       special_instructions: text(r.special_instructions),
       analysis_purpose: text(r.analysis_purpose),
       required_completion_date: asDate(r.required_completion_date),
       remarks: text(r.remarks),
       remarks_status: text(r.remarks_status),
-      sample_given_by: text(r.sample_given_by),
+      sample_submitted_by_name: text(r.sample_submitted_by_name),
       signature_date: asDate(r.signature_date),
+      ard_number: text(r.ard_number),
+      ard_stage: text(r.ard_stage),
+      analyst_name: text(r.analyst_name),
+      analysis_start_date: asDate(r.analysis_start_date),
+      reporting_status: text(r.reporting_status),
+      coa_status: text(r.coa_status),
+      ard_remarks_status: text(r.ard_remarks_status),
+      ard_remarks: text(r.ard_remarks),
+      tat: r.tat ?? null,
+      workflow_status: text(r.workflow_status),
+      sample_received_by_name: text(r.sample_received_by_name),
+      sample_received_date: asDate(r.sample_received_date),
       priority: text(r.priority),
       status: text(r.status),
       assigned_name: text(r.assigned_name),
@@ -297,10 +348,11 @@ export async function buildExportWorkbook(
 
     const { rows } = await pool.query(
       `SELECT t.ard_number, t.trf_number, t.trf_date, cu.name AS customer_name, p.name AS product_name,
-              t.batch_number, t.workflow_status, an.full_name AS analyst_name,
+              t.batch_number, t.ard_stage, t.requested_analysis, t.special_instructions,
+              an.full_name AS analyst_name,
               t.analysis_start_date, t.reporting_status, t.coa_status, t.ard_remarks,
-              t.ard_remarks_status, (${ARD_TAT_SQL}) AS tat, t.remarks_status,
-              srb.full_name AS sample_received_by_name
+              t.ard_remarks_status, (${ARD_TAT_SQL}) AS tat, t.workflow_status,
+              srb.full_name AS sample_received_by_name, t.sample_received_date
        FROM trfs t
        LEFT JOIN customers cu ON cu.id = t.customer_id
        LEFT JOIN products p ON p.id = t.product_id
@@ -311,22 +363,25 @@ export async function buildExportWorkbook(
        LIMIT ${cap + 1}`, where.params);
 
     results.push({ name: 'ARD Tracking', rowCount: addSheet(book, 'ARD Tracking', [
-      { header: 'A.R. No.', key: 'ard_number', width: 18 },
       { header: 'TRF No.', key: 'trf_number', width: 18 },
       { header: 'Date of Request', key: 'trf_date' },
-      { header: 'Product', key: 'product_name', width: 26 },
+      { header: 'Product Name', key: 'product_name', width: 26 },
       { header: 'Batch Number', key: 'batch_number', width: 18 },
       { header: 'Market/Customer', key: 'customer_name', width: 26 },
-      { header: 'Stage', key: 'workflow_status', width: 18 },
-      { header: 'Analyst', key: 'analyst_name', width: 24 },
+      { header: 'A.R. No.', key: 'ard_number', width: 18 },
+      { header: 'Stage', key: 'ard_stage', width: 20 },
+      { header: 'Test Requested', key: 'requested_analysis', width: 34 },
+      { header: 'Test Details', key: 'special_instructions', width: 30 },
+      { header: 'Analyst Name', key: 'analyst_name', width: 24 },
       { header: 'Date of Analysis', key: 'analysis_start_date' },
       { header: 'Reporting', key: 'reporting_status', width: 18 },
       { header: 'COA', key: 'coa_status', width: 16 },
+      { header: 'ARD Remarks / Status', key: 'ard_remarks_status', width: 20 },
       { header: 'ARD Remark', key: 'ard_remarks', width: 30 },
-      { header: 'ARD Remarks Status', key: 'ard_remarks_status', width: 20 },
-      { header: 'TAT (days)', key: 'tat' },
-      { header: 'Remarks Status', key: 'remarks_status', width: 16 },
+      { header: 'TAT', key: 'tat', width: 10 },
+      { header: 'Final Status', key: 'workflow_status', width: 18 },
       { header: 'Sample Received By', key: 'sample_received_by_name', width: 24 },
+      { header: 'Sample Received Date', key: 'sample_received_date' },
     ], rows.map((r) => ({
       ard_number: text(r.ard_number) ?? '—',
       trf_number: r.trf_number,
@@ -334,7 +389,9 @@ export async function buildExportWorkbook(
       product_name: text(r.product_name),
       batch_number: text(r.batch_number),
       customer_name: text(r.customer_name),
-      workflow_status: text(r.workflow_status),
+      ard_stage: text(r.ard_stage),
+      requested_analysis: text(r.requested_analysis),
+      special_instructions: text(r.special_instructions),
       analyst_name: text(r.analyst_name),
       analysis_start_date: asDate(r.analysis_start_date),
       reporting_status: text(r.reporting_status),
@@ -342,9 +399,10 @@ export async function buildExportWorkbook(
       ard_remarks: text(r.ard_remarks),
       ard_remarks_status: text(r.ard_remarks_status),
       tat: r.tat ?? null,
-      remarks_status: text(r.remarks_status),
+      workflow_status: text(r.workflow_status),
       sample_received_by_name: text(r.sample_received_by_name),
-    })), { statusKey: 'workflow_status' }) });
+      sample_received_date: asDate(r.sample_received_date),
+    })), { statusKey: 'ard_stage' }) });
   }
 
   if (sheets.includes('Analysis')) {

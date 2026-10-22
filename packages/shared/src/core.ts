@@ -54,13 +54,34 @@ export function canTransitionCoa(from: CoaStatus, to: CoaStatus): boolean {
   return (COA_STATUS_TRANSITIONS[from] ?? []).includes(to);
 }
 
+/** The Final Status of the ARD block. These four values are the workflow. */
 export const ArdWorkflowStatus = ['Received', 'In Progress', 'Completed', 'Cancelled'] as const;
 export type ArdWorkflowStatus = (typeof ArdWorkflowStatus)[number];
+
+/**
+ * Stage says where the sample is in the laboratory; Final Status says where
+ * the request is in the workflow. They are separate dropdowns and separate
+ * columns. Stage values live in the ard_stages master table, so they are
+ * dynamic TEXT at the database level and validated by the application.
+ */
+export const DEFAULT_ARD_STAGE = 'Initial';
+
+/** Workflow values that older TRF rows still hold in ard_stage. They are not
+ * stages, so they are kept in ard_stages as inactive legacy values: existing
+ * rows still display them, but only active stages are offered in the dropdown. */
+export const LEGACY_ARD_STAGES: readonly string[] = ['Received', 'In Progress', 'Completed', 'Cancelled'];
+
+export type ArdStage = string;
+
 export const TERMINAL_ARD_STATUSES: readonly ArdWorkflowStatus[] = ['Completed', 'Cancelled'];
-export const ArdReportingStatus = ['Pending', 'Draft', 'Submitted', 'Reviewed', 'Approved'] as const;
+export const ArdReportingStatus = ['Pending', 'Draft', 'Submitted', 'Reviewed', 'Approved', 'Rejected'] as const;
 export type ArdReportingStatus = (typeof ArdReportingStatus)[number];
+/** The values the Reporting dropdown offers, in order. */
+export const ARD_REPORTING_STATUSES = ArdReportingStatus;
 export const ArdCoaStatus = ['Pending', 'Draft', 'Under Review', 'Approved', 'Issued'] as const;
 export type ArdCoaStatus = (typeof ArdCoaStatus)[number];
+/** The values the COA dropdown offers, in order. */
+export const ARD_COA_STATUSES = ArdCoaStatus;
 
 export const REMARKS_STATUSES = ['Pending', 'Approved', 'Rejected'] as const;
 export type RemarksStatus = (typeof REMARKS_STATUSES)[number];
@@ -69,7 +90,11 @@ export type RemarksStatus = (typeof REMARKS_STATUSES)[number];
 export const ARD_REMARKS_STATUSES = ['Pending', 'Sample Received', 'Under Analysis', 'Result Reported', 'Retest Required', 'On Hold', 'Completed'] as const;
 export type ArdRemarksStatus = (typeof ARD_REMARKS_STATUSES)[number];
 
-/** Forward moves for an ARD workflow. Terminal states have no outgoing transitions. */
+/**
+ * Forward moves for an ARD workflow. The stepper uses this to draw the path
+ * from Received to Completed. The Final Status dropdown itself offers every
+ * value, because a request can also be moved back out of a terminal state.
+ */
 export const ARD_WORKFLOW_TRANSITIONS: Record<ArdWorkflowStatus, readonly ArdWorkflowStatus[]> = {
   Received: ['In Progress', 'Cancelled'],
   'In Progress': ['Completed', 'Cancelled'],

@@ -158,7 +158,7 @@ maybe('a created TRF gets the TRF-YYYY-NNNNN format and starts as New', async ()
     assert.equal(res.status, 201, JSON.stringify(res.body));
     assert.match(res.body.ardNumber ?? '', /^ARD-\d{4}-\d{5}$/);
     assert.equal(res.body.workflowStatus, 'Received');
-    assert.equal(res.body.stage, 'Received');
+    assert.equal(res.body.stage, 'Initial');
     await pool.query('DELETE FROM trfs WHERE id = $1', [res.body.id]);
   });
 
@@ -634,8 +634,19 @@ maybe('ARD workflow status can transition from Received to In Progress to Comple
   const refreshed = await api<TrfDetail>(`/api/trfs/${id}`, {}, adminToken);
   detail = refreshed.body;
 
+  // Completed needs an Analyst Name and a Date of Analysis, so they are set
+  // first. The rule is checked in detail in api.trf.ard.test.ts.
+  const analyst = await createAnalyst();
+  const withAnalyst = await api<TrfDetail>(`/api/trfs/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      version: detail.version, ardAnalystId: analyst.id, analysisStartDate: today,
+    }),
+  }, adminToken);
+  assert.equal(withAnalyst.status, 200, JSON.stringify(withAnalyst.body));
+
   const completed = await api<TrfDetail>(`/api/trfs/${id}/ard-status`, {
-    method: 'POST', body: JSON.stringify({ status: 'Completed', version: detail.version }),
+    method: 'POST', body: JSON.stringify({ status: 'Completed', version: withAnalyst.body.version }),
   }, adminToken);
   assert.equal(completed.status, 200);
   assert.equal(completed.body.workflowStatus, 'Completed');
@@ -706,7 +717,7 @@ maybe('creating a TRF with the full field set returns 201 with ARD tracking', as
   assert.ok(res.body.trfNumber?.startsWith('TRF-'));
   assert.ok(res.body.ardNumber?.startsWith('ARD-'));
   assert.equal(res.body.workflowStatus, 'Received');
-  assert.equal(res.body.stage, 'Received');
+  assert.equal(res.body.stage, 'Initial');
   assert.equal(res.body.remarksStatus, 'Pending');
 
   await pool.query('DELETE FROM trfs WHERE id = $1', [res.body.id]);
@@ -1000,7 +1011,7 @@ maybe('the list payload carries every field of both parts, including the ARD num
   assert.ok(item.ardNumber, 'the list must carry the ARD number');
   assert.match(item.ardNumber ?? '', /^ARD-\d{4}-\d{5}$/);
   assert.equal(item.ardAnalystId, null);
-  assert.equal(item.stage, 'Received');
+  assert.equal(item.stage, 'Initial');
   assert.equal(item.workflowStatus, 'Received');
   assert.equal(item.analystName, null);
   assert.equal(item.analysisStartDate, null);
@@ -1014,7 +1025,7 @@ maybe('the list payload carries every field of both parts, including the ARD num
   await pool.query('DELETE FROM trfs WHERE id = $1', [created.body.id]);
 });
 
-maybe('the remarks status values are validated and each belongs to one part', async () => {
+maybe('the Status values are validated and each belongs to one part', async () => {
   const created = await createTrf({ batchNumber: `REMARKS-VALIDATION-${Date.now()}` });
   assert.equal(created.status, 201, JSON.stringify(created.body));
 
@@ -1039,21 +1050,21 @@ maybe('the remarks status values are validated and each belongs to one part', as
   await pool.query('DELETE FROM trfs WHERE id = $1', [created.body.id]);
 });
 
-maybe('only Formulation users edit the remarks status and only ARD users edit the ARD remark status', async () => {
+maybe('only Formulation users edit the Formulation Status and only ARD users edit the ARD Status', async () => {
   const formulation = await userInDepartment('Analyst', 'Formulation');
   const ard = await userInDepartment('Analyst', 'ARD');
   const created = await createTrf({ batchNumber: `REMARKS-OWNER-${Date.now()}` });
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const id = created.body.id;
 
-  // The Formulation user owns the remarks status.
+  // The Formulation user owns the Formulation Status.
   const formulationEdit = await api<TrfDetail>(`/api/trfs/${id}`, {
     method: 'PATCH', body: JSON.stringify({ version: created.body.version, remarksStatus: 'Approved' }),
   }, formulation.token);
   assert.equal(formulationEdit.status, 200, JSON.stringify(formulationEdit.body));
   assert.equal(formulationEdit.body.remarksStatus, 'Approved');
 
-  // ... and not the ARD remark status.
+  // ... and not the ARD Status.
   const formulationArdEdit = await api(`/api/trfs/${id}`, {
     method: 'PATCH', body: JSON.stringify({ version: created.body.version, ardRemarksStatus: 'On Hold' }),
   }, formulation.token);
@@ -1061,14 +1072,14 @@ maybe('only Formulation users edit the remarks status and only ARD users edit th
 
   const refreshed = await api<TrfDetail>(`/api/trfs/${id}`, {}, adminToken);
 
-  // The ARD user owns the ARD remark status.
+  // The ARD user owns the ARD Status.
   const ardEdit = await api<TrfDetail>(`/api/trfs/${id}`, {
     method: 'PATCH', body: JSON.stringify({ version: refreshed.body.version, ardRemarksStatus: 'On Hold' }),
   }, ard.token);
   assert.equal(ardEdit.status, 200, JSON.stringify(ardEdit.body));
   assert.equal(ardEdit.body.ardRemarksStatus, 'On Hold');
 
-  // ... and not the remarks status.
+  // ... and not the Formulation Status.
   const ardFormulationEdit = await api(`/api/trfs/${id}`, {
     method: 'PATCH', body: JSON.stringify({ version: ardEdit.body.version, remarksStatus: 'Rejected' }),
   }, ard.token);

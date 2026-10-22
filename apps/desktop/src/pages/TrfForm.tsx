@@ -1,26 +1,26 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { Customer, Department, Priority, Product, TrfDetail, EmployeeProfile, RemarksStatus, ArdRemarksStatus } from '@trf/shared';
-import { PRIORITIES, REMARKS_STATUSES, ARD_REMARKS_STATUSES, canEditTrfPartA, canEditTrfPartB } from '@trf/shared';
+import type {
+  Customer, EmployeeOption, Product, TrfDetail, StageOption, RemarksStatus,
+  ArdRemarksStatus, ArdReportingStatus, ArdCoaStatus, ArdWorkflowStatus, ArdStage,
+} from '@trf/shared';
+import {
+  REMARKS_STATUSES, ARD_REMARKS_STATUSES, ARD_REPORTING_STATUSES, ARD_COA_STATUSES,
+  DEFAULT_ARD_STAGE, canEditTrfPartA, canEditTrfPartB,
+} from '@trf/shared';
 import { MESSAGES } from '@trf/shared';
 import { fieldsOf, messageOf } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { RemarksStatusBadge, ArdRemarksStatusBadge } from '../components/Badges';
+import { RemarksStatusBadge, ArdRemarksStatusBadge, ArdFinalStatusBadge } from '../components/Badges';
+import { EmployeeSelect } from '../components/EmployeeSelect';
+import { Field, FieldLock } from '../components/Fields';
+import type { FieldOwner } from '../components/Fields';
 
 interface FormState {
   trfDate: string;
   customerId: string;
   productId: string;
   batchNumber: string;
-  sampleQuantity: string;
-  sampleReceivedDate: string;
-  requiredCompletionDate: string;
-  priority: Priority;
-  requestedAnalysis: string;
-  specialInstructions: string;
-  departmentId: string;
-  remarks: string;
-  remarksStatus: RemarksStatus;
   batchSize: string;
   dosageForm: string;
   manufacturingLocation: string;
@@ -31,31 +31,42 @@ interface FormState {
   storagePeriod: string;
   manufacturingDate: string;
   expiryDate: string;
+  requestedAnalysis: string;
+  specialInstructions: string;
   analysisPurpose: string;
-   sampleGivenBy: string;
-   signatureDate: string;
-   sampleReceivedBy: string;
-   ardAnalystId: string;
+  requiredCompletionDate: string;
+  sampleQuantity: string;
+  sampleSubmittedById: string;
+  /** The legacy free-text column. Shown, never written by this form. */
+  sampleGivenBy: string;
+  remarksStatus: RemarksStatus;
+  remarks: string;
+  signatureDate: string;
+  stage: ArdStage;
+  ardAnalystId: string;
   analysisStartDate: string;
-  reportingStatus: string;
-  coaStatus: string;
-  ardRemarks: string;
+  reportingStatus: ArdReportingStatus;
+  coaStatus: ArdCoaStatus;
   ardRemarksStatus: ArdRemarksStatus;
+  ardRemarks: string;
+  workflowStatus: ArdWorkflowStatus;
+  sampleReceivedBy: string;
+  sampleReceivedDate: string;
 }
 
 const blank = (today: string): FormState => ({
   trfDate: today,
-  customerId: '', productId: '', batchNumber: '', sampleQuantity: '',
-  sampleReceivedDate: '', requiredCompletionDate: '', priority: 'Normal',
-  requestedAnalysis: '', specialInstructions: '', departmentId: '', remarks: '',
-  remarksStatus: 'Pending',
-  batchSize: '', dosageForm: '', manufacturingLocation: '',
-  labelClaim: '', packSize: '', packType: '', storageCondition: '',
-  storagePeriod: '', manufacturingDate: '', expiryDate: '',
-   analysisPurpose: '', sampleGivenBy: '', signatureDate: '',
-   sampleReceivedBy: '',
-   ardAnalystId: '', analysisStartDate: '', reportingStatus: 'Pending',
-  coaStatus: 'Pending', ardRemarks: '', ardRemarksStatus: 'Pending',
+  customerId: '', productId: '', batchNumber: '', batchSize: '',
+  dosageForm: '', manufacturingLocation: '', labelClaim: '',
+  packSize: '', packType: '', storageCondition: '', storagePeriod: '',
+  manufacturingDate: '', expiryDate: '', requestedAnalysis: '',
+  specialInstructions: '', analysisPurpose: '', requiredCompletionDate: '',
+  sampleQuantity: '', sampleSubmittedById: '', sampleGivenBy: '',
+  remarksStatus: 'Pending', remarks: '', signatureDate: '',
+  stage: DEFAULT_ARD_STAGE, ardAnalystId: '', analysisStartDate: '',
+  reportingStatus: 'Pending', coaStatus: 'Pending', ardRemarksStatus: 'Pending',
+  ardRemarks: '', workflowStatus: 'Received', sampleReceivedBy: '',
+  sampleReceivedDate: '',
 });
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -71,8 +82,17 @@ const LOOKUP_LABEL: Record<'customer' | 'product', string> = {
   product: 'Product',
 };
 
+/** The field labels use the same wording as the rest of the TRF screen. */
+const LOOKUP_FIELD_LABEL: Record<'customer' | 'product', string> = {
+  customer: 'Market/Customer',
+  product: 'Product Name',
+};
+
 /** Sentinel option value for "Other (type new)" in the dropdowns. */
 const OTHER_OPTION = '__other__';
+
+/** The forward path of the Final Status, drawn by the stepper. */
+const FINAL_STATUS_STEPS: readonly ArdWorkflowStatus[] = ['Received', 'In Progress', 'Completed'];
 
 function InlineNew({ kind, open, onOpenChange, onCreated }: {
   kind: 'customer' | 'product';
@@ -89,8 +109,7 @@ function InlineNew({ kind, open, onOpenChange, onCreated }: {
 
   if (!employee || !canEditTrfPartA(employee)) return null;
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function submit() {
     setBusy(true);
     setError(null);
     const res = await window.trf.request<{ id: number; name: string }>({
@@ -108,6 +127,13 @@ function InlineNew({ kind, open, onOpenChange, onCreated }: {
     setCode('');
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !busy) {
+      e.preventDefault();
+      void submit();
+    }
+  };
+
   if (!open) {
     return (
       <button type="button" className="btn btn--ghost" onClick={() => onOpenChange(true)}>
@@ -117,17 +143,17 @@ function InlineNew({ kind, open, onOpenChange, onCreated }: {
   }
 
   return (
-    <form className="inline-new" onSubmit={submit}>
+    <div className="inline-new" onKeyDown={handleKeyDown}>
       <div className="inline-new__row">
         <input placeholder={`${LOOKUP_LABEL[kind]} name`} value={name}
-          onChange={(e) => setName(e.target.value)} aria-label={`${kind} name`} />
+          onChange={(e) => setName(e.target.value)} aria-label={`new ${kind} name`} />
         <input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)}
-          aria-label={`${kind} code`} />
-        <button className="btn btn--primary" type="submit" disabled={busy}>Add</button>
+          aria-label={`new ${kind} code`} />
+        <button className="btn btn--primary" type="button" disabled={busy} onClick={() => void submit()}>Add</button>
         <button className="btn" type="button" onClick={() => onOpenChange(false)}>Cancel</button>
       </div>
       {error && <p className="field-error">{error}{fields.name ? ` ${fields.name}` : ''}</p>}
-    </form>
+    </div>
   );
 }
 
@@ -136,27 +162,34 @@ function InlineNew({ kind, open, onOpenChange, onCreated }: {
  * option and opens the same quick-add form the button opens, so a record that
  * is not in the list yet can be typed in without leaving the form.
  */
-export function LookupSelect({ kind, items, value, fieldError, onChange, onCreated }: {
+export function LookupSelect({ kind, items, value, fieldError, onChange, onCreated, disabled, lockOwner }: {
   kind: 'customer' | 'product';
   items: { id: number; name: string }[];
   value: string;
   fieldError?: string;
   onChange: (value: string) => void;
   onCreated: (created: { id: number; name: string }) => void;
+  disabled?: boolean;
+  lockOwner?: FieldOwner;
 }) {
   const [adding, setAdding] = useState(false);
   const label = LOOKUP_LABEL[kind];
+  const fieldLabel = LOOKUP_FIELD_LABEL[kind];
   const selectId = `trf-${kind}`;
 
   return (
-    <div>
-      <label htmlFor={selectId}>{label} <span className="required-mark">*</span></label>
+    <div className={`field ${lockOwner ? 'field--locked' : ''}`}>
+      <div className="field__head">
+        <label htmlFor={selectId}>{fieldLabel} <span className="required-mark">*</span></label>
+        {lockOwner && <FieldLock owner={lockOwner} />}
+      </div>
       {items.length === 0 ? (
         <p className="muted">No {label.toLowerCase()}s yet. Add the first one below.</p>
       ) : (
         <select
           id={selectId}
           required
+          disabled={disabled}
           value={value}
           onChange={(e) => {
             if (e.target.value === OTHER_OPTION) {
@@ -183,6 +216,138 @@ export function LookupSelect({ kind, items, value, fieldError, onChange, onCreat
   );
 }
 
+/**
+ * The progress stepper. It highlights the Final Status the TRF is in now, so
+ * the reader can see at a glance how far the request has come.
+ */
+export function FinalStatusStepper({ current }: { current: ArdWorkflowStatus }) {
+  const steps = FINAL_STATUS_STEPS;
+  const currentIndex = steps.indexOf(current);
+  return (
+    <div className="stepper" role="list" aria-label="Final Status progress">
+      {steps.map((step, index) => {
+        const state = current === 'Cancelled'
+          ? 'stepper__step--done'
+          : index < currentIndex ? 'stepper__step--done'
+            : index === currentIndex ? 'stepper__step--current' : '';
+        return (
+          <div key={step} role="listitem" className={`stepper__step ${state}`}>
+            <span className="stepper__dot" aria-hidden="true" />
+            <span className="stepper__label">{step}</span>
+          </div>
+        );
+      })}
+      {current === 'Cancelled' && (
+        <div role="listitem" className="stepper__step stepper__step--cancelled">
+          <span className="stepper__dot" aria-hidden="true" />
+          <span className="stepper__label">Cancelled</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The ARD Stage dropdown. It offers the active stages from the ard_stages
+ * master table, keeps any legacy value a row still holds visible, and lets an
+ * ARD user add a brand-new stage through "Other (type new)" without saving the
+ * TRF. The quick-add is a div with an Add button and Enter-key handling, never
+ * a form inside the form.
+ */
+function StageSelect({ id, value, options, disabled, fieldError, lockOwner, onChange, onCreated }: {
+  id: string;
+  value: string;
+  options: string[];
+  disabled: boolean;
+  fieldError?: string;
+  lockOwner?: FieldOwner;
+  onChange: (name: string) => void;
+  onCreated: (name: string) => void;
+}) {
+  const { employee } = useAuth();
+  const canAdd = employee ? canEditTrfPartB(employee) : false;
+  const [adding, setAdding] = useState(false);
+  const [otherName, setOtherName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Active stages are offered; the current value stays visible even when it is
+  // an inactive legacy value, so nothing is lost. "Other (type new)" is last.
+  const shown = useMemo(() => {
+    const list = [...options];
+    if (value && !list.includes(value)) list.push(value);
+    list.push('Other (type new)');
+    return list;
+  }, [options, value]);
+
+  async function add() {
+    const name = otherName.replace(/\s+/g, ' ').trim();
+    if (!name) { setError('Enter a stage name.'); return; }
+    setBusy(true); setError(null);
+    const res = await window.trf.request<{ item: StageOption; duplicate: boolean }>({
+      method: 'POST', path: '/api/lookups/stages', body: { name },
+    });
+    setBusy(false);
+    if (!res.ok || !res.data) {
+      setError(messageOf(res.data, 'The stage could not be added.'));
+      return;
+    }
+    setAdding(false);
+    setOtherName('');
+    onCreated(res.data.item.name);
+    if (res.data.duplicate) setError('A stage with this name already exists; the existing one was selected.');
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !busy) {
+      e.preventDefault();
+      void add();
+    }
+  };
+
+  return (
+    <Field htmlFor={id} label="Stage" lockOwner={lockOwner} error={fieldError}>
+      {!adding && !disabled && canAdd && shown.includes('Other (type new)') && (
+        <select id={id} disabled={disabled} value={value}
+          onChange={(e) => {
+            const name = e.target.value;
+            if (name === 'Other (type new)') {
+              onChange('');
+              setAdding(true);
+              return;
+            }
+            onChange(name);
+          }}
+        >
+          {shown.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}
+        </select>
+      )}
+      {adding && (
+        <div className="inline-new" onKeyDown={handleKeyDown}>
+          <div className="inline-new__row">
+            <input placeholder="New stage name" value={otherName}
+              onChange={(e) => setOtherName(e.target.value)} autoFocus />
+            <button className="btn btn--primary" type="button" disabled={busy || !otherName.trim()} onClick={() => void add()}>Add</button>
+            <button className="btn" type="button" onClick={() => { setAdding(false); setOtherName(''); setError(null); }}>Cancel</button>
+          </div>
+          {error && <p className="field-error">{error}</p>}
+        </div>
+      )}
+      {!adding && (disabled || !canAdd || !shown.includes('Other (type new)')) && (
+        <select id={id} disabled={disabled} value={value}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          {shown.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}
+        </select>
+      )}
+    </Field>
+  );
+}
+
 export function TrfForm() {
   const { id } = useParams();
   const isEdit = Boolean(id);
@@ -193,9 +358,13 @@ export function TrfForm() {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [analysts, setAnalysts] = useState<EmployeeProfile[]>([]);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [stages, setStages] = useState<StageOption[]>([]);
   const [form, setForm] = useState<FormState>(() => blank(today()));
+  const [trfNumber, setTrfNumber] = useState('');
+  const [ardNumber, setArdNumber] = useState('');
+  const [tat, setTat] = useState<number | null>(null);
+  const [sampleSubmittedByName, setSampleSubmittedByName] = useState<string | null>(null);
   const [version, setVersion] = useState<number | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -221,20 +390,23 @@ export function TrfForm() {
       });
   };
 
-  const loadLookups = () => {
-    reloadCustomers();
-    reloadProducts();
-    void window.trf.request<{ items: EmployeeProfile[] }>({ method: 'GET', path: '/api/employees/assignable' })
-      .then((r) => { if (r.ok && r.data) setAnalysts(r.data.items); });
-  };
-
-  useEffect(() => { loadLookups(); }, []);
+  useEffect(() => {
+    void window.trf.request<{ items: Customer[] }>({ method: 'GET', path: '/api/lookups/customers' })
+      .then((r) => { if (r.ok && r.data) setCustomers(r.data.items); });
+    void window.trf.request<{ items: Product[] }>({ method: 'GET', path: '/api/lookups/products' })
+      .then((r) => { if (r.ok && r.data) setProducts(r.data.items); });
+    // Active stages are offered in the ARD Stage dropdown. Anyone who can see a
+    // TRF may read them.
+    void window.trf.request<{ items: StageOption[] }>({ method: 'GET', path: '/api/lookups/stages' })
+      .then((r) => { if (r.ok && r.data) setStages(r.data.items); });
+    // The employee dropdown lists active employees for anyone who can see a
+    // TRF. It is a read-only lookup, so it needs no management permission.
+    void window.trf.request<{ items: EmployeeOption[] }>({ method: 'GET', path: '/api/employees/for-select' })
+      .then((r) => { if (r.ok && r.data) setEmployees(r.data.items); });
+  }, []);
 
   useEffect(() => {
-    if (!isEdit) {
-      setForm((f) => ({ ...f, departmentId: employee?.departmentId ? String(employee.departmentId) : '' }));
-      return;
-    }
+    if (!isEdit) return;
     let cancelled = false;
     void window.trf.request<TrfDetail>({ method: 'GET', path: `/api/trfs/${id}` }).then((res) => {
       if (cancelled) return;
@@ -242,19 +414,15 @@ export function TrfForm() {
       if (!res.ok || !res.data) { setError(messageOf(res.data, 'This TRF could not be loaded.')); return; }
       const trf = res.data;
       setVersion(trf.version);
+      setTrfNumber(trf.trfNumber);
+      setArdNumber(trf.ardNumber ?? '');
+      setTat(trf.tat);
+      setSampleSubmittedByName(trf.sampleSubmittedByName);
       setForm({
         trfDate: trf.trfDate,
         customerId: trf.customerId ? String(trf.customerId) : '',
         productId: trf.productId ? String(trf.productId) : '',
         batchNumber: trf.batchNumber ?? '',
-        sampleQuantity: trf.sampleQuantity ?? '',
-        sampleReceivedDate: trf.sampleReceivedDate ?? '',
-        requiredCompletionDate: trf.requiredCompletionDate ?? '',
-        priority: trf.priority,
-        requestedAnalysis: trf.requestedAnalysis ?? '',
-        specialInstructions: trf.specialInstructions ?? '',
-        departmentId: trf.departmentId ? String(trf.departmentId) : '',
-        remarks: trf.remarks ?? '',
         batchSize: trf.batchSize ?? '',
         dosageForm: trf.dosageForm ?? '',
         manufacturingLocation: trf.manufacturingLocation ?? '',
@@ -265,23 +433,42 @@ export function TrfForm() {
         storagePeriod: trf.storagePeriod ?? '',
         manufacturingDate: trf.manufacturingDate ?? '',
         expiryDate: trf.expiryDate ?? '',
-         analysisPurpose: trf.analysisPurpose ?? '',
-         sampleGivenBy: trf.sampleGivenBy ?? '',
-         signatureDate: trf.signatureDate ?? '',
-         remarksStatus: trf.remarksStatus ?? 'Pending',
-         sampleReceivedBy: trf.sampleReceivedBy ? String(trf.sampleReceivedBy) : '',
-         ardAnalystId: trf.ardAnalystId ? String(trf.ardAnalystId) : '',
+        requestedAnalysis: trf.requestedAnalysis ?? '',
+        specialInstructions: trf.specialInstructions ?? '',
+        analysisPurpose: trf.analysisPurpose ?? '',
+        requiredCompletionDate: trf.requiredCompletionDate ?? '',
+        sampleQuantity: trf.sampleQuantity ?? '',
+        sampleSubmittedById: trf.sampleSubmittedById ? String(trf.sampleSubmittedById) : '',
+        sampleGivenBy: trf.sampleGivenBy ?? '',
+        remarksStatus: trf.remarksStatus ?? 'Pending',
+        remarks: trf.remarks ?? '',
+        signatureDate: trf.signatureDate ?? '',
+        stage: trf.stage ?? DEFAULT_ARD_STAGE,
+        ardAnalystId: trf.ardAnalystId ? String(trf.ardAnalystId) : '',
         analysisStartDate: trf.analysisStartDate ?? '',
         reportingStatus: trf.reportingStatus,
         coaStatus: trf.coaStatus,
-        ardRemarks: trf.ardRemarks ?? '',
         ardRemarksStatus: trf.ardRemarksStatus ?? 'Pending',
+        ardRemarks: trf.ardRemarks ?? '',
+        workflowStatus: trf.workflowStatus,
+        sampleReceivedBy: trf.sampleReceivedBy ? String(trf.sampleReceivedBy) : '',
+        sampleReceivedDate: trf.sampleReceivedDate ?? '',
       });
     });
     return () => { cancelled = true; };
-  }, [id, isEdit, employee?.departmentId]);
+  }, [id, isEdit]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Active stages are offered in the dropdown. A row that still holds a legacy
+  // (inactive) value keeps it visible, so nothing is lost; "Other (type new)"
+  // lets an ARD user add a brand-new stage without saving the TRF.
+  const stageNames = useMemo(() => stages.filter((s) => s.isActive).map((s) => s.name), [stages]);
+
+  const legacySampleGivenBy = !form.sampleSubmittedById && form.sampleGivenBy.trim()
+    ? form.sampleGivenBy.trim()
+    : null;
+
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -310,14 +497,6 @@ export function TrfForm() {
       customerId: form.customerId ? Number(form.customerId) : null,
       productId: form.productId ? Number(form.productId) : null,
       batchNumber: form.batchNumber.trim() || null,
-      sampleQuantity: form.sampleQuantity.trim() || null,
-      sampleReceivedDate: form.sampleReceivedDate || null,
-      requiredCompletionDate: form.requiredCompletionDate || null,
-      priority: form.priority,
-      requestedAnalysis: form.requestedAnalysis.trim() || null,
-      specialInstructions: form.specialInstructions.trim() || null,
-      departmentId: form.departmentId ? Number(form.departmentId) : null,
-      remarks: form.remarks.trim() || null,
       batchSize: form.batchSize.trim() || null,
       dosageForm: form.dosageForm.trim() || null,
       manufacturingLocation: form.manufacturingLocation.trim() || null,
@@ -328,21 +507,34 @@ export function TrfForm() {
       storagePeriod: form.storagePeriod.trim() || null,
       manufacturingDate: form.manufacturingDate || null,
       expiryDate: form.expiryDate || null,
+      requestedAnalysis: form.requestedAnalysis.trim() || null,
+      specialInstructions: form.specialInstructions.trim() || null,
       analysisPurpose: form.analysisPurpose.trim() || null,
-       sampleGivenBy: form.sampleGivenBy.trim() || null,
-       signatureDate: form.signatureDate || null,
-       remarksStatus: form.remarksStatus,
-       sampleReceivedBy: form.sampleReceivedBy ? Number(form.sampleReceivedBy) : null,
-     };
+      requiredCompletionDate: form.requiredCompletionDate || null,
+      sampleQuantity: form.sampleQuantity.trim() || null,
+      sampleSubmittedById: form.sampleSubmittedById ? Number(form.sampleSubmittedById) : null,
+      remarksStatus: form.remarksStatus,
+      remarks: form.remarks.trim() || null,
+      signatureDate: form.signatureDate || null,
+    };
 
-    // ARD Part B fields are only sent when the user has ARD edit access.
+    // The sample received fields are Formulation data that the ARD block
+    // shows. They are only sent when the user may change Part A.
+    if (canEditA) {
+      body.sampleReceivedBy = form.sampleReceivedBy ? Number(form.sampleReceivedBy) : null;
+      body.sampleReceivedDate = form.sampleReceivedDate || null;
+    }
+
+    // ARD block fields are only sent when the user has ARD edit access.
     if (canEditB) {
+      body.ardStage = form.stage;
       body.ardAnalystId = form.ardAnalystId ? Number(form.ardAnalystId) : null;
       body.analysisStartDate = form.analysisStartDate || null;
       body.reportingStatus = form.reportingStatus;
       body.coaStatus = form.coaStatus;
-      body.ardRemarks = form.ardRemarks.trim() || null;
       body.ardRemarksStatus = form.ardRemarksStatus;
+      body.ardRemarks = form.ardRemarks.trim() || null;
+      body.workflowStatus = form.workflowStatus;
     }
 
     const res = isEdit
@@ -361,14 +553,18 @@ export function TrfForm() {
     navigate(`/trfs/${res.data.id}`, { replace: true });
   }
 
-   if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
+  if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
   // The server is the authority: it accepts a create when the caller has Part A
   // rights, so the form must not apply a second, stricter rule of its own.
   if (!isEdit && !canEditA) return <div className="page"><p className="error-text">Only Formulation department users can create TRFs.</p></div>;
   if (isEdit && !canEditA && !canEditB) return <div className="page"><p className="error-text">{MESSAGES.NO_PERMISSION}</p></div>;
 
+  // The lock is shown on every field the signed-in user may not change.
+  const partALock: FieldOwner | undefined = canEditA ? undefined : 'Formulation';
+  const ardLock: FieldOwner | undefined = canEditB ? undefined : 'ARD';
+
   return (
-    <div className="page">
+    <div className="page page--wide">
       <div className="page__head">
         <h1>{isEdit ? 'Edit TRF' : 'New TRF'}</h1>
         <div className="row">
@@ -381,235 +577,289 @@ export function TrfForm() {
 
       {error && <p className="error-text" role="alert">{error}</p>}
 
-      <form className="form form--wide" onSubmit={submit}>
-        <h2>Sample</h2>
-        <label htmlFor="trf-date">TRF date</label>
-        <input id="trf-date" type="date" required value={form.trfDate} onChange={(e) => set('trfDate', e.target.value)} />
-        {fields.trfDate && <p className="field-error">{fields.trfDate}</p>}
+      <form className="trf-form" onSubmit={submit}>
+        <section className="card card--part-a">
+          <header className="card__head">
+            <h2>Part A — Formulation</h2>
+            {!canEditA && <span className="badge badge--muted">Read-only</span>}
+          </header>
 
-        <div className="field-pair">
-          <LookupSelect
-            kind="customer"
-            items={customers}
-            value={form.customerId}
-            fieldError={fields.customerId}
-            onChange={(v) => set('customerId', v)}
-            onCreated={({ id }) => reloadCustomers(id)}
-          />
-          <LookupSelect
-            kind="product"
-            items={products}
-            value={form.productId}
-            fieldError={fields.productId}
-            onChange={(v) => set('productId', v)}
-            onCreated={({ id }) => reloadProducts(id)}
-          />
-        </div>
+          <div className="grid">
+            <Field htmlFor="trf-number" label="TRF No." lockOwner="System">
+              <input id="trf-number" value={trfNumber} readOnly disabled placeholder="Assigned when the TRF is created" />
+            </Field>
 
-        <div className="field-pair">
-          <div>
-            <label htmlFor="trf-batch">Batch number</label>
-            <input id="trf-batch" value={form.batchNumber} onChange={(e) => set('batchNumber', e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor="trf-qty">Sample quantity</label>
-            <input id="trf-qty" value={form.sampleQuantity} onChange={(e) => set('sampleQuantity', e.target.value)} placeholder="e.g. 2 kg" />
-          </div>
-        </div>
+            <Field htmlFor="trf-date" label="Date of Request" lockOwner={partALock} error={fields.trfDate}>
+              <input id="trf-date" type="date" required disabled={!canEditA} value={form.trfDate}
+                onChange={(e) => set('trfDate', e.target.value)} />
+            </Field>
 
-        <div className="field-pair">
-          <div>
-            <label htmlFor="trf-due">Required completion date</label>
-            <input id="trf-due" type="date" value={form.requiredCompletionDate}
-              onChange={(e) => set('requiredCompletionDate', e.target.value)} />
-            {fields.requiredCompletionDate && <p className="field-error">{fields.requiredCompletionDate}</p>}
-          </div>
-          <div />
-        </div>
-
-        <label htmlFor="trf-requested">Requested analysis</label>
-        <textarea id="trf-requested" rows={3} value={form.requestedAnalysis}
-          onChange={(e) => set('requestedAnalysis', e.target.value)} />
-
-        <label htmlFor="trf-special">Special instructions</label>
-        <textarea id="trf-special" rows={2} value={form.specialInstructions}
-          onChange={(e) => set('specialInstructions', e.target.value)} />
-
-        <h2>Product Details</h2>
-        <div className="field-pair">
-          <div>
-            <label htmlFor="trf-batch-size">Batch size</label>
-            <input id="trf-batch-size" value={form.batchSize} onChange={(e) => set('batchSize', e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor="trf-dosage">Dosage form</label>
-            <input id="trf-dosage" value={form.dosageForm} onChange={(e) => set('dosageForm', e.target.value)} />
-          </div>
-        </div>
-
-        <div className="field-pair">
-          <div>
-            <label htmlFor="trf-location">Manufacturing location</label>
-            <input id="trf-location" value={form.manufacturingLocation} onChange={(e) => set('manufacturingLocation', e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor="trf-label-claim">Label claim</label>
-            <input id="trf-label-claim" value={form.labelClaim} onChange={(e) => set('labelClaim', e.target.value)} />
-          </div>
-        </div>
-
-        <div className="field-pair">
-          <div>
-            <label htmlFor="trf-pack-size">Pack size</label>
-            <input id="trf-pack-size" value={form.packSize} onChange={(e) => set('packSize', e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor="trf-pack-type">Pack type</label>
-            <input id="trf-pack-type" value={form.packType} onChange={(e) => set('packType', e.target.value)} />
-          </div>
-        </div>
-
-        <div className="field-pair">
-          <div>
-            <label htmlFor="trf-storage-condition">Storage condition</label>
-            <input id="trf-storage-condition" value={form.storageCondition} onChange={(e) => set('storageCondition', e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor="trf-storage-period">Storage period</label>
-            <input id="trf-storage-period" value={form.storagePeriod} onChange={(e) => set('storagePeriod', e.target.value)} />
-          </div>
-        </div>
-
-        <div className="field-pair">
-          <div>
-            <label htmlFor="trf-mfg-date">Manufacturing date</label>
-            <input id="trf-mfg-date" type="date" value={form.manufacturingDate}
-              onChange={(e) => set('manufacturingDate', e.target.value)} />
-            {fields.manufacturingDate && <p className="field-error">{fields.manufacturingDate}</p>}
-          </div>
-          <div>
-            <label htmlFor="trf-expiry-date">Expiry date</label>
-            <input id="trf-expiry-date" type="date" value={form.expiryDate}
-              onChange={(e) => set('expiryDate', e.target.value)} />
-            {fields.expiryDate && <p className="field-error">{fields.expiryDate}</p>}
-          </div>
-        </div>
-
-        <h2>Analysis Details</h2>
-        <div className="field-pair">
-          <div>
-            <label htmlFor="trf-analysis-purpose">Analysis purpose</label>
-            <input id="trf-analysis-purpose" value={form.analysisPurpose} onChange={(e) => set('analysisPurpose', e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor="trf-sample-given-by">Sample submitted by</label>
-            <input id="trf-sample-given-by" value={form.sampleGivenBy} onChange={(e) => set('sampleGivenBy', e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor="trf-sample-received-by">Sample received by</label>
-            <select id="trf-sample-received-by" value={form.sampleReceivedBy}
-              onChange={(e) => set('sampleReceivedBy', e.target.value)}>
-              <option value="">Not set</option>
-              {analysts.map((a) => <option key={a.id} value={a.id}>{a.fullName}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="field-pair">
-          <div>
-            <label htmlFor="trf-signature-date">Signature date</label>
-            <input id="trf-signature-date" type="date" value={form.signatureDate}
-              onChange={(e) => set('signatureDate', e.target.value)} />
-          </div>
-          <div />
-        </div>
-
-        <div className="field-pair">
-          <div>
-            <label htmlFor="trf-remarks-status">Remarks status</label>
-            <select
-              id="trf-remarks-status"
-              value={form.remarksStatus}
+            <LookupSelect
+              kind="product"
+              items={products}
+              value={form.productId}
+              fieldError={fields.productId}
               disabled={!canEditA}
-              onChange={(e) => set('remarksStatus', e.target.value as RemarksStatus)}
-            >
-              {REMARKS_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <p className="field-hint">Current state: <RemarksStatusBadge status={form.remarksStatus} /></p>
-            {!canEditA && <p className="muted">Only Formulation department users can change this.</p>}
+              lockOwner={partALock}
+              onChange={(v) => set('productId', v)}
+              onCreated={({ id }) => reloadProducts(id)}
+            />
+
+            <Field htmlFor="trf-batch" label="Batch Number" lockOwner={partALock}>
+              <input id="trf-batch" disabled={!canEditA} value={form.batchNumber}
+                onChange={(e) => set('batchNumber', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-batch-size" label="Batch Size" lockOwner={partALock}>
+              <input id="trf-batch-size" disabled={!canEditA} value={form.batchSize}
+                onChange={(e) => set('batchSize', e.target.value)} />
+            </Field>
+
+            <LookupSelect
+              kind="customer"
+              items={customers}
+              value={form.customerId}
+              fieldError={fields.customerId}
+              disabled={!canEditA}
+              lockOwner={partALock}
+              onChange={(v) => set('customerId', v)}
+              onCreated={({ id }) => reloadCustomers(id)}
+            />
+
+            <Field htmlFor="trf-dosage" label="Dosage Form" lockOwner={partALock}>
+              <input id="trf-dosage" disabled={!canEditA} value={form.dosageForm}
+                onChange={(e) => set('dosageForm', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-location" label="Manufacturing Location" lockOwner={partALock}>
+              <input id="trf-location" disabled={!canEditA} value={form.manufacturingLocation}
+                onChange={(e) => set('manufacturingLocation', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-label-claim" label="Label Claim" lockOwner={partALock}>
+              <input id="trf-label-claim" disabled={!canEditA} value={form.labelClaim}
+                onChange={(e) => set('labelClaim', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-pack-size" label="Pack Size" lockOwner={partALock}>
+              <input id="trf-pack-size" disabled={!canEditA} value={form.packSize}
+                onChange={(e) => set('packSize', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-pack-type" label="Pack Type" lockOwner={partALock}>
+              <input id="trf-pack-type" disabled={!canEditA} value={form.packType}
+                onChange={(e) => set('packType', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-storage-condition" label="Storage Condition" lockOwner={partALock}>
+              <input id="trf-storage-condition" disabled={!canEditA} value={form.storageCondition}
+                onChange={(e) => set('storageCondition', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-storage-period" label="Storage Period" lockOwner={partALock}>
+              <input id="trf-storage-period" disabled={!canEditA} value={form.storagePeriod}
+                onChange={(e) => set('storagePeriod', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-mfg-date" label="Manufacturing Date" lockOwner={partALock} error={fields.manufacturingDate}>
+              <input id="trf-mfg-date" type="date" disabled={!canEditA} value={form.manufacturingDate}
+                onChange={(e) => set('manufacturingDate', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-expiry-date" label="Expiry Date" lockOwner={partALock} error={fields.expiryDate}>
+              <input id="trf-expiry-date" type="date" disabled={!canEditA} value={form.expiryDate}
+                onChange={(e) => set('expiryDate', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-requested" label="Test Requested" lockOwner={partALock} className="field--wide">
+              <textarea id="trf-requested" rows={3} disabled={!canEditA} value={form.requestedAnalysis}
+                onChange={(e) => set('requestedAnalysis', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-special" label="Test Details / Special Instructions" lockOwner={partALock} className="field--wide">
+              <textarea id="trf-special" rows={2} disabled={!canEditA} value={form.specialInstructions}
+                onChange={(e) => set('specialInstructions', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-analysis-purpose" label="Analysis Required For / Purpose" lockOwner={partALock}>
+              <input id="trf-analysis-purpose" disabled={!canEditA} value={form.analysisPurpose}
+                onChange={(e) => set('analysisPurpose', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-due" label="Required Completion Date" lockOwner={partALock} error={fields.requiredCompletionDate}>
+              <input id="trf-due" type="date" disabled={!canEditA} value={form.requiredCompletionDate}
+                onChange={(e) => set('requiredCompletionDate', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-qty" label="Sample Quantity" lockOwner={partALock}>
+              <input id="trf-qty" disabled={!canEditA} value={form.sampleQuantity} placeholder="e.g. 2 kg"
+                onChange={(e) => set('sampleQuantity', e.target.value)} />
+            </Field>
+
+            <EmployeeSelect
+              id="trf-sample-submitted-by"
+              label="Sample Submitted By"
+              value={form.sampleSubmittedById}
+              options={employees}
+              disabled={!canEditA}
+              lockOwner={partALock}
+              fieldError={fields.sampleSubmittedById}
+              onChange={(v) => set('sampleSubmittedById', v)}
+              placeholder="Search an employee…"
+              emptyMessage="No employees are available to pick."
+              selectedOption={sampleSubmittedByName
+                ? { id: Number(form.sampleSubmittedById) || -1, fullName: sampleSubmittedByName, designation: null, departmentName: null }
+                : null}
+            />
+
+            <Field htmlFor="trf-remarks-status" label="Status" lockOwner={partALock}>
+              <select id="trf-remarks-status" disabled={!canEditA} value={form.remarksStatus}
+                onChange={(e) => set('remarksStatus', e.target.value as RemarksStatus)}>
+                {REMARKS_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <p className="field-hint">Current state: <RemarksStatusBadge status={form.remarksStatus} /></p>
+            </Field>
+
+            {legacySampleGivenBy && (
+              <p className="field-hint field--wide">
+                Previously entered: {legacySampleGivenBy}. Pick an employee to replace it.
+              </p>
+            )}
+
+            <Field htmlFor="trf-remarks" label="Remarks" lockOwner={partALock} error={fields.remarks}>
+              <textarea id="trf-remarks" rows={2} disabled={!canEditA} value={form.remarks}
+                onChange={(e) => set('remarks', e.target.value)} />
+              {!fields.remarks && form.remarksStatus === 'Rejected' && !form.remarks.trim() && (
+                <p className="field-error">A rejected remark needs a note explaining why.</p>
+              )}
+            </Field>
+
+            <Field htmlFor="trf-signature-date" label="Signature / Date" lockOwner={partALock}>
+              <input id="trf-signature-date" type="date" disabled={!canEditA} value={form.signatureDate}
+                onChange={(e) => set('signatureDate', e.target.value)} />
+            </Field>
           </div>
-          <div />
-        </div>
+        </section>
 
-        <label htmlFor="trf-remarks">Remarks</label>
-        <textarea id="trf-remarks" rows={2} value={form.remarks} onChange={(e) => set('remarks', e.target.value)} />
-        {form.remarksStatus === 'Rejected' && !form.remarks.trim() && (
-          <p className="field-error">A rejected remark needs a note explaining why.</p>
-        )}
-        {fields.remarks && <p className="field-error">{fields.remarks}</p>}
+        <section className="card card--ard">
+          <header className="card__head">
+            <h2>ARD — Analysis Details</h2>
+            <span className="badge badge--info">ARD</span>
+            {!canEditB && <span className="badge badge--muted">Read-only</span>}
+          </header>
 
-        {canEditB && (
-          <>
-            <h2>ARD Analysis Details</h2>
-            <div className="field-pair">
-              <div>
-                <label htmlFor="trf-ard-analyst">ARD Analyst</label>
-                <select id="trf-ard-analyst" value={form.ardAnalystId} onChange={(e) => set('ardAnalystId', e.target.value)}>
-                  <option value="">Not assigned</option>
-                  {analysts.map((a) => <option key={a.id} value={a.id}>{a.fullName}{a.departmentName ? ` (${a.departmentName})` : ''}</option>)}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="trf-analysis-start">Analysis start date</label>
-                <input id="trf-analysis-start" type="date" value={form.analysisStartDate}
-                  onChange={(e) => set('analysisStartDate', e.target.value)} />
-              </div>
-            </div>
+          <div className="grid">
+            <Field htmlFor="trf-ard-number" label="A.R. No." lockOwner="System">
+              <input id="trf-ard-number" value={ardNumber} readOnly disabled placeholder="Assigned when the TRF is created" />
+            </Field>
 
-            <div className="field-pair">
-              <div>
-                <label>Reporting status</label>
-                <select value={form.reportingStatus} onChange={(e) => set('reportingStatus', e.target.value)}>
-                  <option value="Pending">Pending</option>
-                  <option value="Draft">Draft</option>
-                  <option value="Submitted">Submitted</option>
-                  <option value="Reviewed">Reviewed</option>
-                  <option value="Approved">Approved</option>
-                </select>
-              </div>
-              <div>
-                <label>COA status</label>
-                <select value={form.coaStatus} onChange={(e) => set('coaStatus', e.target.value)}>
-                  <option value="Pending">Pending</option>
-                  <option value="Draft">Draft</option>
-                  <option value="Under Review">Under Review</option>
-                  <option value="Approved">Approved</option>
-                  <option value="Issued">Issued</option>
-                </select>
-              </div>
-            </div>
+            <StageSelect
+              id="trf-ard-stage"
+              value={form.stage}
+              options={stageNames}
+              disabled={!canEditB}
+              fieldError={fields.stage}
+              onChange={(name) => set('stage', name)}
+              onCreated={(name) => set('stage', name)}
+            />
 
-            <label htmlFor="trf-ard-remarks">ARD remarks</label>
-            <textarea id="trf-ard-remarks" rows={2} value={form.ardRemarks} onChange={(e) => set('ardRemarks', e.target.value)} />
+            <Field htmlFor="trf-ard-test-requested" label="Test Requested" lockOwner="System">
+              <textarea id="trf-ard-test-requested" rows={2} value={form.requestedAnalysis} readOnly disabled />
+              <p className="field-hint">Carried forward from the Formulation request.</p>
+            </Field>
 
-            <div className="field-pair">
-              <div>
-                <label htmlFor="trf-ard-remarks-status">ARD remarks status</label>
-                <select id="trf-ard-remarks-status" value={form.ardRemarksStatus}
-                  onChange={(e) => set('ardRemarksStatus', e.target.value as ArdRemarksStatus)}>
-                  {ARD_REMARKS_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <p className="field-hint">Current state: <ArdRemarksStatusBadge status={form.ardRemarksStatus} /></p>
-              </div>
-              <div />
-            </div>
-          </>
-        )}
+            <Field htmlFor="trf-ard-test-details" label="Test Details" lockOwner="System">
+              <textarea id="trf-ard-test-details" rows={2} value={form.specialInstructions} readOnly disabled />
+              <p className="field-hint">Carried forward from the Formulation request.</p>
+            </Field>
 
-        <div className="row">
-          <button className="btn btn--primary" type="submit" disabled={busy}>
-            {busy ? 'Saving…' : isEdit ? 'Save changes' : 'Create TRF'}
-          </button>
-          {isEdit && <span className="muted">Version {version}</span>}
+            <EmployeeSelect
+              id="trf-ard-analyst"
+              label="Analyst Name"
+              value={form.ardAnalystId}
+              options={employees}
+              disabled={!canEditB}
+              lockOwner={ardLock}
+              fieldError={fields.ardAnalystId}
+              onChange={(v) => set('ardAnalystId', v)}
+              placeholder="Search an analyst…"
+              emptyMessage="No employees are available to pick."
+            />
+
+            <Field htmlFor="trf-analysis-start" label="Date of Analysis" lockOwner={ardLock} error={fields.analysisStartDate}>
+              <input id="trf-analysis-start" type="date" disabled={!canEditB} value={form.analysisStartDate}
+                onChange={(e) => set('analysisStartDate', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-reporting" label="Reporting" lockOwner={ardLock}>
+              <select id="trf-reporting" disabled={!canEditB} value={form.reportingStatus}
+                onChange={(e) => set('reportingStatus', e.target.value as ArdReportingStatus)}>
+                {ARD_REPORTING_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </Field>
+
+            <Field htmlFor="trf-coa" label="COA" lockOwner={ardLock}>
+              <select id="trf-coa" disabled={!canEditB} value={form.coaStatus}
+                onChange={(e) => set('coaStatus', e.target.value as ArdCoaStatus)}>
+                {ARD_COA_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </Field>
+
+            <Field htmlFor="trf-ard-remarks-status" label="Status" lockOwner={ardLock}>
+              <select id="trf-ard-remarks-status" disabled={!canEditB} value={form.ardRemarksStatus}
+                onChange={(e) => set('ardRemarksStatus', e.target.value as ArdRemarksStatus)}>
+                {ARD_REMARKS_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <p className="field-hint">Current state: <ArdRemarksStatusBadge status={form.ardRemarksStatus} /></p>
+            </Field>
+
+            <Field htmlFor="trf-ard-remarks" label="ARD Remark" lockOwner={ardLock} error={fields.ardRemarks}>
+              <textarea id="trf-ard-remarks" rows={2} disabled={!canEditB} value={form.ardRemarks}
+                onChange={(e) => set('ardRemarks', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-ard-tat" label="TAT" lockOwner="System">
+              <input id="trf-ard-tat" value={tat === null ? '' : String(tat)} readOnly disabled placeholder="Calculated automatically" />
+            </Field>
+
+            <Field htmlFor="trf-ard-final-status" label="Final Status" lockOwner={ardLock}>
+              <select id="trf-ard-final-status" disabled={!canEditB} value={form.workflowStatus}
+                onChange={(e) => set('workflowStatus', e.target.value as ArdWorkflowStatus)}>
+                {(['Received', 'In Progress', 'Completed', 'Cancelled'] as ArdWorkflowStatus[]).map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <p className="field-hint">Current state: <ArdFinalStatusBadge status={form.workflowStatus} /></p>
+            </Field>
+
+            <Field htmlFor="trf-sample-received-by" label="Sample Received By" lockOwner={partALock}>
+              <select id="trf-sample-received-by" disabled={!canEditA} value={form.sampleReceivedBy}
+                onChange={(e) => set('sampleReceivedBy', e.target.value)}>
+                <option value="">Not set</option>
+                {employees.map((e) => <option key={e.id} value={e.id}>{e.fullName}</option>)}
+              </select>
+            </Field>
+
+            <Field htmlFor="trf-sample-received-date" label="Sample Received Date" lockOwner={partALock} error={fields.sampleReceivedDate}>
+              <input id="trf-sample-received-date" type="date" disabled={!canEditA} value={form.sampleReceivedDate}
+                onChange={(e) => set('sampleReceivedDate', e.target.value)} />
+            </Field>
+          </div>
+
+          <div className="card__foot">
+            <FinalStatusStepper current={form.workflowStatus} />
+          </div>
+        </section>
+
+        <div className="save-bar">
+          <div className="row">
+            <button className="btn btn--primary" type="submit" disabled={busy || (!canEditA && !canEditB)}>
+              {busy ? 'Saving…' : isEdit ? 'Save changes' : 'Create TRF'}
+            </button>
+            {isEdit && <span className="muted">Version {version}</span>}
+            {!canEditA && !canEditB && <span className="muted">You have read-only access to this TRF.</span>}
+            {can('trf.changeStatus') && <span className="muted">The TRF status is changed on the TRF page.</span>}
+          </div>
         </div>
       </form>
     </div>

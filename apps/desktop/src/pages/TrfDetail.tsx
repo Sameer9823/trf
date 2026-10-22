@@ -6,10 +6,11 @@ import { messageOf } from '../lib/api';
 import { assignmentApi, assignmentStatusLabel, assignmentStatusTone } from '../lib/assignments';
 import { useAuth } from '../lib/auth';
 import { BulkAssign } from '../components/BulkAssign';
-import { OverdueBadge, PriorityBadge, StatusBadge, ArdWorkflowBadge, ArdCoaBadge, allowedNextStatuses, allowedNextArdStatuses, formatDate } from '../components/Badges';
+import { OverdueBadge, PriorityBadge, StatusBadge, ArdCoaBadge, ArdReportingBadge, allowedNextStatuses, allowedNextArdStatuses, formatDate } from '../components/Badges';
+import { ArdFinalStatusBadge, ArdStageBadge, RemarksStatusBadge, ArdRemarksStatusBadge } from '../components/Badges';
 import { OfflineNotice } from '../components/OfflineNotice';
 import { useServerStatus } from '../lib/server-status';
-import { RemarksStatusBadge, ArdRemarksStatusBadge } from '../components/Badges';
+import { FinalStatusStepper } from './TrfForm';
 
 type Tab = 'details' | 'history' | 'ard-history';
 
@@ -201,63 +202,83 @@ export function TrfDetailPage() {
 
       {tab === 'details' && (
         <>
-          <dl className="facts facts--wide">
-            <dt>TRF date</dt><dd>{formatDate(trf.trfDate)}</dd>
-            <dt>Customer</dt><dd>{trf.customerName ?? '—'}</dd>
-            <dt>Product</dt><dd>{trf.productName ?? '—'}</dd>
-            <dt>Batch number</dt><dd>{trf.batchNumber ?? '—'}</dd>
-            <dt>Sample quantity</dt><dd>{trf.sampleQuantity ?? '—'}</dd>
-            <dt>Sample received</dt><dd>{formatDate(trf.sampleReceivedDate)}</dd>
-            <dt>Required completion</dt><dd>{formatDate(trf.requiredCompletionDate)}</dd>
-            <dt>Priority</dt><dd><PriorityBadge priority={trf.priority} /></dd>
-            <dt>Assigned employee</dt><dd>{trf.assignedEmployeeName ?? 'Not assigned'}</dd>
-            <dt>Department</dt><dd>{trf.departmentName ?? '—'}</dd>
-            <dt>Created by</dt><dd>{trf.createdByName ?? '—'}</dd>
-            <dt>Created</dt><dd>{new Date(trf.createdAt).toLocaleString()}</dd>
-            <dt>Requested analysis</dt><dd className="pre">{trf.requestedAnalysis ?? '—'}</dd>
-            <dt>Special instructions</dt><dd className="pre">{trf.specialInstructions ?? '—'}</dd>
-            <dt>Remarks</dt><dd className="pre">{trf.remarks ?? '—'}</dd>
-            <dt>Remarks status</dt><dd><RemarksStatusBadge status={trf.remarksStatus} /></dd>
-            <dt>Batch size</dt><dd>{trf.batchSize ?? '—'}</dd>
-            <dt>Dosage form</dt><dd>{trf.dosageForm ?? '—'}</dd>
-            <dt>Manufacturing location</dt><dd>{trf.manufacturingLocation ?? '—'}</dd>
-            <dt>Label claim</dt><dd>{trf.labelClaim ?? '—'}</dd>
-            <dt>Pack size</dt><dd>{trf.packSize ?? '—'}</dd>
-            <dt>Pack type</dt><dd>{trf.packType ?? '—'}</dd>
-            <dt>Storage condition</dt><dd>{trf.storageCondition ?? '—'}</dd>
-            <dt>Storage period</dt><dd>{trf.storagePeriod ?? '—'}</dd>
-            <dt>Manufacturing date</dt><dd>{formatDate(trf.manufacturingDate)}</dd>
-            <dt>Expiry date</dt><dd>{formatDate(trf.expiryDate)}</dd>
-            <dt>Analysis purpose</dt><dd>{trf.analysisPurpose ?? '—'}</dd>
-            <dt>Sample submitted by</dt><dd>{trf.sampleGivenBy ?? '—'}</dd>
-             <dt>Sample received by</dt><dd>{trf.sampleReceivedByName ?? '—'}</dd>
-             <dt>Signature date</dt><dd>{formatDate(trf.signatureDate)}</dd>
-          </dl>
+          <section className="card card--part-a">
+            <header className="card__head">
+              <h2>Part A — Formulation</h2>
+            </header>
+            <dl className="facts facts--wide">
+              <dt>TRF No.</dt><dd>{trf.trfNumber}</dd>
+              <dt>Date of Request</dt><dd>{formatDate(trf.trfDate)}</dd>
+              <dt>Product Name</dt><dd>{trf.productName ?? '—'}</dd>
+              <dt>Batch Number</dt><dd>{trf.batchNumber ?? '—'}</dd>
+              <dt>Batch Size</dt><dd>{trf.batchSize ?? '—'}</dd>
+              <dt>Market/Customer</dt><dd>{trf.customerName ?? '—'}</dd>
+              <dt>Dosage Form</dt><dd>{trf.dosageForm ?? '—'}</dd>
+              <dt>Manufacturing Location</dt><dd>{trf.manufacturingLocation ?? '—'}</dd>
+              <dt>Label Claim</dt><dd>{trf.labelClaim ?? '—'}</dd>
+              <dt>Pack Size</dt><dd>{trf.packSize ?? '—'}</dd>
+              <dt>Pack Type</dt><dd>{trf.packType ?? '—'}</dd>
+              <dt>Storage Condition</dt><dd>{trf.storageCondition ?? '—'}</dd>
+              <dt>Storage Period</dt><dd>{trf.storagePeriod ?? '—'}</dd>
+              <dt>Manufacturing Date</dt><dd>{formatDate(trf.manufacturingDate)}</dd>
+              <dt>Expiry Date</dt><dd>{formatDate(trf.expiryDate)}</dd>
+              <dt>Test Requested</dt><dd className="pre">{trf.requestedAnalysis ?? '—'}</dd>
+              <dt>Test Details</dt><dd className="pre">{trf.specialInstructions ?? '—'}</dd>
+              <dt>Analysis Required For / Purpose</dt><dd>{trf.analysisPurpose ?? '—'}</dd>
+              <dt>Required Completion Date</dt><dd>{formatDate(trf.requiredCompletionDate)}</dd>
+              <dt>Sample Quantity</dt><dd>{trf.sampleQuantity ?? '—'}</dd>
+              <dt>Sample Submitted By</dt>
+              <dd>{trf.sampleSubmittedByName ?? (trf.sampleGivenBy ? `Previously entered: ${trf.sampleGivenBy}` : '—')}</dd>
+              <dt>Status</dt><dd><RemarksStatusBadge status={trf.remarksStatus} /></dd>
+              <dt>Remarks</dt><dd className="pre">{trf.remarks ?? '—'}</dd>
+              <dt>Signature / Date</dt><dd>{formatDate(trf.signatureDate)}</dd>
+            </dl>
+            <div className="card__foot">
+              <dl className="facts facts--inline">
+                <dt>Priority</dt><dd><PriorityBadge priority={trf.priority} /></dd>
+                <dt>Status</dt><dd><StatusBadge status={trf.status} />{trf.isOverdue && <OverdueBadge />}</dd>
+                <dt>Assigned employee</dt><dd>{trf.assignedEmployeeName ?? 'Not assigned'}</dd>
+                <dt>Department</dt><dd>{trf.departmentName ?? '—'}</dd>
+                <dt>Created by</dt><dd>{trf.createdByName ?? '—'}</dd>
+                <dt>Created</dt><dd>{new Date(trf.createdAt).toLocaleString()}</dd>
+              </dl>
+            </div>
+          </section>
 
-          <section className="panel panel--ard">
-            <h2>ARD Analysis Details</h2>
+          <section className="card card--ard">
+            <header className="card__head">
+              <h2>ARD — Analysis Details</h2>
+              <span className="badge badge--info">ARD</span>
+            </header>
             <dl className="facts facts--wide">
               <dt>A.R. No.</dt><dd>{trf.ardNumber ?? '—'}</dd>
-              <dt>Stage</dt><dd><ArdWorkflowBadge status={trf.workflowStatus} /></dd>
-              <dt>Test requested</dt><dd className="pre">{trf.requestedAnalysis ?? '—'}</dd>
-              <dt>Analyst</dt><dd>{trf.analystName ?? 'Not assigned'}</dd>
-              <dt>Date of analysis</dt><dd>{formatDate(trf.analysisStartDate)}</dd>
-              <dt>Reporting</dt><dd>{trf.reportingStatus}</dd>
+              <dt>Stage</dt><dd><ArdStageBadge stage={trf.stage} /></dd>
+              <dt>Test Requested</dt><dd className="pre">{trf.requestedAnalysis ?? '—'} <span className="muted">— carried forward from the Formulation request</span></dd>
+              <dt>Test Details</dt><dd className="pre">{trf.specialInstructions ?? '—'} <span className="muted">— carried forward from the Formulation request</span></dd>
+              <dt>Analyst Name</dt><dd>{trf.analystName ?? 'Not assigned'}</dd>
+              <dt>Date of Analysis</dt><dd>{formatDate(trf.analysisStartDate)}</dd>
+              <dt>Reporting</dt><dd><ArdReportingBadge status={trf.reportingStatus} /></dd>
               <dt>COA</dt><dd><ArdCoaBadge status={trf.coaStatus} /></dd>
-              <dt>Remark</dt><dd className="pre">{trf.ardRemarks ?? '—'}</dd>
-              <dt>ARD remarks status</dt><dd><ArdRemarksStatusBadge status={trf.ardRemarksStatus} /></dd>
-              <dt>TAT (days)</dt><dd>{trf.tat?.toString() ?? '—'}</dd>
+              <dt>Status</dt><dd><ArdRemarksStatusBadge status={trf.ardRemarksStatus} /></dd>
+              <dt>ARD Remark</dt><dd className="pre">{trf.ardRemarks ?? '—'}</dd>
+              <dt>TAT</dt><dd>{trf.tat?.toString() ?? '—'}</dd>
+              <dt>Final Status</dt><dd><ArdFinalStatusBadge status={trf.workflowStatus} /></dd>
+              <dt>Sample Received By</dt><dd>{trf.sampleReceivedByName ?? '—'}</dd>
+              <dt>Sample Received Date</dt><dd>{formatDate(trf.sampleReceivedDate)}</dd>
             </dl>
 
-            {canEditB && nextArdStatuses.length > 0 && (
-              <div className="row">
-                {nextArdStatuses.map((next) => (
-                  <button key={next} className="btn" disabled={busy} onClick={() => changeArdStatus(next)}>
-                    {next}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="card__foot">
+              <FinalStatusStepper current={trf.workflowStatus} />
+              {canEditB && nextArdStatuses.length > 0 && (
+                <div className="row">
+                  {nextArdStatuses.map((next) => (
+                    <button key={next} className="btn" disabled={busy} onClick={() => changeArdStatus(next)}>
+                      Move to {next}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </section>
 
           <section className="panel">
@@ -370,7 +391,7 @@ export function TrfDetailPage() {
               <tr key={entry.id}>
                 <td>{new Date(entry.changedAt).toLocaleString()}</td>
                 <td>{entry.oldStatus ?? '—'}</td>
-                <td><ArdWorkflowBadge status={entry.newStatus} /></td>
+                <td><ArdFinalStatusBadge status={entry.newStatus} /></td>
                 <td>{entry.changedByName ?? '—'}</td>
                 <td>{entry.note ?? '—'}</td>
               </tr>

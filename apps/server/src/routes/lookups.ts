@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import type { Customer, Product } from '@trf/shared';
+import type { Customer, Product, StageOption } from '@trf/shared';
+import { QueryResult } from 'pg';
 import { pool, withTransaction } from '../db';
-import { duplicateError, forbidden, conflict } from '../lib/errors';
+import { duplicateError, forbidden, conflict, badRequest } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
-import { authenticate, currentEmployee, requirePermission, requireTrfLookupEdit, validateBody } from '../middleware/auth';
+import { authenticate, currentEmployee, requirePermission, requireTrfLookupEdit, requireArdEdit, validateBody } from '../middleware/auth';
 
 export const lookupsRouter = Router();
 // Customers and products are readable by anyone who can see a TRF, because the
@@ -188,5 +189,62 @@ lookupsRouter.patch('/products/:id', requirePermission('employees.manage'), vali
     res.json(toProduct(updated));
   } catch (err) {
     next(duplicateError(err, { products_code_key: 'A product with this code already exists.' }) ?? err);
+  }
+});
+
+const stageSchema = z.object({
+  name: z.string().trim().min(2, 'Enter at least 2 characters.').max(60, 'The stage must be at most 60 characters.'),
+});
+
+/** Active stages offered in the ARD Stage dropdown. Anyone who can see a TRF may read them. */
+lookupsRouter.get('/stages', requirePermission('trf.view'), async (_req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name, is_active FROM ard_stages WHERE is_active = TRUE ORDER BY name ASC`,
+    );
+    const items: StageOption[] = (result.rows as { id: number; name: string; is_active: boolean }[])
+      .map((r) => ({ id: r.id, name: r.name, isActive: r.is_active }));
+    res.json({ items });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Create a stage. Requires Part B rights (canEditTrfPartB). Whitespace is
+ * collapsed and trimmed; 2-60 characters; a case-insensitive duplicate reuses
+ * the existing record and tells the user. An unknown stage saved on a TRF is
+ * a 400 with a field message, never a 500.
+ */
+lookupsRouter.post('/stages', requireArdEdit(), validateBody(stageSchema), async (req, res, next) => {
+  const user = currentEmployee(req);
+  try {
+    const b = req.body as z.infer<typeof stageSchema>;
+    const name = b.name.replace(/\s+/g, ' ').trim();
+    if (name.length < 2) throw badRequest('Enter at least 2 characters.', { name: 'Enter at least 2 characters.' });
+    if (name.length > 60) throw badRequest('The stage must be at most 60 characters.', { name: 'The stage must be at most 60 characters.' });
+
+    const existing = await pool.query(
+      `SELECT id, name, is_active FROM ard_stages WHERE lower(name) = lower($1) LIMIT 1`, [name],
+    );
+    if (existing.rowCount) {
+      const row = existing.rows[0] as { id: number; name: string; is_active: boolean };
+      // Reuse the existing record and tell the user.
+      return res.json({ item: { id: row.id, name: row.name, isActive: row.is_active }, duplicate: true });
+    }
+
+    const created = await withTransaction(async (client) => {
+      const result = await client.query(
+        `INSERT INTO ard_stages (name, is_active, created_by) VALUES ($1, TRUE, $2) RETURNING id, name, is_active`,
+        [name, user.id],
+      );
+      const row = result.rows[0] as { id: number; name: string; is_active: boolean };
+      await writeAudit(client, {
+        userId: user.id, userName: user.fullName, action: 'ard.stage_created', module: 'trf',
+        recordType: 'ARD Stage', recordRef: name, newValue: { name },
+      });
+      return row;
+    });
+    res.status(201).json({ item: { id: created.id, name: created.name, isActive: created.is_active }, duplicate: false });
+  } catch (err) {
+    next(duplicateError(err, { ard_stages_name_unique: 'A stage with this name already exists.' }) ?? err);
   }
 });

@@ -3,6 +3,7 @@ export * from './messages';
 export * from './auth';
 export * from './core';
 export * from './trf';
+export * from './trf-fields';
 export * from './assignment';
 export * from './analysis';
 export * from './coa';

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { QueryResult, QueryResultRow } from 'pg';
-import { EmployeeProfile, MESSAGES, Paginated, ROLES } from '@trf/shared';
+import { EmployeeOption, EmployeeProfile, MESSAGES, Paginated, ROLES } from '@trf/shared';
 import { pool, withTransaction } from '../db';
 import { AppError, badRequest, conflict, duplicateError, forbidden, notFound } from '../lib/errors';
 import { EMPLOYEE_FROM, EMPLOYEE_SELECT, EmployeeRow, toProfile } from '../lib/employees';
@@ -155,6 +155,35 @@ employeesRouter.get('/assignable', requirePermission('employees.view'), async (_
        ORDER BY e.full_name ASC`,
     );
     res.json({ items: result.rows.map(toProfile) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Active employees with just enough info to populate a dropdown: id, full
+ * name, designation and department. Anyone who can see a TRF may call this,
+ * so the form's "Sample Submitted By" control is not limited to the
+ * employees.manage permission. The password hash is never selected.
+ */
+employeesRouter.get('/for-select', requirePermission('trf.view'), async (_req, res, next) => {
+  try {
+    const result = await pool.query<{
+      id: number; full_name: string; designation: string | null; department_name: string | null;
+    }>(
+      `SELECT e.id, e.full_name, e.designation, d.name AS department_name
+       FROM employees e
+       LEFT JOIN departments d ON d.id = e.department_id
+       WHERE e.is_active = TRUE
+       ORDER BY e.full_name ASC`,
+    );
+    const items: EmployeeOption[] = result.rows.map((row) => ({
+      id: row.id,
+      fullName: row.full_name,
+      designation: row.designation,
+      departmentName: row.department_name,
+    }));
+    res.json({ items });
   } catch (err) {
     next(err);
   }

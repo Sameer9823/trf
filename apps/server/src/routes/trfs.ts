@@ -2,10 +2,10 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { EmployeeProfile, TrfListPage, TrfStatus, TrfStatusHistoryEntry, ArdStatusHistoryEntry } from '@trf/shared';
 import {
-   MESSAGES, PRIORITIES, TRF_STATUS_TRANSITIONS, canTransitionTrf, canTransitionArd,
-   TERMINAL_ARD_STATUSES, ARD_WORKFLOW_TRANSITIONS, roleHasPermission, canEditTrfPartA, canEditTrfPartB,
+   MESSAGES, PRIORITIES, TRF_STATUS_TRANSITIONS, canTransitionTrf,
+   TERMINAL_ARD_STATUSES, roleHasPermission, canEditTrfPartA, canEditTrfPartB,
    ArdWorkflowStatus, ArdRemarksStatus, ARD_REMARKS_STATUSES,
- } from '@trf/shared';
+} from '@trf/shared';
 import { pool, withTransaction } from '../db';
 import { AppError, badRequest, conflict, forbidden, notFound, versionConflict } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
@@ -49,23 +49,29 @@ const createSchema = z.object({
   manufacturingDate: ISO_DATE.nullable().optional(),
   expiryDate: ISO_DATE.nullable().optional(),
   analysisPurpose: z.string().trim().max(1000).nullable().optional(),
-   sampleGivenBy: z.string().trim().max(200).nullable().optional(),
-   signatureDate: ISO_DATE.nullable().optional(),
-   remarksStatus: z.enum(['Pending', 'Approved', 'Rejected']).optional(),
-   sampleReceivedBy: z.number().int().positive().nullable().optional(),
-   ardRemarksStatus: z.enum(ARD_REMARKS_STATUSES).optional(),
+    sampleGivenBy: z.string().trim().max(200).nullable().optional(),
+    sampleSubmittedById: z.number().int().positive().nullable().optional(),
+    signatureDate: ISO_DATE.nullable().optional(),
+    remarksStatus: z.enum(['Pending', 'Approved', 'Rejected']).optional(),
+    sampleReceivedBy: z.number().int().positive().nullable().optional(),
+    ardRemarksStatus: z.enum(ARD_REMARKS_STATUSES).optional(),
 });
 
 const updateSchema = createSchema.partial().extend({
   version: z.number().int().positive(),
+  // The ARD block: Stage, Analyst Name, Date of Analysis, Reporting, COA,
+  // the ARD remark Status and note, and the Final Status.
   ardAnalystId: z.number().int().positive().nullable().optional(),
   analysisStartDate: ISO_DATE.nullable().optional(),
-  reportingStatus: z.enum(['Pending', 'Draft', 'Submitted', 'Reviewed', 'Approved']).optional(),
+  reportingStatus: z.enum(['Pending', 'Draft', 'Submitted', 'Reviewed', 'Approved', 'Rejected']).optional(),
   coaStatus: z.enum(['Pending', 'Draft', 'Under Review', 'Approved', 'Issued']).optional(),
+  workflowStatus: z.enum(ArdWorkflowStatus).optional(),
+  ardStage: z.string().trim().min(1, 'Enter a stage.').max(60, 'The stage must be at most 60 characters.').optional(),
   ardRemarks: z.string().trim().max(2000).nullable().optional(),
   ardRemarksStatus: z.enum(ARD_REMARKS_STATUSES).optional(),
   remarksStatus: z.enum(['Pending', 'Approved', 'Rejected']).optional(),
   sampleReceivedBy: z.number().int().positive().nullable().optional(),
+  note: z.string().trim().max(500).nullable().optional(),
 });
 
 const ardStatusSchema = z.object({
@@ -93,20 +99,30 @@ function scopeFor(employee: EmployeeProfile): Scope | null {
   return roleHasPermission(employee.role, 'trf.viewAll') ? null : { employeeId: employee.id };
 }
 
-/** Only fields an ordinary edit may touch. Status and the TRF number are not editable. */
+/**
+ * Part A fields an ordinary edit may touch. The Formulation team owns all of
+ * them, including "Sample Submitted By" and the Formulation Status.
+ * The TRF number, the status and the ARD block are not in this list.
+ */
 const EDITABLE_FORMULATION = [
   'trfDate', 'customerId', 'productId', 'batchNumber', 'sampleQuantity',
   'requiredCompletionDate', 'requestedAnalysis', 'specialInstructions', 'remarks',
   'batchSize', 'dosageForm', 'manufacturingLocation', 'labelClaim', 'packSize',
   'packType', 'storageCondition', 'storagePeriod', 'manufacturingDate', 'expiryDate',
-   'analysisPurpose',   'sampleGivenBy', 'signatureDate', 'priority',
-   'sampleReceivedBy', 'remarksStatus',
- ] as const;
+  'analysisPurpose', 'sampleGivenBy', 'sampleSubmittedById', 'signatureDate',
+  'priority', 'sampleReceivedBy', 'sampleReceivedDate', 'remarksStatus',
+] as const;
 
-/** ARD Part B fields that only the ARD team may edit via PATCH. */
+/**
+ * ARD block fields that only the ARD team may edit via PATCH. This is exactly
+ * the ARD block items 2, 5, 6, 7, 8, 9 and 11. Items 1 (A.R. No.), 3 and 4
+ * (the carried-forward test details) and 10 (TAT) are read-only for everybody,
+ * so they are not listed here and can never be written.
+ */
 const EDITABLE_ARD = [
   'ardAnalystId', 'analysisStartDate', 'reportingStatus',
-  'coaStatus', 'ardRemarks', 'ardRemarksStatus',
+  'coaStatus', 'ardRemarks', 'ardRemarksStatus', 'workflowStatus',
+  'ardStage',
 ] as const;
 
 const COLUMN: Record<string, string> = {
@@ -131,16 +147,19 @@ const COLUMN: Record<string, string> = {
   expiryDate: 'expiry_date',
   analysisPurpose: 'analysis_purpose',
   sampleGivenBy: 'sample_given_by',
+  sampleSubmittedById: 'sample_submitted_by_id',
   signatureDate: 'signature_date',
   priority: 'priority',
   ardAnalystId: 'ard_analyst_id',
   analysisStartDate: 'analysis_start_date',
   workflowStatus: 'workflow_status',
+  ardStage: 'ard_stage',
   reportingStatus: 'reporting_status',
   coaStatus: 'coa_status',
    ardRemarks: 'ard_remarks',
    remarksStatus: 'remarks_status',
    sampleReceivedBy: 'sample_received_by',
+   sampleReceivedDate: 'sample_received_date',
    ardRemarksStatus: 'ard_remarks_status',
 };
 
@@ -166,12 +185,16 @@ function buildWhere(filters: ReturnType<typeof toFilters>, params: unknown[], sc
   }
 
   if (filters.search) {
-    // One parameter, five comparisons: PostgreSQL can reuse the one plan.
+    // One parameter, nine comparisons: PostgreSQL can reuse the one plan.
+    // Test Requested and Test Details are searched here too, so a user can find
+    // a TRF by what it asks for.
     params.push(`%${filters.search.toLowerCase()}%`);
     const p = params.length;
     clauses.push(`(lower(t.trf_number) LIKE $${p} OR lower(COALESCE(t.batch_number, '')) LIKE $${p}
       OR lower(COALESCE(c.name, '')) LIKE $${p} OR lower(COALESCE(p.name, '')) LIKE $${p}
-      OR lower(COALESCE(e.full_name, '')) LIKE $${p} OR lower(COALESCE(an.full_name, '')) LIKE $${p})`);
+      OR lower(COALESCE(e.full_name, '')) LIKE $${p} OR lower(COALESCE(an.full_name, '')) LIKE $${p}
+      OR lower(COALESCE(ssb.full_name, '')) LIKE $${p} OR lower(COALESCE(t.sample_given_by, '')) LIKE $${p}
+      OR lower(COALESCE(t.requested_analysis, '')) LIKE $${p} OR lower(COALESCE(t.special_instructions, '')) LIKE $${p})`);
   }
   if (filters.status.length) {
     params.push(filters.status);
@@ -208,7 +231,8 @@ trfsRouter.get('/', requirePermission('trf.view'), async (req, res, next) => {
         LEFT JOIN customers c ON c.id = t.customer_id
         LEFT JOIN products p ON p.id = t.product_id
         LEFT JOIN employees e ON e.id = t.assigned_employee_id
-        LEFT JOIN employees an ON an.id = t.ard_analyst_id ${whereSql}`,
+        LEFT JOIN employees an ON an.id = t.ard_analyst_id
+        LEFT JOIN employees ssb ON ssb.id = t.sample_submitted_by_id ${whereSql}`,
       params,
     );
     const total = Number(countResult.rows[0].count);
@@ -315,34 +339,38 @@ trfsRouter.post('/', requireTrfCreate(), validateBody(createSchema), async (req,
       const existing = await pool.query('SELECT 1 FROM customers WHERE id = $1', [body.customerId]);
       if (!existing.rowCount) throw badRequest('That customer does not exist.', { customerId: 'Select a customer from the list or create one first.' });
     }
-    if (body.productId) {
-      const existing = await pool.query('SELECT 1 FROM products WHERE id = $1', [body.productId]);
-      if (!existing.rowCount) throw badRequest('That product does not exist.', { productId: 'Select a product from the list or create one first.' });
-    }
+     if (body.productId) {
+       const existing = await pool.query('SELECT 1 FROM products WHERE id = $1', [body.productId]);
+       if (!existing.rowCount) throw badRequest('That product does not exist.', { productId: 'Select a product from the list or create one first.' });
+     }
+     if (body.sampleSubmittedById) {
+       const existing = await pool.query('SELECT 1 FROM employees WHERE id = $1 AND is_active = TRUE', [body.sampleSubmittedById]);
+       if (!existing.rowCount) throw badRequest('That employee does not exist or is not active.', { sampleSubmittedById: 'Select a valid employee from the list.' });
+     }
 
 
     const created = await withTransaction(async (client) => {
       const trfNumber = await nextNumber(client, 'TRF', Number(body.trfDate.slice(0, 4)));
       const inserted = await client.query<{ id: number }>(
-        `INSERT INTO trfs (trf_number, trf_date, customer_id, product_id, batch_number, sample_quantity,
-            sample_received_date, required_completion_date, priority, requested_analysis,
-            special_instructions, department_id, remarks, batch_size, dosage_form,
-            manufacturing_location, label_claim, pack_size, pack_type, storage_condition,
-            storage_period, manufacturing_date, expiry_date, analysis_purpose,
-            sample_given_by, signature_date, created_by, remarks_status, ard_remarks_status, sample_received_by)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-            $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
-          RETURNING id`,
-        [trfNumber, body.trfDate, body.customerId, body.productId,
-          body.batchNumber ?? null, body.sampleQuantity ?? null, body.sampleReceivedDate ?? null,
-          body.requiredCompletionDate ?? null, body.priority, body.requestedAnalysis ?? null,
-          body.specialInstructions ?? null, body.departmentId ?? user.departmentId ?? null,
-          body.remarks ?? null, body.batchSize ?? null, body.dosageForm ?? null,
-          body.manufacturingLocation ?? null, body.labelClaim ?? null, body.packSize ?? null,
-          body.packType ?? null, body.storageCondition ?? null, body.storagePeriod ?? null,
-          body.manufacturingDate ?? null, body.expiryDate ?? null, body.analysisPurpose ?? null,
-          body.sampleGivenBy ?? null, body.signatureDate ?? null, user.id,
-          body.remarksStatus ?? 'Pending', body.ardRemarksStatus ?? 'Pending', body.sampleReceivedBy ?? null],
+         `INSERT INTO trfs (trf_number, trf_date, customer_id, product_id, batch_number, sample_quantity,
+             sample_received_date, required_completion_date, priority, requested_analysis,
+             special_instructions, department_id, remarks, batch_size, dosage_form,
+             manufacturing_location, label_claim, pack_size, pack_type, storage_condition,
+             storage_period, manufacturing_date, expiry_date, analysis_purpose,
+             sample_given_by, sample_submitted_by_id, signature_date, created_by, remarks_status, ard_remarks_status, sample_received_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+             $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
+           RETURNING id`,
+         [trfNumber, body.trfDate, body.customerId, body.productId,
+           body.batchNumber ?? null, body.sampleQuantity ?? null, body.sampleReceivedDate ?? null,
+           body.requiredCompletionDate ?? null, body.priority, body.requestedAnalysis ?? null,
+           body.specialInstructions ?? null, body.departmentId ?? user.departmentId ?? null,
+           body.remarks ?? null, body.batchSize ?? null, body.dosageForm ?? null,
+           body.manufacturingLocation ?? null, body.labelClaim ?? null, body.packSize ?? null,
+           body.packType ?? null, body.storageCondition ?? null, body.storagePeriod ?? null,
+           body.manufacturingDate ?? null, body.expiryDate ?? null, body.analysisPurpose ?? null,
+           body.sampleGivenBy ?? null, body.sampleSubmittedById ?? null, body.signatureDate ?? null, user.id,
+           body.remarksStatus ?? 'Pending', body.ardRemarksStatus ?? 'Pending', body.sampleReceivedBy ?? null],
       );
       const id = inserted.rows[0].id;
 
@@ -415,23 +443,94 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
         }
       }
 
+      // Validate the employee references. An id that is not an active employee
+      // is refused with a message on the field, not a database error.
+      if (body.sampleSubmittedById !== undefined && body.sampleSubmittedById !== null) {
+        const emp = await client.query('SELECT 1 FROM employees WHERE id = $1 AND is_active = TRUE', [body.sampleSubmittedById]);
+        if (!emp.rowCount) throw badRequest('That employee does not exist or is not active.', {
+          sampleSubmittedById: 'Select a valid employee from the list.',
+        });
+      }
+      if (body.ardAnalystId !== undefined && body.ardAnalystId !== null) {
+        const analyst = await client.query('SELECT 1 FROM employees WHERE id = $1 AND is_active = TRUE', [body.ardAnalystId]);
+        if (!analyst.rowCount) throw badRequest('That employee does not exist or is not active.', {
+          ardAnalystId: 'Select a valid employee from the list.',
+        });
+      }
+
+      // Stage must be a known stage (active or inactive legacy). An unknown
+      // stage is a 400 with a field message, never a 500 from the database.
+      // A stage already on the row needs no validation; a new value must exist
+      // in ard_stages. Only active stages are offered in the dropdown, but
+      // existing legacy values remain valid so nothing is lost.
+      if (body.ardStage !== undefined && body.ardStage !== null && body.ardStage !== current.ard_stage) {
+        const known = await client.query('SELECT 1 FROM ard_stages WHERE name = $1', [body.ardStage]);
+        if (!known.rowCount) throw badRequest('That stage is not known.', { stage: 'Choose a stage from the list.' });
+      }
+
+      // The sample cannot have been received before the request was made.
+      if (body.sampleReceivedDate !== undefined && body.sampleReceivedDate !== null) {
+        const storedDate: unknown = current.trf_date;
+        const trfDate = body.trfDate
+          ?? (typeof storedDate === 'string'
+            ? storedDate.slice(0, 10)
+            : storedDate instanceof Date ? storedDate.toISOString().slice(0, 10) : '');
+        if (trfDate && body.sampleReceivedDate < trfDate) {
+          throw badRequest('The sample received date cannot be earlier than the TRF date.', {
+            sampleReceivedDate: 'The sample received date cannot be earlier than the TRF date.',
+          });
+        }
+      }
+
+      // ARD workflow status: setting Completed requires an Analyst Name and a
+      // Date of Analysis. Moving back out of a terminal state clears
+      // finalized_at so the TAT starts counting from today again.
+      const workflowChanged = body.workflowStatus !== undefined && body.workflowStatus !== current.workflow_status;
+      if (workflowChanged && body.workflowStatus === 'Completed') {
+        const analystId = body.ardAnalystId ?? current.ard_analyst_id;
+        if (!analystId) {
+          throw badRequest('An analyst must be assigned before the workflow can be completed.', {
+            ardAnalystId: 'Select an analyst first.',
+          });
+        }
+        const startDate = body.analysisStartDate ?? current.analysis_start_date;
+        if (!startDate) {
+          throw badRequest('Analysis start date is required before the workflow can be completed.', {
+            analysisStartDate: 'Set the analysis start date first.',
+          });
+        }
+      }
+
       const fields = [...formFields, ...ardFields];
       if (!fields.length) throw badRequest('There is nothing to update.');
 
-      const params: unknown[] = fields.map((key) => normalise(body[key]));
+      // Build the SET clause: body fields plus any derived columns.
+      // When the Final Status becomes terminal, finalized_at is stamped so the
+      // TAT freezes. When it leaves a terminal state, finalized_at is cleared
+      // so the TAT counts from today again.
+      const isTerminal = TERMINAL_ARD_STATUSES.includes(body.workflowStatus as ArdWorkflowStatus);
+      const setClause = fields.map((key, i) => `${COLUMN[key]} = $${i + 1}`);
+      const updateParams: unknown[] = fields.map((key) => normalise(body[key]));
+
+      if (workflowChanged) {
+        setClause.push(`finalized_at = $${setClause.length + 1}`);
+        updateParams.push(isTerminal ? new Date() : null);
+      }
+
       const result = await client.query<{ id: number }>(
-        `UPDATE trfs SET ${fields.map((key, i) => `${COLUMN[key]} = $${i + 1}`).join(', ')},
+        `UPDATE trfs SET ${setClause.join(', ')},
            version = version + 1
-         WHERE id = $${fields.length + 1} AND version = $${fields.length + 2}
+         WHERE id = $${updateParams.length + 1} AND version = $${updateParams.length + 2}
          RETURNING id`,
-        [...params, id, body.version],
+        [...updateParams, id, body.version],
       );
       // Somebody else saved between the client reading the record and this save.
       if (result.rowCount === 0) throw versionConflict();
 
-      // One audit row per changed field, old value to new value. The comparison
-      // is against the locked row, so it records what really changed.
-      for (const key of fields) {
+      // One audit row per changed field. The comparison is against the locked row,
+      // so it records what really changed.
+      const auditFields = [...formFields, ...ardFields];
+      for (const key of auditFields) {
         const col = COLUMN[key];
         const oldRaw = (current as unknown as Record<string, unknown>)[col];
         const oldValue = oldRaw instanceof Date ? oldRaw.toISOString().slice(0, 10) : oldRaw ?? null;
@@ -446,6 +545,16 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
           newValue: { field: key, value: newValue },
 });
 
+      }
+
+      // Every Final Status change is kept in the ARD history, whether it came
+      // from this form or from the /ard-status endpoint.
+      if (workflowChanged) {
+        await client.query(
+          `INSERT INTO ard_status_history (trf_id, old_status, new_status, changed_by, note)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [id, current.workflow_status, body.workflowStatus, user.id, body.note ?? null],
+        );
       }
       return id;
     });
@@ -575,9 +684,14 @@ trfsRouter.delete('/:id', requireTrfDelete(), async (req, res, next) => {
 });
 
 /**
- * ARD workflow status transition. Only ARD department users (plus Admin and
- * Manager) may drive the workflow. The transition is validated against
- * ARD_WORKFLOW_TRANSITIONS, and terminal states fix finalized_at so TAT is stable.
+ * ARD Final Status transition. Only ARD department users (plus Admin and
+ * Manager) may drive it: the route never asks for the trf.changeStatus
+ * permission, so an ARD Analyst can set the Final Status of a TRF.
+ *
+ * The route changes the Final Status only. The Stage is a separate dropdown
+ * with its own column and is not touched here. Terminal states stamp
+ * finalized_at so the TAT freezes at that date; leaving a terminal state
+ * clears it again so the TAT counts from today.
  */
 trfsRouter.post('/:id/ard-status', requireArdEdit(), validateBody(ardStatusSchema), async (req, res, next) => {
   const user = currentEmployee(req);
@@ -589,28 +703,37 @@ trfsRouter.post('/:id/ard-status', requireArdEdit(), validateBody(ardStatusSchem
     const result = await withTransaction(async (client) => {
       const locked = await client.query<{
         workflow_status: ArdWorkflowStatus; ard_stage: string; version: number;
+        ard_analyst_id: number | null; analysis_start_date: string | null;
         ard_number: string | null; trf_number: string;
-      }>(`SELECT workflow_status, ard_stage, version, ard_number, t.trf_number FROM trfs t WHERE t.id = $1 FOR UPDATE OF t`, [id]);
+      }>(`SELECT workflow_status, ard_stage, version, ard_analyst_id, analysis_start_date,
+                 ard_number, t.trf_number FROM trfs t WHERE t.id = $1 FOR UPDATE OF t`, [id]);
       const current = locked.rows[0];
       if (!current) throw notFound();
       if (current.version !== body.version) throw versionConflict();
 
-      if (!canTransitionArd(current.workflow_status, body.status)) {
-        const allowed = ARD_WORKFLOW_TRANSITIONS[current.workflow_status] ?? [];
-        throw conflict(allowed.length
-          ? `An ARD that is ${current.workflow_status} can only change to: ${allowed.join(', ')}.`
-          : `An ARD that is ${current.workflow_status} cannot change status any further.`);
+      // Completed needs an Analyst Name and a Date of Analysis, and the error
+      // says which field is missing.
+      if (body.status === 'Completed') {        if (!current.ard_analyst_id) {
+          throw badRequest('An analyst must be assigned before the workflow can be completed.', {
+            ardAnalystId: 'Select an analyst first.',
+          });
+        }
+        if (!current.analysis_start_date) {
+          throw badRequest('Analysis start date is required before the workflow can be completed.', {
+            analysisStartDate: 'Set the analysis start date first.',
+          });
+        }
       }
 
       const isTerminal = TERMINAL_ARD_STATUSES.includes(body.status);
       const finalizedAt = isTerminal ? new Date() : null;
 
       await client.query(
-        `UPDATE trfs SET workflow_status = $2, ard_stage = $2,
-           finalized_at = ${finalizedAt ? '$3' : 'NULL'}::timestamp,
+        `UPDATE trfs SET workflow_status = $2,
+           finalized_at = $3::timestamp,
            version = version + 1
-         WHERE id = $1 AND version = $${finalizedAt ? 4 : 3}`,
-        finalizedAt ? [id, body.status, finalizedAt, body.version] : [id, body.status, body.version],
+         WHERE id = $1 AND version = $4`,
+        [id, body.status, finalizedAt, body.version],
       );
 
       await client.query(
@@ -623,7 +746,7 @@ trfsRouter.post('/:id/ard-status', requireArdEdit(), validateBody(ardStatusSchem
         userId: user.id, userName: user.fullName, action: 'trf.ard_status_changed', module: 'trf',
         recordType: 'TRF', recordRef: current.trf_number,
         oldValue: { ardStatus: current.workflow_status, stage: current.ard_stage },
-        newValue: { ardStatus: body.status, stage: body.status, note: body.note ?? null },
+        newValue: { ardStatus: body.status, stage: current.ard_stage, note: body.note ?? null },
       });
       return id;
     });
@@ -664,8 +787,7 @@ trfsRouter.get('/:id/ard-history', requirePermission('trf.view'), async (req, re
   }
 });
 
-trfsRouter.post('/:id/assign', requirePermission('trf.assign'), validateBody(assignSchema), async (req, res, next) => {
-  const user = currentEmployee(req);
+trfsRouter.post('/:id/assign', requirePermission('trf.assign'), validateBody(assignSchema), async (req, res, next) => {  const user = currentEmployee(req);
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) throw notFound();

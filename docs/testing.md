@@ -1,11 +1,13 @@
 # Running the tests
 
-The suite has two kinds of test:
+The suite has three kinds of test:
 
 - **Unit tests** (permissions, password hashing, tokens, transitions) run anywhere.
 - **API tests** need a real PostgreSQL database, because they exercise real
   transactions, row locks and unique constraints. They are **skipped**, never
   silently passed, when no database is reachable.
+- **Desktop UI tests** (vitest + jsdom) run the real React components against
+  a stubbed `window.trf` bridge. They need no database and no display.
 
 ## One-time setup on a development PC
 
@@ -43,11 +45,76 @@ Without these variables the database tests report as skipped:
 With them, the run must end with zero failures and zero skips:
 
 ```
-ℹ tests 207
-ℹ pass 207
+ℹ tests 237
+ℹ pass 237
 ℹ fail 0
 ℹ skipped 0
 ```
+
+`npm test` also runs the desktop suite at the end, which must end with:
+
+```
+Test Files  2 passed (2)
+     Tests  15 passed (15)
+```
+
+The desktop suite can be run on its own with `npm run test -w @trf/desktop`.
+
+## The TRF screen tests
+
+`apps/server/src/tests/api.trf.ard.test.ts` covers the parts of the TRF screen
+that are easy to get wrong:
+
+- **The backfill.** The test runs the shipped migration file again against a
+  TRF whose legacy `sample_given_by` text matches an employee, and asserts that
+  the employee id is filled in; a name that matches nobody stays NULL.
+- **Employee validation.** An unknown employee id and a deactivated employee are
+  both refused with a 400 that names the field.
+- **Search.** The TRF list finds a record by the Sample Submitted By name.
+- **The Stage.** Each lab stage is accepted and an invented one is refused.
+- **The Completed rules.** Completing without an Analyst Name, and then without
+  a Date of Analysis, is refused with a message on the field.
+- **The TAT.** The TAT is shown as the days from the Date of Analysis to today,
+  stops at the finalized date once the status is terminal, and counts on again
+  when the status leaves it.
+- **The ownership matrix.** Formulation Viewer, ARD Analyst, ARD Manager and
+  Admin are each checked in both directions: the Formulation side can change
+  Part A and not the ARD block, the ARD side the other way round, and Admin and
+  Manager can do both. An ARD Analyst can set the Final Status, a Formulation
+  user cannot.
+
+`apps/desktop/src/pages/TrfForm.order.test.tsx` checks the screen itself: that
+the Part A card comes before the ARD card, that both cards show their fields in
+the agreed order, that "Sample Submitted By" is a searchable combobox listing
+employees with their department, that the legacy free text is shown read-only
+as "Previously entered: …", and that read-only fields carry a padlock.
+
+`apps/desktop/src/pages/TrfForm.lookups.test.tsx` checks the quick-add
+controls. It covers the customer and product quick-adds and the Stage dropdown:
+that it offers "Initial" and "Other (type new)", that adding a stage creates it
+once, selects it and does **not** save the TRF, and that adding a stage that
+already exists reuses it.
+
+## The TRF Management rework tests
+
+`apps/server/src/tests/api.trf.ard.test.ts` also covers the ARD stages master
+table and the Reporting status:
+
+- **Stage.** A new TRF defaults to "Initial". A stage added through
+  `POST /api/lookups/stages` can be used on a TRF; adding the same name again
+  (with a different case) reuses the existing record; an unknown stage is a 400
+  with a field message; a legacy stage value on an existing row still loads.
+- **Ownership.** Only ARD users (plus Admin/Manager) may add a stage; a
+  Formulation user is refused with a 403.
+- **Reporting.** "Rejected" is accepted, an unknown reporting value is a 400
+  that names the field.
+- **The list payload.** The list carries Test Requested and Test Details, so
+  the list and the Excel sheet can show them once in the ARD block.
+
+The Excel column order is checked in `api.reports.test.ts`: the TRF Master
+sheet must carry the field order of the screen, with "Remarks / Status" and
+"ARD Remarks / Status" as the two remark-status headings, and Test Requested
+and Test Details once, in the ARD block.
 
 Test files run one after another (`--test-concurrency=1`) on purpose: they share
 one database, and the TRF number test asserts a gap-free counter. In parallel,
@@ -146,7 +213,18 @@ DELETE FROM schema_migrations WHERE name = '006_coa.sql';
   ALTER TABLE trfs DROP COLUMN IF EXISTS sample_given_by;
   ALTER TABLE trfs DROP COLUMN IF EXISTS signature_date;
    DELETE FROM schema_migrations WHERE name IN ('007_ard_tracking.sql', '008_ard_columns_on_trfs.sql', '009_idempotent_ard_and_seed.sql');
+   ```
+
+  -- Phase 13 (undo the Sample Submitted By column so migration 011 re-applies)
+  ALTER TABLE trfs DROP COLUMN IF EXISTS sample_submitted_by_id;
+  DELETE FROM schema_migrations WHERE name = '011_sample_submitted_by_and_ard_stages.sql';
   ```
+
+  -- Phase 14 (undo the ARD stages master table so migration 012 re-applies)
+  DROP TABLE IF EXISTS ard_stages;
+  DELETE FROM schema_migrations WHERE name = '012_ard_stages_master_and_reporting.sql';
+  ```
+
 
 ## Never point this at a real database
 

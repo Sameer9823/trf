@@ -169,6 +169,52 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .inline-new__row input { flex: 1; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; font: inherit; }
 .inline-new .field-error { font-size: 12px; }
 
+/* TRF form: two titled cards, a two-column grid and a sticky save bar */
+.trf-form { display: flex; flex-direction: column; gap: 16px; padding-bottom: 8px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; }
+.card__head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.card__head h2 { margin: 0; font-size: 16px; }
+.card--ard { border-color: #b6d8da; background: linear-gradient(180deg, #f4fbfb 0%, var(--panel) 90px); }
+.card__foot { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; align-items: start; }
+.grid .field--wide { grid-column: 1 / -1; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field__head { display: flex; align-items: center; gap: 6px; }
+.field__head label { font-weight: 600; font-size: 13px; }
+.field > label { font-weight: 600; font-size: 13px; }
+.field input, .field select, .field textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; font: inherit; background: var(--panel); color: var(--text); }
+.field textarea { resize: vertical; }
+.field--locked input, .field--locked select, .field--locked textarea, .field--locked .combo input { background: #f4f6f7; color: var(--muted); cursor: not-allowed; }
+.field-lock { display: inline-flex; align-items: center; color: var(--muted); cursor: help; }
+
+.save-bar { position: sticky; bottom: 0; z-index: 5; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 16px; box-shadow: 0 -4px 14px rgba(20, 35, 43, .08); }
+.save-bar .row { margin-top: 0; }
+
+/* Searchable employee dropdown */
+.combo { position: relative; display: flex; align-items: center; gap: 6px; }
+.combo__clear { margin-top: 0; }
+.combo__panel { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 6px 18px rgba(20, 35, 43, .12); max-height: 240px; overflow: auto; }
+.combo__empty { margin: 0; padding: 10px 12px; font-size: 13px; }
+.combo__list { list-style: none; margin: 0; padding: 0; }
+.combo__option { display: block; width: 100%; text-align: left; padding: 8px 12px; border: 0; background: none; font: inherit; cursor: pointer; }
+.combo__option:hover { background: #eef2f4; }
+.combo__option--on { background: #eaf4f4; font-weight: 600; }
+
+/* Final Status progress stepper */
+.stepper { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.stepper__step { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.stepper__dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--line); background: var(--panel); }
+.stepper__step--done { color: var(--text); }
+.stepper__step--done .stepper__dot { border-color: var(--accent); background: var(--accent); }
+.stepper__step--current { color: var(--text); font-weight: 700; }
+.stepper__step--current .stepper__dot { border-color: var(--accent); background: var(--panel); box-shadow: 0 0 0 3px rgba(79, 179, 186, .22); }
+.stepper__step--cancelled { color: var(--danger); }
+.stepper__step--cancelled .stepper__dot { border-color: var(--danger); background: var(--danger); }
+
+.facts--inline { display: grid; grid-template-columns: 160px auto 1fr; background: none; border: 0; padding: 0; margin: 0; }
+
 /* Assignment views */
 .groups { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
 .group__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }

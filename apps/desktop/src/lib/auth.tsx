@@ -2,7 +2,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import type { EmployeeProfile, Permission } from '@trf/shared';
 import { MESSAGES, MODULE_ACCESS } from '@trf/shared';
 
-interface AuthSessionState {
+export interface AuthSessionState {
   employee: EmployeeProfile | null;
   status: 'checking' | 'signed-in' | 'signed-out';
   login(username: string, password: string): Promise<{ ok: true } | { ok: false; message: string }>;

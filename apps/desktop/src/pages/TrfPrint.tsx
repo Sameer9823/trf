@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { TrfDetail } from '@trf/shared';
 import { messageOf } from '../lib/api';
-import { formatDate, RemarksStatusBadge, ArdRemarksStatusBadge } from '../components/Badges';
+import { formatDate, RemarksStatusBadge, ArdRemarksStatusBadge, ArdStageBadge, ArdReportingBadge, ArdFinalStatusBadge } from '../components/Badges';
 import { useAuth } from '../lib/auth';
 import { OfflineNotice } from '../components/OfflineNotice';
 import { useServerStatus } from '../lib/server-status';
@@ -53,57 +53,53 @@ export function TrfPrint() {
       </header>
 
       <section className="trf-print__section">
-        <h2>Customer &amp; Product</h2>
-        <dl className="facts">
-          <dt>Customer</dt><dd>{trf.customerName ?? '—'}</dd>
-          <dt>Product</dt><dd>{trf.productName ?? '—'}</dd>
-          <dt>Batch number</dt><dd>{trf.batchNumber ?? '—'}</dd>
-          <dt>Sample quantity</dt><dd>{trf.sampleQuantity ?? '—'}</dd>
-        </dl>
-      </section>
-
-      <section className="trf-print__section">
-        <h2>Product Details</h2>
+        <h2>Part A — Formulation</h2>
         <dl className="facts facts--two">
-          <dt>Batch size</dt><dd>{trf.batchSize ?? '—'}</dd>
-          <dt>Dosage form</dt><dd>{trf.dosageForm ?? '—'}</dd>
-          <dt>Manufacturing location</dt><dd>{trf.manufacturingLocation ?? '—'}</dd>
-          <dt>Label claim</dt><dd>{trf.labelClaim ?? '—'}</dd>
-          <dt>Pack size</dt><dd>{trf.packSize ?? '—'}</dd>
-          <dt>Pack type</dt><dd>{trf.packType ?? '—'}</dd>
-          <dt>Storage condition</dt><dd>{trf.storageCondition ?? '—'}</dd>
-          <dt>Storage period</dt><dd>{trf.storagePeriod ?? '—'}</dd>
-          <dt>Manufacturing date</dt><dd>{formatDate(trf.manufacturingDate)}</dd>
-          <dt>Expiry date</dt><dd>{formatDate(trf.expiryDate)}</dd>
+          <dt>TRF No.</dt><dd>{trf.trfNumber}</dd>
+          <dt>Date of Request</dt><dd>{formatDate(trf.trfDate)}</dd>
+          <dt>Product Name</dt><dd>{trf.productName ?? '—'}</dd>
+          <dt>Batch Number</dt><dd>{trf.batchNumber ?? '—'}</dd>
+          <dt>Batch Size</dt><dd>{trf.batchSize ?? '—'}</dd>
+          <dt>Market/Customer</dt><dd>{trf.customerName ?? '—'}</dd>
+          <dt>Dosage Form</dt><dd>{trf.dosageForm ?? '—'}</dd>
+          <dt>Manufacturing Location</dt><dd>{trf.manufacturingLocation ?? '—'}</dd>
+          <dt>Label Claim</dt><dd>{trf.labelClaim ?? '—'}</dd>
+          <dt>Pack Size</dt><dd>{trf.packSize ?? '—'}</dd>
+          <dt>Pack Type</dt><dd>{trf.packType ?? '—'}</dd>
+          <dt>Storage Condition</dt><dd>{trf.storageCondition ?? '—'}</dd>
+          <dt>Storage Period</dt><dd>{trf.storagePeriod ?? '—'}</dd>
+          <dt>Manufacturing Date</dt><dd>{formatDate(trf.manufacturingDate)}</dd>
+          <dt>Expiry Date</dt><dd>{formatDate(trf.expiryDate)}</dd>
+          <dt>Test Requested</dt><dd className="pre">{trf.requestedAnalysis ?? '—'}</dd>
+          <dt>Test Details</dt><dd className="pre">{trf.specialInstructions ?? '—'}</dd>
+          <dt>Analysis Required For / Purpose</dt><dd>{trf.analysisPurpose ?? '—'}</dd>
+          <dt>Required Completion Date</dt><dd>{formatDate(trf.requiredCompletionDate)}</dd>
+          <dt>Sample Quantity</dt><dd>{trf.sampleQuantity ?? '—'}</dd>
+          <dt>Sample Submitted By</dt>
+          <dd>{trf.sampleSubmittedByName ?? (trf.sampleGivenBy ? `Previously entered: ${trf.sampleGivenBy}` : '—')}</dd>
+          <dt>Status</dt><dd><RemarksStatusBadge status={trf.remarksStatus} /></dd>
+          <dt>Remarks</dt><dd className="pre">{trf.remarks ?? '—'}</dd>
+          <dt>Signature / Date</dt><dd>{formatDate(trf.signatureDate)}</dd>
         </dl>
       </section>
 
-      <section className="trf-print__section">
-        <h2>Analysis Request</h2>
-        <dl className="facts">
-          <dt>Sample received</dt><dd>{formatDate(trf.sampleReceivedDate)}</dd>
-          <dt>Required completion</dt><dd>{formatDate(trf.requiredCompletionDate)}</dd>
-          <dt>Analysis purpose</dt><dd>{trf.analysisPurpose ?? '—'}</dd>
-           <dt>Sample submitted by</dt><dd>{trf.sampleGivenBy ?? '—'}</dd>
-           <dt>Sample received by</dt><dd>{trf.sampleReceivedByName ?? '—'}</dd>
-           <dt>Signature date</dt><dd>{formatDate(trf.signatureDate)}</dd>
-          <dt>Department</dt><dd>{trf.departmentName ?? '—'}</dd>
-        </dl>
-      </section>
-
-      <section className="trf-print__section">
-        <h2>ARD Analysis Details</h2>
+      <section className="trf-print__section trf-print__section--ard">
+        <h2>ARD — Analysis Details</h2>
         <dl className="facts facts--two">
           <dt>A.R. No.</dt><dd>{trf.ardNumber ?? '—'}</dd>
-          <dt>Stage</dt><dd>{trf.workflowStatus}</dd>
-          <dt>Test requested</dt><dd className="pre">{trf.requestedAnalysis ?? '—'}</dd>
-          <dt>Analyst</dt><dd>{trf.analystName ?? 'Not assigned'}</dd>
-          <dt>Date of analysis</dt><dd>{formatDate(trf.analysisStartDate)}</dd>
-          <dt>Reporting</dt><dd>{trf.reportingStatus}</dd>
+          <dt>Stage</dt><dd><ArdStageBadge stage={trf.stage} /></dd>
+          <dt>Test Requested</dt><dd className="pre">{trf.requestedAnalysis ?? '—'} <span className="muted">— carried forward from the Formulation request</span></dd>
+          <dt>Test Details</dt><dd className="pre">{trf.specialInstructions ?? '—'} <span className="muted">— carried forward from the Formulation request</span></dd>
+          <dt>Analyst Name</dt><dd>{trf.analystName ?? 'Not assigned'}</dd>
+          <dt>Date of Analysis</dt><dd>{formatDate(trf.analysisStartDate)}</dd>
+          <dt>Reporting</dt><dd><ArdReportingBadge status={trf.reportingStatus} /></dd>
           <dt>COA</dt><dd>{trf.coaStatus}</dd>
-          <dt>Remark</dt><dd className="pre">{trf.ardRemarks ?? '—'}</dd>
-          <dt>ARD remarks status</dt><dd><ArdRemarksStatusBadge status={trf.ardRemarksStatus} /></dd>
-          <dt>TAT (days)</dt><dd>{trf.tat?.toString() ?? '—'}</dd>
+          <dt>Status</dt><dd><ArdRemarksStatusBadge status={trf.ardRemarksStatus} /></dd>
+          <dt>ARD Remark</dt><dd className="pre">{trf.ardRemarks ?? '—'}</dd>
+          <dt>TAT</dt><dd>{trf.tat?.toString() ?? '—'}</dd>
+          <dt>Final Status</dt><dd><ArdFinalStatusBadge status={trf.workflowStatus} /></dd>
+          <dt>Sample Received By</dt><dd>{trf.sampleReceivedByName ?? '—'}</dd>
+          <dt>Sample Received Date</dt><dd>{formatDate(trf.sampleReceivedDate)}</dd>
         </dl>
       </section>
 
@@ -114,7 +110,6 @@ export function TrfPrint() {
         <pre className="pre">{trf.specialInstructions ?? '—'}</pre>
         <h2>Remarks</h2>
         <pre className="pre">{trf.remarks ?? '—'}</pre>
-        <p>Remarks status: <RemarksStatusBadge status={trf.remarksStatus} /></p>
       </section>
 
       <footer className="trf-print__foot">

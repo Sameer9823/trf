@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { Customer, Department, Priority, Product, TrfListItem, TrfListPage, TrfSortField, TrfStatus } from '@trf/shared';
-import { DEFAULT_TRF_FILTERS, PRIORITIES, TRF_STATUSES, canEditTrfPartA, canEditTrfPartB, canDeleteTrf } from '@trf/shared';
+import { DEFAULT_TRF_FILTERS, PRIORITIES, TRF_STATUSES, LIST_FIELD_ORDER, listFieldLabel, canEditTrfPartA, canEditTrfPartB, canDeleteTrf } from '@trf/shared';
 import { messageOf, toQuery } from '../lib/api';
 import { useTrfSort } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { OfflineNotice } from '../components/OfflineNotice';
-import { OverdueBadge, PriorityBadge, StatusBadge, ArdWorkflowBadge, ArdCoaBadge, RemarksStatusBadge, ArdRemarksStatusBadge, formatDate } from '../components/Badges';
+import { OverdueBadge, PriorityBadge, StatusBadge, ArdFinalStatusBadge, ArdStageBadge, ArdCoaBadge, ArdReportingBadge, RemarksStatusBadge, ArdRemarksStatusBadge, formatDate } from '../components/Badges';
 import { ExportButton } from '../components/ExportButton';
 import { useServerStatus } from '../lib/server-status';
 
@@ -18,42 +18,20 @@ interface ColumnDef {
   alwaysVisible: boolean;
 }
 
+/**
+ * The list columns follow the shared field order, so the list, the form, the
+ * detail page, the printable TRF and the Excel sheet all read in the same
+ * sequence. The operational columns at the end are not part of the TRF record
+ * itself.
+ */
+const RECORD_COLUMNS: ColumnDef[] = LIST_FIELD_ORDER.map((field) => ({
+  field: field.key as TrfSortField,
+  label: listFieldLabel(field),
+  alwaysVisible: field.key === 'trfNumber',
+}));
+
 const ALL_COLUMNS: ColumnDef[] = [
-  { field: 'trfNumber', label: 'TRF No.', className: 'col-trf-number', alwaysVisible: true },
-  { field: 'trfDate', label: 'Date of Request', alwaysVisible: false },
-  { field: 'productName', label: 'Product', alwaysVisible: false },
-  { field: 'batchNumber', label: 'Batch Number', alwaysVisible: false },
-  { field: 'batchSize', label: 'Batch Size', alwaysVisible: false },
-  { field: 'customerName', label: 'Customer', alwaysVisible: false },
-  { field: 'dosageForm', label: 'Dosage Form', alwaysVisible: false },
-  { field: 'manufacturingLocation', label: 'Mfg Location', alwaysVisible: false },
-  { field: 'labelClaim', label: 'Label Claim', alwaysVisible: false },
-  { field: 'packSize', label: 'Pack Size', alwaysVisible: false },
-  { field: 'packType', label: 'Pack Type', alwaysVisible: false },
-  { field: 'storageCondition', label: 'Storage Condition', alwaysVisible: false },
-  { field: 'storagePeriod', label: 'Storage Period', alwaysVisible: false },
-  { field: 'manufacturingDate', label: 'Mfg Date', alwaysVisible: false },
-  { field: 'expiryDate', label: 'Expiry Date', alwaysVisible: false },
-  { field: 'sampleQuantity', label: 'Sample Quantity', alwaysVisible: false },
-  { field: 'requestedAnalysis', label: 'Test Requested', alwaysVisible: false },
-  { field: 'specialInstructions', label: 'Test Details', alwaysVisible: false },
-  { field: 'analysisPurpose', label: 'Purpose', alwaysVisible: false },
-  { field: 'requiredCompletionDate', label: 'Due Date', alwaysVisible: false },
-  { field: 'remarks', label: 'Remarks', alwaysVisible: false },
-  { field: 'sampleGivenBy', label: 'Sample Submitted By', alwaysVisible: false },
-  { field: 'signatureDate', label: 'Signature/Date', alwaysVisible: false },
-  { field: 'ardNumber', label: 'A.R. No.', alwaysVisible: false },
-  { field: null, label: 'Stage', alwaysVisible: false },
-  { field: 'analystName', label: 'Analyst', alwaysVisible: false },
-  { field: 'analysisStartDate', label: 'Date of Analysis', alwaysVisible: false },
-  { field: 'reportingStatus', label: 'Reporting', alwaysVisible: false },
-  { field: 'coaStatus', label: 'COA', alwaysVisible: false },
-  { field: 'ardRemarks', label: 'ARD Remark', alwaysVisible: false },
-  { field: 'ardRemarksStatus', label: 'ARD Remarks Status', alwaysVisible: false },
-  { field: 'tat', label: 'TAT', alwaysVisible: false },
-  { field: 'workflowStatus', label: 'Workflow Status', alwaysVisible: false },
-  { field: 'remarksStatus', label: 'Remarks Status', alwaysVisible: false },
-  { field: 'sampleReceivedByName', label: 'Sample Received By', alwaysVisible: false },
+  ...RECORD_COLUMNS,
   { field: 'status', label: 'Status', alwaysVisible: false },
   { field: 'priority', label: 'Priority', className: 'col-priority', alwaysVisible: false },
   { field: 'assignedEmployeeName', label: 'Assigned', className: 'col-assigned', alwaysVisible: false },
@@ -373,11 +351,12 @@ export function TrfList() {
 }
 
 const TRUNCATE_FIELDS = new Set([
-   'Customer', 'Product', 'Batch Number', 'Batch Size', 'Dosage Form', 'Mfg Location',
-   'Label Claim', 'Pack Size', 'Pack Type', 'Storage Condition', 'Storage Period',
-   'Test Requested', 'Test Details', 'Purpose', 'Remarks', 'Sample Submitted By',
-   'A.R. No.', 'Analyst', 'ARD Remark', 'Reporting', 'COA', 'Remarks Status',
-   'ARD Remarks Status', 'Sample Received By', 'Signature/Date',
+   'Market/Customer', 'Product Name', 'Batch Number', 'Batch Size', 'Dosage Form',
+   'Manufacturing Location', 'Label Claim', 'Pack Size', 'Pack Type',
+   'Storage Condition', 'Storage Period', 'Test Requested', 'Test Details',
+   'Analysis Required For / Purpose', 'Remarks', 'Sample Submitted By',
+   'A.R. No.', 'Analyst Name', 'ARD Remark', 'Reporting', 'COA', 'Remarks / Status',
+   'ARD Remarks / Status', 'Sample Received By', 'Signature / Date',
 ]);
 
 function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
@@ -393,17 +372,17 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
         return { node: <a className="link nowrap" href={`#/trfs/${trf.id}`}>{trf.trfNumber}</a>, text: null };
       case 'Date of Request':
         return { node: <span className="nowrap">{formatDate(trf.trfDate)}</span>, text: null };
-      case 'Product':
+      case 'Product Name':
         return { node: <span className="muted-cell">{trf.productName ?? '—'}</span>, text: trf.productName };
       case 'Batch Number':
         return { node: <span className="muted-cell">{trf.batchNumber ?? '—'}</span>, text: trf.batchNumber };
       case 'Batch Size':
         return { node: <span className="muted-cell">{trf.batchSize ?? '—'}</span>, text: trf.batchSize };
-      case 'Customer':
+      case 'Market/Customer':
         return { node: <span className="muted-cell">{trf.customerName ?? '—'}</span>, text: trf.customerName };
       case 'Dosage Form':
         return { node: <span className="muted-cell">{trf.dosageForm ?? '—'}</span>, text: trf.dosageForm };
-      case 'Mfg Location':
+      case 'Manufacturing Location':
         return { node: <span className="muted-cell">{trf.manufacturingLocation ?? '—'}</span>, text: trf.manufacturingLocation };
       case 'Label Claim':
         return { node: <span className="muted-cell">{trf.labelClaim ?? '—'}</span>, text: trf.labelClaim };
@@ -415,50 +394,55 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
         return { node: <span className="muted-cell">{trf.storageCondition ?? '—'}</span>, text: trf.storageCondition };
       case 'Storage Period':
         return { node: <span className="muted-cell">{trf.storagePeriod ?? '—'}</span>, text: trf.storagePeriod };
-      case 'Mfg Date':
+      case 'Manufacturing Date':
         return { node: <span className="nowrap">{formatDate(trf.manufacturingDate)}</span>, text: null };
       case 'Expiry Date':
         return { node: <span className="nowrap">{formatDate(trf.expiryDate)}</span>, text: null };
-      case 'Sample Quantity':
-        return { node: <span className="muted-cell">{trf.sampleQuantity ?? '—'}</span>, text: trf.sampleQuantity };
       case 'Test Requested':
         return { node: <span className="muted-cell">{trf.requestedAnalysis ?? '—'}</span>, text: trf.requestedAnalysis };
       case 'Test Details':
         return { node: <span className="muted-cell">{trf.specialInstructions ?? '—'}</span>, text: trf.specialInstructions };
-      case 'Purpose':
+      case 'Analysis Required For / Purpose':
         return { node: <span className="muted-cell">{trf.analysisPurpose ?? '—'}</span>, text: trf.analysisPurpose };
-      case 'Due Date':
+      case 'Required Completion Date':
         return { node: <span className="nowrap">{formatDate(trf.requiredCompletionDate)}</span>, text: null };
+      case 'Sample Quantity':
+        return { node: <span className="muted-cell">{trf.sampleQuantity ?? '—'}</span>, text: trf.sampleQuantity };
+      case 'Sample Submitted By':
+        return {
+          node: <span className="muted-cell">{trf.sampleSubmittedByName ?? trf.sampleGivenBy ?? '—'}</span>,
+          text: trf.sampleSubmittedByName ?? trf.sampleGivenBy,
+        };
+      case 'Remarks / Status':
+        return { node: <RemarksStatusBadge status={trf.remarksStatus} />, text: null };
       case 'Remarks':
         return { node: <span className="muted-cell">{trf.remarks ?? '—'}</span>, text: trf.remarks };
-      case 'Sample Submitted By':
-        return { node: <span className="muted-cell">{trf.sampleGivenBy ?? '—'}</span>, text: trf.sampleGivenBy };
-      case 'Signature/Date':
+      case 'Signature / Date':
         return { node: <span className="nowrap">{formatDate(trf.signatureDate)}</span>, text: null };
       case 'A.R. No.':
         return { node: <span className="muted-cell">{trf.ardNumber ?? '—'}</span>, text: trf.ardNumber };
       case 'Stage':
-        return { node: <ArdWorkflowBadge status={trf.workflowStatus} />, text: null };
-      case 'Analyst':
+        return { node: <ArdStageBadge stage={trf.stage} />, text: null };
+      case 'Analyst Name':
         return { node: <span className="muted-cell">{trf.analystName ?? '—'}</span>, text: trf.analystName };
       case 'Date of Analysis':
         return { node: <span className="nowrap">{formatDate(trf.analysisStartDate)}</span>, text: null };
       case 'Reporting':
-        return { node: <span className="nowrap">{trf.reportingStatus}</span>, text: null };
+        return { node: <span className="nowrap"><ArdReportingBadge status={trf.reportingStatus} /></span>, text: null };
       case 'COA':
         return { node: <ArdCoaBadge status={trf.coaStatus} />, text: null };
+      case 'ARD Remarks / Status':
+        return { node: <ArdRemarksStatusBadge status={trf.ardRemarksStatus} />, text: null };
       case 'ARD Remark':
         return { node: <span className="muted-cell">{trf.ardRemarks ?? '—'}</span>, text: trf.ardRemarks };
-      case 'ARD Remarks Status':
-        return { node: <ArdRemarksStatusBadge status={trf.ardRemarksStatus} />, text: null };
       case 'TAT':
         return { node: <span className="nowrap">{trf.tat?.toString() ?? '—'}</span>, text: null };
-      case 'Workflow Status':
-        return { node: <ArdWorkflowBadge status={trf.workflowStatus} />, text: null };
-      case 'Remarks Status':
-        return { node: <RemarksStatusBadge status={trf.remarksStatus} />, text: null };
+      case 'Final Status':
+        return { node: <ArdFinalStatusBadge status={trf.workflowStatus} />, text: null };
       case 'Sample Received By':
         return { node: <span className="muted-cell">{trf.sampleReceivedByName ?? '—'}</span>, text: trf.sampleReceivedByName };
+      case 'Sample Received Date':
+        return { node: <span className="nowrap">{formatDate(trf.sampleReceivedDate)}</span>, text: null };
       case 'Status':
         return {
           node: (

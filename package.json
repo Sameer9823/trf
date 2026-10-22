@@ -9,7 +9,7 @@
     "dev:desktop": "npm run build:shared && npm run dev -w @trf/desktop",
     "migrate": "npm run migrate -w @trf/server",
     "typecheck": "npm run build:shared && npm run typecheck -w @trf/server && npm run typecheck -w @trf/desktop",
-    "test": "npm run build:shared && npm run test -w @trf/server",
+    "test": "npm run build:shared && npm run test -w @trf/server && npm run test -w @trf/desktop",
     "seed:admin": "npm run seed:admin -w @trf/server"
   }
 }

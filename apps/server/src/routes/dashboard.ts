@@ -39,8 +39,10 @@ const TEST_OPEN = `(a.status NOT IN ('Completed', 'Cancelled'))`;
 type Fragment = { sql: string; params: unknown[] };
 
 function whereTrf(scope: Scope | null): Fragment {
-  if (!scope) return { sql: '', params: [] };
-  return { sql: 'WHERE (t.assigned_employee_id = $1 OR t.created_by = $1)', params: [scope.employeeId] };
+  // Deleted TRFs are hidden from the TRF list, so the dashboard must not count
+  // them either: the headline number and the list always agree.
+  if (!scope) return { sql: 'WHERE t.deleted_at IS NULL', params: [] };
+  return { sql: 'WHERE t.deleted_at IS NULL AND (t.assigned_employee_id = $1 OR t.created_by = $1)', params: [scope.employeeId] };
 }
 
 function whereTest(scope: Scope | null): Fragment {

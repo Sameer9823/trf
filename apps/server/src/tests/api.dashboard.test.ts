@@ -144,7 +144,10 @@ maybe('the totals count the same TRFs the TRF list returns', async () => {
   const list = await api('/api/trfs?pageSize=200', {}, adminToken);
 
   assert.equal(dashboard.totals.trfTotal, list.body.total);
-  assert.equal(dashboard.totals.trfAssigned, list.body.items.filter((t: { status: string }) => t.status === 'Assigned').length);
+  // The Assigned slice is compared with the list's own total for that status.
+  // A page of rows is not the whole set, so the total is what has to agree.
+  const assigned = await api('/api/trfs?status=Assigned&pageSize=1', {}, adminToken);
+  assert.equal(dashboard.totals.trfAssigned, assigned.body.total);
   assert.ok(dashboard.totals.trfTotal >= 1);
 
   // The status slices add up to the same total.

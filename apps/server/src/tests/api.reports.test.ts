@@ -226,15 +226,39 @@ maybe('the TRF Master sheet carries every column the list shows', async () => {
   const sheet = res.book.getWorksheet('TRF Master');
   const headers = (sheet!.getRow(1).values as unknown[]).filter((v) => typeof v === 'string') as string[];
   for (const heading of [
-    'TRF No.', 'Date of Request', 'Product', 'Batch Number', 'Batch Size', 'Market/Customer',
+    'TRF No.', 'Date of Request', 'Product Name', 'Batch Number', 'Batch Size', 'Market/Customer',
     'Dosage Form', 'Manufacturing Location', 'Label Claim', 'Pack Size', 'Pack Type',
     'Storage Condition', 'Storage Period', 'Manufacturing Date', 'Expiry Date',
-    'Sample Quantity', 'Test Requested', 'Test Details', 'Purpose', 'Required Completion Date',
-    'Remarks', 'Remarks Status', 'Sample Submitted By', 'Signature/Date', 'Status', 'Priority',
-    'Assigned Employee', 'Overdue',
+    'Test Requested', 'Test Details', 'Analysis Required For / Purpose', 'Required Completion Date',
+    'Sample Quantity', 'Sample Submitted By', 'Remarks / Status', 'Remarks', 'Signature / Date',
+    'A.R. No.', 'Stage', 'Analyst Name', 'Date of Analysis', 'Reporting', 'COA',
+    'ARD Remarks / Status', 'ARD Remark', 'TAT', 'Final Status',
+    'Sample Received By', 'Sample Received Date',
+    'Status', 'Priority', 'Assigned Employee', 'Overdue',
   ]) {
     assert.ok(headers.includes(heading), `the TRF Master sheet is missing "${heading}"`);
   }
+});
+
+maybe('the TRF Master sheet uses the same field order as the TRF screen', async () => {
+  const res = await exportBook('sheet=TRF%20Master', manager.token);
+  assert.ok(res.ok);
+  const sheet = res.book.getWorksheet('TRF Master');
+  const headers = (sheet!.getRow(1).values as unknown[]).filter((v) => typeof v === 'string') as string[];
+  // Part A (Test Requested / Test Details appear once, in the ARD block),
+  // then the ARD block, then the operational columns.
+  const expected = [
+    'TRF No.', 'Date of Request', 'Product Name', 'Batch Number', 'Batch Size', 'Market/Customer',
+    'Dosage Form', 'Manufacturing Location', 'Label Claim', 'Pack Size', 'Pack Type',
+    'Storage Condition', 'Storage Period', 'Manufacturing Date', 'Expiry Date',
+    'Analysis Required For / Purpose', 'Required Completion Date',
+    'Sample Quantity', 'Sample Submitted By', 'Remarks / Status', 'Remarks', 'Signature / Date',
+    'A.R. No.', 'Stage', 'Test Requested', 'Test Details', 'Analyst Name', 'Date of Analysis',
+    'Reporting', 'COA', 'ARD Remarks / Status', 'ARD Remark', 'TAT', 'Final Status',
+    'Sample Received By', 'Sample Received Date',
+  ];
+  assert.deepEqual(headers.slice(0, expected.length), expected,
+    'the TRF Master columns must follow the field order of the TRF screen');
 });
 
 maybe('the list filters carry into the file, and only those rows appear', async () => {
@@ -263,17 +287,24 @@ maybe('the ARD Tracking sheet is present and lists the seeded ARDs', async () =>
   assert.ok(rows.length >= 2, 'both seeded TRFs have ARD rows');
   for (const r of rows) {
     assert.ok(r['A.R. No.'], 'each row has an A.R. number');
-    assert.equal(r['Stage'], 'Received', 'auto-created ARDs start as Received');
-    assert.equal(r['TAT (days)'], null, 'no start date means no TAT');
-    assert.ok(r['Remarks Status'], 'each row has a remarks status');
-    assert.ok(r['ARD Remarks Status'], 'each row has an ARD remarks status');
+    assert.ok(
+      ['Initial', 'Received', 'In Progress', 'Completed', 'Cancelled'].includes(String(r['Stage'])),
+      `each row has a known stage, got ${String(r['Stage'])}`,
+    );
+    assert.equal(r['TAT'], null, 'no start date means no TAT');
+    assert.ok(r['ARD Remarks / Status'], 'each row has an ARD remark status');
     assert.ok(r['Sample Received By'] !== undefined, 'each row has a sample received by column');
   }
+  // A TRF created now starts as the active stage.
+  const mine = rows.find((r) => r['TRF No.'] === myTrf);
+  assert.ok(mine, 'the seeded TRF is in the export');
+  assert.equal(mine['Stage'], 'Initial', 'auto-created ARDs start as Initial');
   const ardHeaders = (sheet!.getRow(1).values as unknown[]).filter((v) => typeof v === 'string') as string[];
   for (const heading of [
-    'A.R. No.', 'TRF No.', 'Date of Request', 'Product', 'Batch Number', 'Market/Customer',
-    'Stage', 'Analyst', 'Date of Analysis', 'Reporting', 'COA', 'ARD Remark',
-    'ARD Remarks Status', 'TAT (days)', 'Remarks Status', 'Sample Received By',
+    'A.R. No.', 'TRF No.', 'Date of Request', 'Product Name', 'Batch Number', 'Market/Customer',
+    'Stage', 'Test Requested', 'Test Details', 'Analyst Name', 'Date of Analysis', 'Reporting', 'COA',
+    'ARD Remarks / Status', 'ARD Remark', 'TAT', 'Final Status', 'Sample Received By',
+    'Sample Received Date',
   ]) {
     assert.ok(ardHeaders.includes(heading), `the ARD Tracking sheet is missing "${heading}"`);
   }
