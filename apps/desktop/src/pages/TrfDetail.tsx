@@ -9,6 +9,7 @@ import { BulkAssign } from '../components/BulkAssign';
 import { OverdueBadge, PriorityBadge, StatusBadge, ArdWorkflowBadge, ArdCoaBadge, allowedNextStatuses, allowedNextArdStatuses, formatDate } from '../components/Badges';
 import { OfflineNotice } from '../components/OfflineNotice';
 import { useServerStatus } from '../lib/server-status';
+import { RemarksStatusBadge, ArdRemarksStatusBadge } from '../components/Badges';
 
 type Tab = 'details' | 'history' | 'ard-history';
 
@@ -216,6 +217,7 @@ export function TrfDetailPage() {
             <dt>Requested analysis</dt><dd className="pre">{trf.requestedAnalysis ?? '—'}</dd>
             <dt>Special instructions</dt><dd className="pre">{trf.specialInstructions ?? '—'}</dd>
             <dt>Remarks</dt><dd className="pre">{trf.remarks ?? '—'}</dd>
+            <dt>Remarks status</dt><dd><RemarksStatusBadge status={trf.remarksStatus} /></dd>
             <dt>Batch size</dt><dd>{trf.batchSize ?? '—'}</dd>
             <dt>Dosage form</dt><dd>{trf.dosageForm ?? '—'}</dd>
             <dt>Manufacturing location</dt><dd>{trf.manufacturingLocation ?? '—'}</dd>
@@ -227,21 +229,24 @@ export function TrfDetailPage() {
             <dt>Manufacturing date</dt><dd>{formatDate(trf.manufacturingDate)}</dd>
             <dt>Expiry date</dt><dd>{formatDate(trf.expiryDate)}</dd>
             <dt>Analysis purpose</dt><dd>{trf.analysisPurpose ?? '—'}</dd>
-            <dt>Sample given by</dt><dd>{trf.sampleGivenBy ?? '—'}</dd>
-            <dt>Signature date</dt><dd>{formatDate(trf.signatureDate)}</dd>
+            <dt>Sample submitted by</dt><dd>{trf.sampleGivenBy ?? '—'}</dd>
+             <dt>Sample received by</dt><dd>{trf.sampleReceivedByName ?? '—'}</dd>
+             <dt>Signature date</dt><dd>{formatDate(trf.signatureDate)}</dd>
           </dl>
 
           <section className="panel panel--ard">
             <h2>ARD Analysis Details</h2>
             <dl className="facts facts--wide">
-              <dt>ARD No.</dt><dd>{trf.ardNumber ?? '—'}</dd>
-              <dt>ARD Stage</dt><dd><ArdWorkflowBadge status={trf.workflowStatus} /></dd>
+              <dt>A.R. No.</dt><dd>{trf.ardNumber ?? '—'}</dd>
+              <dt>Stage</dt><dd><ArdWorkflowBadge status={trf.workflowStatus} /></dd>
+              <dt>Test requested</dt><dd className="pre">{trf.requestedAnalysis ?? '—'}</dd>
               <dt>Analyst</dt><dd>{trf.analystName ?? 'Not assigned'}</dd>
-              <dt>Analysis start date</dt><dd>{formatDate(trf.analysisStartDate)}</dd>
-              <dt>Reporting status</dt><dd>{trf.reportingStatus}</dd>
-              <dt>COA status</dt><dd><ArdCoaBadge status={trf.coaStatus} /></dd>
+              <dt>Date of analysis</dt><dd>{formatDate(trf.analysisStartDate)}</dd>
+              <dt>Reporting</dt><dd>{trf.reportingStatus}</dd>
+              <dt>COA</dt><dd><ArdCoaBadge status={trf.coaStatus} /></dd>
+              <dt>Remark</dt><dd className="pre">{trf.ardRemarks ?? '—'}</dd>
+              <dt>ARD remarks status</dt><dd><ArdRemarksStatusBadge status={trf.ardRemarksStatus} /></dd>
               <dt>TAT (days)</dt><dd>{trf.tat?.toString() ?? '—'}</dd>
-              <dt>ARD remarks</dt><dd className="pre">{trf.ardRemarks ?? '—'}</dd>
             </dl>
 
             {canEditB && nextArdStatuses.length > 0 && (

@@ -2,10 +2,10 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { EmployeeProfile, TrfListPage, TrfStatus, TrfStatusHistoryEntry, ArdStatusHistoryEntry } from '@trf/shared';
 import {
-  MESSAGES, PRIORITIES, TRF_STATUS_TRANSITIONS, canTransitionTrf, canTransitionArd,
-  TERMINAL_ARD_STATUSES, ARD_WORKFLOW_TRANSITIONS, roleHasPermission, canEditTrfPartA, canEditTrfPartB,
-  ArdWorkflowStatus,
-} from '@trf/shared';
+   MESSAGES, PRIORITIES, TRF_STATUS_TRANSITIONS, canTransitionTrf, canTransitionArd,
+   TERMINAL_ARD_STATUSES, ARD_WORKFLOW_TRANSITIONS, roleHasPermission, canEditTrfPartA, canEditTrfPartB,
+   ArdWorkflowStatus, ArdRemarksStatus, ARD_REMARKS_STATUSES,
+ } from '@trf/shared';
 import { pool, withTransaction } from '../db';
 import { AppError, badRequest, conflict, forbidden, notFound, versionConflict } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
@@ -14,7 +14,7 @@ import {
   OVERDUE_SQL, ARD_TAT_SQL, TRF_DETAIL_FROM, TRF_DETAIL_SELECT, TRF_FROM, TRF_SELECT, TRF_SORT_SQL,
   TrfRow, toDetail, toListItem, trfListQuerySchema, toFilters,
 } from '../lib/trf-query';
-import { authenticate, currentEmployee, requirePermission, requireTrfEdit, requireArdEdit, requireTrfDelete, validateBody } from '../middleware/auth';
+import { authenticate, currentEmployee, requirePermission, requireTrfCreate, requireTrfEdit, requireArdEdit, requireTrfDelete, validateBody } from '../middleware/auth';
 
 export const trfsRouter = Router();
 trfsRouter.use(authenticate);
@@ -23,8 +23,12 @@ const ISO_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the date format yy
 
 const createSchema = z.object({
   trfDate: ISO_DATE,
-  customerId: z.number().int().positive().nullable().optional(),
-  productId: z.number().int().positive().nullable().optional(),
+  customerId: z.number({
+    invalid_type_error: 'Select a customer from the list or create one first.',
+  }).int().positive({ message: 'Select a customer from the list or create one first.' }),
+  productId: z.number({
+    invalid_type_error: 'Select a product from the list or create one first.',
+  }).int().positive({ message: 'Select a product from the list or create one first.' }),
   batchNumber: z.string().trim().max(200).nullable().optional(),
   sampleQuantity: z.string().trim().max(60).nullable().optional(),
   sampleReceivedDate: ISO_DATE.nullable().optional(),
@@ -45,8 +49,11 @@ const createSchema = z.object({
   manufacturingDate: ISO_DATE.nullable().optional(),
   expiryDate: ISO_DATE.nullable().optional(),
   analysisPurpose: z.string().trim().max(1000).nullable().optional(),
-  sampleGivenBy: z.string().trim().max(200).nullable().optional(),
-  signatureDate: ISO_DATE.nullable().optional(),
+   sampleGivenBy: z.string().trim().max(200).nullable().optional(),
+   signatureDate: ISO_DATE.nullable().optional(),
+   remarksStatus: z.enum(['Pending', 'Approved', 'Rejected']).optional(),
+   sampleReceivedBy: z.number().int().positive().nullable().optional(),
+   ardRemarksStatus: z.enum(ARD_REMARKS_STATUSES).optional(),
 });
 
 const updateSchema = createSchema.partial().extend({
@@ -56,6 +63,9 @@ const updateSchema = createSchema.partial().extend({
   reportingStatus: z.enum(['Pending', 'Draft', 'Submitted', 'Reviewed', 'Approved']).optional(),
   coaStatus: z.enum(['Pending', 'Draft', 'Under Review', 'Approved', 'Issued']).optional(),
   ardRemarks: z.string().trim().max(2000).nullable().optional(),
+  ardRemarksStatus: z.enum(ARD_REMARKS_STATUSES).optional(),
+  remarksStatus: z.enum(['Pending', 'Approved', 'Rejected']).optional(),
+  sampleReceivedBy: z.number().int().positive().nullable().optional(),
 });
 
 const ardStatusSchema = z.object({
@@ -89,13 +99,14 @@ const EDITABLE_FORMULATION = [
   'requiredCompletionDate', 'requestedAnalysis', 'specialInstructions', 'remarks',
   'batchSize', 'dosageForm', 'manufacturingLocation', 'labelClaim', 'packSize',
   'packType', 'storageCondition', 'storagePeriod', 'manufacturingDate', 'expiryDate',
-  'analysisPurpose',   'sampleGivenBy', 'signatureDate', 'priority',
-] as const;
+   'analysisPurpose',   'sampleGivenBy', 'signatureDate', 'priority',
+   'sampleReceivedBy', 'remarksStatus',
+ ] as const;
 
 /** ARD Part B fields that only the ARD team may edit via PATCH. */
 const EDITABLE_ARD = [
   'ardAnalystId', 'analysisStartDate', 'reportingStatus',
-  'coaStatus', 'ardRemarks',
+  'coaStatus', 'ardRemarks', 'ardRemarksStatus',
 ] as const;
 
 const COLUMN: Record<string, string> = {
@@ -127,7 +138,10 @@ const COLUMN: Record<string, string> = {
   workflowStatus: 'workflow_status',
   reportingStatus: 'reporting_status',
   coaStatus: 'coa_status',
-  ardRemarks: 'ard_remarks',
+   ardRemarks: 'ard_remarks',
+   remarksStatus: 'remarks_status',
+   sampleReceivedBy: 'sample_received_by',
+   ardRemarksStatus: 'ard_remarks_status',
 };
 
 /** A blank text field is stored as NULL, so search and exports do not see empty strings. */
@@ -202,13 +216,12 @@ trfsRouter.get('/', requirePermission('trf.view'), async (req, res, next) => {
     const sortColumn = TRF_SORT_SQL[filters.sortBy];
     const dir = filters.sortDir === 'asc' ? 'ASC' : 'DESC';
     // Overdue is selected as a column and filtered on in SQL, never in the client.
-    const rows = await pool.query<TrfRow & { is_overdue: boolean }>(
-      `SELECT ${TRF_SELECT}, an.full_name AS analyst_name, (${ARD_TAT_SQL}) AS tat, (${OVERDUE_SQL}) AS is_overdue ${TRF_FROM}
-        LEFT JOIN employees an ON an.id = t.ard_analyst_id ${whereSql}
-        ORDER BY ${sortColumn} ${dir} NULLS LAST, t.id DESC
-        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      [...params, filters.pageSize, (filters.page - 1) * filters.pageSize],
-    );
+     const rows = await pool.query<TrfRow & { is_overdue: boolean }>(
+       `SELECT ${TRF_SELECT}, (${ARD_TAT_SQL}) AS tat, (${OVERDUE_SQL}) AS is_overdue ${TRF_DETAIL_FROM} ${whereSql}
+         ORDER BY ${sortColumn} ${dir} NULLS LAST, t.id DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+       [...params, filters.pageSize, (filters.page - 1) * filters.pageSize],
+     );
 
     const body: TrfListPage = {
       items: rows.rows.map((row) => toListItem(row, row.is_overdue)),
@@ -274,7 +287,7 @@ trfsRouter.get('/:id/history', requirePermission('trf.view'), async (req, res, n
   }
 });
 
-trfsRouter.post('/', requireTrfEdit(), validateBody(createSchema), async (req, res, next) => {
+trfsRouter.post('/', requireTrfCreate(), validateBody(createSchema), async (req, res, next) => {
   const user = currentEmployee(req);
   try {
     const body = req.body as z.infer<typeof createSchema>;
@@ -286,6 +299,13 @@ trfsRouter.post('/', requireTrfEdit(), validateBody(createSchema), async (req, r
      if (body.expiryDate && body.manufacturingDate && body.expiryDate <= body.manufacturingDate) {
        throw badRequest('The expiry date must be after the manufacturing date.', {
          expiryDate: 'The expiry date must be later than the manufacturing date.',
+       });
+     }
+     // A rejected remark must say why. A rejection with no explanation is not
+     // actionable, so it is refused with a message on the note field.
+     if (body.remarksStatus === 'Rejected' && !body.remarks?.trim()) {
+       throw badRequest('A rejected remark needs a note explaining why.', {
+         remarks: 'Explain why the remark is rejected.',
        });
      }
 
@@ -305,15 +325,15 @@ trfsRouter.post('/', requireTrfEdit(), validateBody(createSchema), async (req, r
       const trfNumber = await nextNumber(client, 'TRF', Number(body.trfDate.slice(0, 4)));
       const inserted = await client.query<{ id: number }>(
         `INSERT INTO trfs (trf_number, trf_date, customer_id, product_id, batch_number, sample_quantity,
-           sample_received_date, required_completion_date, priority, requested_analysis,
-           special_instructions, department_id, remarks, batch_size, dosage_form,
-           manufacturing_location, label_claim, pack_size, pack_type, storage_condition,
-           storage_period, manufacturing_date, expiry_date, analysis_purpose,
-           sample_given_by, signature_date, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-           $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
-         RETURNING id`,
-        [trfNumber, body.trfDate, body.customerId ?? null, body.productId ?? null,
+            sample_received_date, required_completion_date, priority, requested_analysis,
+            special_instructions, department_id, remarks, batch_size, dosage_form,
+            manufacturing_location, label_claim, pack_size, pack_type, storage_condition,
+            storage_period, manufacturing_date, expiry_date, analysis_purpose,
+            sample_given_by, signature_date, created_by, remarks_status, ard_remarks_status, sample_received_by)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+            $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
+          RETURNING id`,
+        [trfNumber, body.trfDate, body.customerId, body.productId,
           body.batchNumber ?? null, body.sampleQuantity ?? null, body.sampleReceivedDate ?? null,
           body.requiredCompletionDate ?? null, body.priority, body.requestedAnalysis ?? null,
           body.specialInstructions ?? null, body.departmentId ?? user.departmentId ?? null,
@@ -321,7 +341,8 @@ trfsRouter.post('/', requireTrfEdit(), validateBody(createSchema), async (req, r
           body.manufacturingLocation ?? null, body.labelClaim ?? null, body.packSize ?? null,
           body.packType ?? null, body.storageCondition ?? null, body.storagePeriod ?? null,
           body.manufacturingDate ?? null, body.expiryDate ?? null, body.analysisPurpose ?? null,
-          body.sampleGivenBy ?? null, body.signatureDate ?? null, user.id],
+          body.sampleGivenBy ?? null, body.signatureDate ?? null, user.id,
+          body.remarksStatus ?? 'Pending', body.ardRemarksStatus ?? 'Pending', body.sampleReceivedBy ?? null],
       );
       const id = inserted.rows[0].id;
 
@@ -363,7 +384,7 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
     const updatedId = await withTransaction(async (client) => {
       // FOR UPDATE OF t locks the TRF row only: the joined lookup tables are shared
       // across TRFs and must never be locked here.
-      const before = await client.query<TrfRow>(`SELECT ${TRF_SELECT} ${TRF_FROM} WHERE t.id = $1 FOR UPDATE OF t`, [id]);
+      const before = await client.query<TrfRow>(`SELECT ${TRF_SELECT} ${TRF_DETAIL_FROM} WHERE t.id = $1 FOR UPDATE OF t`, [id]);
       const current = before.rows[0];
       if (!current) throw notFound();
       if (current.deleted_at) throw notFound();
@@ -380,6 +401,18 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
       }
       if (ardFields.length && !canEditTrfPartB(user)) {
         throw forbidden('You do not have ARD department access to edit these fields.');
+      }
+
+      // A rejected remark must say why, whether the note is being set now or
+      // was already there. A rejection with no explanation is not actionable.
+      const nextRemarksStatus = body.remarksStatus ?? current.remarks_status;
+      if (nextRemarksStatus === 'Rejected') {
+        const nextRemarks = body.remarks !== undefined ? body.remarks : current.remarks;
+        if (!nextRemarks?.trim()) {
+          throw badRequest('A rejected remark needs a note explaining why.', {
+            remarks: 'Explain why the remark is rejected.',
+          });
+        }
       }
 
       const fields = [...formFields, ...ardFields];
@@ -546,7 +579,7 @@ trfsRouter.delete('/:id', requireTrfDelete(), async (req, res, next) => {
  * Manager) may drive the workflow. The transition is validated against
  * ARD_WORKFLOW_TRANSITIONS, and terminal states fix finalized_at so TAT is stable.
  */
-trfsRouter.post('/:id/ard-status', requirePermission('trf.changeStatus'), requireArdEdit(), validateBody(ardStatusSchema), async (req, res, next) => {
+trfsRouter.post('/:id/ard-status', requireArdEdit(), validateBody(ardStatusSchema), async (req, res, next) => {
   const user = currentEmployee(req);
   try {
     const id = Number(req.params.id);

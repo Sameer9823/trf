@@ -103,6 +103,27 @@ export function employeePermissions(role: Role) {
   return permissionsForRole(role);
 }
 
+/** Formulation department users (plus Admin and Manager) may create TRFs.
+ * ARD-only users are refused: a TRF is a formulation request, so only Part A
+ * holders may start one. */
+export function requireTrfCreate() {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.employee) return next(unauthorized('Sign in to continue.'));
+    if (!canEditTrfPartA(req.employee)) return next(forbidden());
+    next();
+  };
+}
+
+/** Formulation department users (plus Admin and Manager) may create/edit
+ * customers and products inline while filling in a TRF. */
+export function requireTrfLookupEdit() {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.employee) return next(unauthorized('Sign in to continue.'));
+    if (!canEditTrfPartA(req.employee)) return next(forbidden());
+    next();
+  };
+}
+
 /**
  * Formulation department users (plus any Admin) may create and edit Part A
  * fields on the TRF, and anyone who can also edit Part B may update those.

@@ -5,6 +5,7 @@ import type { Server } from 'node:http';
 import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
+import { baseLookups } from './fixtures';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -84,9 +85,10 @@ let otherTrf: Fixture = { trfId: 0, trfNumber: '', testId: 0, testName: '' };
 let issuedCoa: { id: number; coaNumber: string } = { id: 0, coaNumber: '' };
 
 async function makeAssignedTrf(createdBy: string, employeeId: number, tag: string): Promise<Fixture> {
+  const lookups = await baseLookups();
   const created = await api('/api/trfs', {
     method: 'POST',
-    body: JSON.stringify({ trfDate: TODAY, priority: 'Normal', batchNumber: `${MARKER}-${tag}` }),
+    body: JSON.stringify({ trfDate: TODAY, priority: 'Normal', batchNumber: `${MARKER}-${tag}`, ...lookups }),
   }, createdBy);
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const trfId = created.body.id as number;

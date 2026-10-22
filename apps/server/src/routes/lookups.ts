@@ -2,9 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { Customer, Product } from '@trf/shared';
 import { pool, withTransaction } from '../db';
-import { duplicateError, forbidden } from '../lib/errors';
+import { duplicateError, forbidden, conflict } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
-import { authenticate, currentEmployee, requirePermission, validateBody } from '../middleware/auth';
+import { authenticate, currentEmployee, requirePermission, requireTrfLookupEdit, validateBody } from '../middleware/auth';
 
 export const lookupsRouter = Router();
 // Customers and products are readable by anyone who can see a TRF, because the
@@ -36,6 +36,24 @@ const toProduct = (r: ProductRow): Product => ({ id: r.id, name: r.name, code: r
 
 const nullIfEmpty = (v: string | null | undefined) => (v ? v : null);
 
+/**
+ * Looks for a customer or product whose name matches, ignoring case. The unique
+ * index on `code` is case-sensitive, so "Acme" and "acme" would both be
+ * accepted by the database but read as the same record to a person.
+ */
+async function findByName(client: { query: (sql: string, values?: unknown[]) => Promise<{ rowCount: number }> },
+  table: 'customers' | 'products', name: string): Promise<boolean> {
+  const result = await client.query(`SELECT 1 FROM ${table} WHERE lower(name) = lower($1) LIMIT 1`, [name]);
+  return result.rowCount > 0;
+}
+
+/** The same check for the optional code, which is unique but case-sensitive. */
+async function findByCode(client: { query: (sql: string, values?: unknown[]) => Promise<{ rowCount: number }> },
+  table: 'customers' | 'products', code: string): Promise<boolean> {
+  const result = await client.query(`SELECT 1 FROM ${table} WHERE lower(code) = lower($1) LIMIT 1`, [code]);
+  return result.rowCount > 0;
+}
+
 lookupsRouter.get('/customers', requirePermission('trf.view'), async (_req, res, next) => {
   try {
     const result = await pool.query<CustomerRow>(
@@ -46,11 +64,17 @@ lookupsRouter.get('/customers', requirePermission('trf.view'), async (_req, res,
   } catch (err) { next(err); }
 });
 
-lookupsRouter.post('/customers', requirePermission('employees.manage'), validateBody(customerSchema), async (req, res, next) => {
+lookupsRouter.post('/customers', requireTrfLookupEdit(), validateBody(customerSchema), async (req, res, next) => {
   const admin = currentEmployee(req);
   try {
     const b = req.body as z.infer<typeof customerSchema>;
     const created = await withTransaction(async (client) => {
+      if (await findByName(client, 'customers', b.name)) {
+        throw conflict('A customer with this name already exists.');
+      }
+      if (b.code && await findByCode(client, 'customers', b.code)) {
+        throw conflict('A customer with this code already exists.');
+      }
       const result = await client.query<CustomerRow>(
         `INSERT INTO customers (name, code, contact_person, email, phone, address)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, code, contact_person, email, phone, address, is_active`,
@@ -77,11 +101,17 @@ lookupsRouter.get('/products', requirePermission('trf.view'), async (_req, res, 
   } catch (err) { next(err); }
 });
 
-lookupsRouter.post('/products', requirePermission('employees.manage'), validateBody(productSchema), async (req, res, next) => {
+lookupsRouter.post('/products', requireTrfLookupEdit(), validateBody(productSchema), async (req, res, next) => {
   const admin = currentEmployee(req);
   try {
     const b = req.body as z.infer<typeof productSchema>;
     const created = await withTransaction(async (client) => {
+      if (await findByName(client, 'products', b.name)) {
+        throw conflict('A product with this name already exists.');
+      }
+      if (b.code && await findByCode(client, 'products', b.code)) {
+        throw conflict('A product with this code already exists.');
+      }
       const result = await client.query<ProductRow>(
         `INSERT INTO products (name, code, description) VALUES ($1, $2, $3)
          RETURNING id, name, code, description, is_active`,
@@ -103,6 +133,10 @@ lookupsRouter.post('/products', requirePermission('employees.manage'), validateB
 const customerUpdateSchema = customerSchema.partial().extend({ isActive: z.boolean().optional() });
 const productUpdateSchema = productSchema.partial().extend({ isActive: z.boolean().optional() });
 
+// Editing or deactivating a master record is Admin-only: the lists are shared
+// with every TRF, so only an administrator may change or retire one. Adding a
+// new one while filling in a TRF is a different job and is allowed to anyone
+// with Part A rights.
 lookupsRouter.patch('/customers/:id', requirePermission('employees.manage'), validateBody(customerUpdateSchema), async (req, res, next) => {
   const admin = currentEmployee(req);
   try {

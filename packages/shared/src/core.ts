@@ -62,6 +62,13 @@ export type ArdReportingStatus = (typeof ArdReportingStatus)[number];
 export const ArdCoaStatus = ['Pending', 'Draft', 'Under Review', 'Approved', 'Issued'] as const;
 export type ArdCoaStatus = (typeof ArdCoaStatus)[number];
 
+export const REMARKS_STATUSES = ['Pending', 'Approved', 'Rejected'] as const;
+export type RemarksStatus = (typeof REMARKS_STATUSES)[number];
+
+/** Status values for the ARD team's free-text remark. Pending is the default for new TRFs. */
+export const ARD_REMARKS_STATUSES = ['Pending', 'Sample Received', 'Under Analysis', 'Result Reported', 'Retest Required', 'On Hold', 'Completed'] as const;
+export type ArdRemarksStatus = (typeof ARD_REMARKS_STATUSES)[number];
+
 /** Forward moves for an ARD workflow. Terminal states have no outgoing transitions. */
 export const ARD_WORKFLOW_TRANSITIONS: Record<ArdWorkflowStatus, readonly ArdWorkflowStatus[]> = {
   Received: ['In Progress', 'Cancelled'],

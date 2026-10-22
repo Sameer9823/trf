@@ -8,6 +8,7 @@ import { AUDIT_ACTIONS, AUDIT_ACTION_LABELS } from '@trf/shared';
 import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
+import { baseLookups } from './fixtures';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -83,8 +84,9 @@ let trfNumber = '';
 
 /** One TRF that has been through a real change, so the trail has something to show. */
 async function seedTrf() {
+  const lookups = await baseLookups();
   const created = await api('/api/trfs', {
-    method: 'POST', body: JSON.stringify({ trfDate: TODAY, priority: 'High', batchNumber: `P9-${Date.now()}` }),
+    method: 'POST', body: JSON.stringify({ trfDate: TODAY, priority: 'High', batchNumber: `P9-${Date.now()}`, ...lookups }),
   }, manager.token);
   assert.equal(created.status, 201, JSON.stringify(created.body));
   trfId = created.body.id;

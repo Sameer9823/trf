@@ -6,6 +6,7 @@ import { MESSAGES } from '@trf/shared';
 import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
+import { baseLookups } from './fixtures';
 import { hashPassword } from '../lib/password';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
@@ -71,9 +72,10 @@ async function makeEmployee(role: string) {
 }
 
 async function makeTrf(token: string, overrides: Record<string, unknown> = {}) {
+  const lookups = await baseLookups();
   const res = await api('/api/trfs', {
     method: 'POST',
-    body: JSON.stringify({ trfDate: TODAY, priority: 'Normal', ...overrides }),
+    body: JSON.stringify({ trfDate: TODAY, priority: 'Normal', ...lookups, ...overrides }),
   }, token);
   assert.equal(res.status, 201, JSON.stringify(res.body));
   return res.body as { id: number; trfNumber: string; status: string; version: number };

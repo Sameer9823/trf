@@ -7,6 +7,7 @@ import { EXPORT_ROW_LIMIT, sheetsFor } from '@trf/shared';
 import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
+import { baseLookups } from './fixtures';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -88,9 +89,10 @@ let otherTrf = '';
  * Analysis sheet is scoped by the test's assignee.
  */
 async function seedTrf(batch: string, assignedEmployeeId: number) {
+  const lookups = await baseLookups();
   const created = await api('/api/trfs', {
     method: 'POST',
-    body: JSON.stringify({ trfDate: TODAY, priority: 'Normal', batchNumber: batch }),
+    body: JSON.stringify({ trfDate: TODAY, priority: 'Normal', batchNumber: batch, ...lookups }),
   }, adminToken);
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const trf = created.body as { id: number; trfNumber: string; version: number };
@@ -209,13 +211,30 @@ maybe('dates are written as dates, not as text', async () => {
   assert.ok(rows.length > 0);
   const mine = rows.find((r) => r['TRF No.'] === myTrf);
   assert.ok(mine, 'the seeded TRF is in its own export');
-  const trfDate = mine?.['TRF Date'];
-  assert.ok(trfDate instanceof Date, `TRF Date is a date cell, got ${typeof trfDate}`);
+  const trfDate = mine?.['Date of Request'];
+  assert.ok(trfDate instanceof Date, `Date of Request is a date cell, got ${typeof trfDate}`);
   // Read in local parts: the cell holds a calendar day, and Excel has no timezone.
   const d = trfDate as Date;
   const localDay = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   assert.equal(localDay, TODAY, 'the calendar day survives the round trip');
   assert.equal(res.book.getWorksheet('TRF Master')!.getRow(2).getCell(2).numFmt, 'dd-mm-yyyy');
+});
+
+maybe('the TRF Master sheet carries every column the list shows', async () => {
+  const res = await exportBook('sheet=TRF%20Master', manager.token);
+  assert.ok(res.ok);
+  const sheet = res.book.getWorksheet('TRF Master');
+  const headers = (sheet!.getRow(1).values as unknown[]).filter((v) => typeof v === 'string') as string[];
+  for (const heading of [
+    'TRF No.', 'Date of Request', 'Product', 'Batch Number', 'Batch Size', 'Market/Customer',
+    'Dosage Form', 'Manufacturing Location', 'Label Claim', 'Pack Size', 'Pack Type',
+    'Storage Condition', 'Storage Period', 'Manufacturing Date', 'Expiry Date',
+    'Sample Quantity', 'Test Requested', 'Test Details', 'Purpose', 'Required Completion Date',
+    'Remarks', 'Remarks Status', 'Sample Submitted By', 'Signature/Date', 'Status', 'Priority',
+    'Assigned Employee', 'Overdue',
+  ]) {
+    assert.ok(headers.includes(heading), `the TRF Master sheet is missing "${heading}"`);
+  }
 });
 
 maybe('the list filters carry into the file, and only those rows appear', async () => {
@@ -243,9 +262,20 @@ maybe('the ARD Tracking sheet is present and lists the seeded ARDs', async () =>
   const rows = rowsOf(sheet);
   assert.ok(rows.length >= 2, 'both seeded TRFs have ARD rows');
   for (const r of rows) {
-    assert.ok(r['ARD No.'], 'each row has an ARD number');
+    assert.ok(r['A.R. No.'], 'each row has an A.R. number');
     assert.equal(r['Stage'], 'Received', 'auto-created ARDs start as Received');
     assert.equal(r['TAT (days)'], null, 'no start date means no TAT');
+    assert.ok(r['Remarks Status'], 'each row has a remarks status');
+    assert.ok(r['ARD Remarks Status'], 'each row has an ARD remarks status');
+    assert.ok(r['Sample Received By'] !== undefined, 'each row has a sample received by column');
+  }
+  const ardHeaders = (sheet!.getRow(1).values as unknown[]).filter((v) => typeof v === 'string') as string[];
+  for (const heading of [
+    'A.R. No.', 'TRF No.', 'Date of Request', 'Product', 'Batch Number', 'Market/Customer',
+    'Stage', 'Analyst', 'Date of Analysis', 'Reporting', 'COA', 'ARD Remark',
+    'ARD Remarks Status', 'TAT (days)', 'Remarks Status', 'Sample Received By',
+  ]) {
+    assert.ok(ardHeaders.includes(heading), `the ARD Tracking sheet is missing "${heading}"`);
   }
 });
 

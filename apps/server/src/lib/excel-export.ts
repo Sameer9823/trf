@@ -30,7 +30,10 @@ const STATUS_FILL: Record<string, string> = {
   Draft: 'FFE4EEF4', 'Under Review': 'FFD6E8F0', Pending: 'FFEFF2F4',
   'Re-test Required': 'FFFCE9D4', Cancelled: 'FFEFF2F4',
   Pass: 'FFDDEEE3', Fail: 'FFF7DEDC', 'Not Specified': 'FFEFF2F4', 'Not Tested': 'FFEFF2F4',
-  Delayed: 'FFFCE9D4', Yes: 'FFF7DEDC', No: 'FFDDEEE3',
+   Delayed: 'FFFCE9D4', Yes: 'FFF7DEDC', No: 'FFDDEEE3',
+   Rejected: 'FFF7DEDC',
+   'Sample Received': 'FFE4EEF4', 'Under Analysis': 'FFD6E8F0',
+   'Result Reported': 'FFDDEEE3', 'Retest Required': 'FFFCE9D4', 'On Hold': 'FFFCE9D4',
 };
 
 type Row = Record<string, unknown>;
@@ -208,8 +211,12 @@ export async function buildExportWorkbook(
 
     const { rows } = await pool.query(
       `SELECT t.trf_number, t.trf_date, cu.name AS customer_name, p.name AS product_name,
-              t.batch_number, t.sample_quantity, t.required_completion_date, t.priority,
-              t.status, t.requested_analysis, e.full_name AS assigned_name,
+              t.batch_number, t.batch_size, t.sample_quantity, t.required_completion_date, t.priority,
+              t.status, t.requested_analysis, t.special_instructions, t.analysis_purpose,
+              t.dosage_form, t.manufacturing_location, t.label_claim, t.pack_size, t.pack_type,
+              t.storage_condition, t.storage_period, t.manufacturing_date, t.expiry_date,
+              t.remarks, t.remarks_status, t.sample_given_by, t.signature_date,
+              e.full_name AS assigned_name,
               (${OVERDUE_SQL}) AS is_overdue
        FROM trfs t
        LEFT JOIN customers cu ON cu.id = t.customer_id
@@ -221,30 +228,62 @@ export async function buildExportWorkbook(
 
     results.push({ name: 'TRF Master', rowCount: addSheet(book, 'TRF Master', [
       { header: 'TRF No.', key: 'trf_number', width: 18 },
-      { header: 'TRF Date', key: 'trf_date' },
-      { header: 'Customer', key: 'customer_name', width: 26 },
+      { header: 'Date of Request', key: 'trf_date' },
       { header: 'Product', key: 'product_name', width: 26 },
-      { header: 'Batch No.', key: 'batch_number', width: 18 },
-      { header: 'Sample Quantity', key: 'sample_quantity' },
+      { header: 'Batch Number', key: 'batch_number', width: 18 },
+      { header: 'Batch Size', key: 'batch_size', width: 14 },
+      { header: 'Market/Customer', key: 'customer_name', width: 26 },
+      { header: 'Dosage Form', key: 'dosage_form', width: 16 },
+      { header: 'Manufacturing Location', key: 'manufacturing_location', width: 22 },
+      { header: 'Label Claim', key: 'label_claim', width: 20 },
+      { header: 'Pack Size', key: 'pack_size', width: 14 },
+      { header: 'Pack Type', key: 'pack_type', width: 14 },
+      { header: 'Storage Condition', key: 'storage_condition', width: 18 },
+      { header: 'Storage Period', key: 'storage_period', width: 16 },
+      { header: 'Manufacturing Date', key: 'manufacturing_date' },
+      { header: 'Expiry Date', key: 'expiry_date' },
+      { header: 'Sample Quantity', key: 'sample_quantity', width: 16 },
+      { header: 'Test Requested', key: 'requested_analysis', width: 34 },
+      { header: 'Test Details', key: 'special_instructions', width: 30 },
+      { header: 'Purpose', key: 'analysis_purpose', width: 22 },
       { header: 'Required Completion Date', key: 'required_completion_date' },
-      { header: 'Priority', key: 'priority' },
+      { header: 'Remarks', key: 'remarks', width: 30 },
+      { header: 'Remarks Status', key: 'remarks_status', width: 16 },
+      { header: 'Sample Submitted By', key: 'sample_given_by', width: 22 },
+      { header: 'Signature/Date', key: 'signature_date' },
       { header: 'Status', key: 'status', width: 20 },
+      { header: 'Priority', key: 'priority' },
       { header: 'Assigned Employee', key: 'assigned_name', width: 24 },
       { header: 'Overdue', key: 'is_overdue' },
-      { header: 'Requested Analysis', key: 'requested_analysis', width: 34 },
     ], rows.map((r) => ({
       trf_number: r.trf_number,
       trf_date: asDate(r.trf_date),
-      customer_name: text(r.customer_name),
       product_name: text(r.product_name),
       batch_number: text(r.batch_number),
+      batch_size: text(r.batch_size),
+      customer_name: text(r.customer_name),
+      dosage_form: text(r.dosage_form),
+      manufacturing_location: text(r.manufacturing_location),
+      label_claim: text(r.label_claim),
+      pack_size: text(r.pack_size),
+      pack_type: text(r.pack_type),
+      storage_condition: text(r.storage_condition),
+      storage_period: text(r.storage_period),
+      manufacturing_date: asDate(r.manufacturing_date),
+      expiry_date: asDate(r.expiry_date),
       sample_quantity: text(r.sample_quantity),
+      requested_analysis: text(r.requested_analysis),
+      special_instructions: text(r.special_instructions),
+      analysis_purpose: text(r.analysis_purpose),
       required_completion_date: asDate(r.required_completion_date),
+      remarks: text(r.remarks),
+      remarks_status: text(r.remarks_status),
+      sample_given_by: text(r.sample_given_by),
+      signature_date: asDate(r.signature_date),
       priority: text(r.priority),
       status: text(r.status),
       assigned_name: text(r.assigned_name),
       is_overdue: r.is_overdue ? 'Yes' : 'No',
-      requested_analysis: text(r.requested_analysis),
     })), { statusKey: 'status' }) });
   }
 
@@ -260,43 +299,51 @@ export async function buildExportWorkbook(
       `SELECT t.ard_number, t.trf_number, t.trf_date, cu.name AS customer_name, p.name AS product_name,
               t.batch_number, t.workflow_status, an.full_name AS analyst_name,
               t.analysis_start_date, t.reporting_status, t.coa_status, t.ard_remarks,
-              (${ARD_TAT_SQL}) AS tat
+              t.ard_remarks_status, (${ARD_TAT_SQL}) AS tat, t.remarks_status,
+              srb.full_name AS sample_received_by_name
        FROM trfs t
        LEFT JOIN customers cu ON cu.id = t.customer_id
        LEFT JOIN products p ON p.id = t.product_id
        LEFT JOIN employees an ON an.id = t.ard_analyst_id
+       LEFT JOIN employees srb ON srb.id = t.sample_received_by
        ${where.where}
        ORDER BY t.ard_number ASC NULLS LAST
        LIMIT ${cap + 1}`, where.params);
 
     results.push({ name: 'ARD Tracking', rowCount: addSheet(book, 'ARD Tracking', [
-      { header: 'ARD No.', key: 'ard_number', width: 18 },
+      { header: 'A.R. No.', key: 'ard_number', width: 18 },
       { header: 'TRF No.', key: 'trf_number', width: 18 },
-      { header: 'TRF Date', key: 'trf_date' },
-      { header: 'Customer', key: 'customer_name', width: 26 },
+      { header: 'Date of Request', key: 'trf_date' },
       { header: 'Product', key: 'product_name', width: 26 },
-      { header: 'Batch No.', key: 'batch_number', width: 18 },
+      { header: 'Batch Number', key: 'batch_number', width: 18 },
+      { header: 'Market/Customer', key: 'customer_name', width: 26 },
       { header: 'Stage', key: 'workflow_status', width: 18 },
       { header: 'Analyst', key: 'analyst_name', width: 24 },
-      { header: 'Analysis Start Date', key: 'analysis_start_date' },
-      { header: 'Reporting Status', key: 'reporting_status', width: 18 },
-      { header: 'COA Status', key: 'coa_status', width: 16 },
+      { header: 'Date of Analysis', key: 'analysis_start_date' },
+      { header: 'Reporting', key: 'reporting_status', width: 18 },
+      { header: 'COA', key: 'coa_status', width: 16 },
+      { header: 'ARD Remark', key: 'ard_remarks', width: 30 },
+      { header: 'ARD Remarks Status', key: 'ard_remarks_status', width: 20 },
       { header: 'TAT (days)', key: 'tat' },
-      { header: 'Remarks', key: 'remarks', width: 30 },
+      { header: 'Remarks Status', key: 'remarks_status', width: 16 },
+      { header: 'Sample Received By', key: 'sample_received_by_name', width: 24 },
     ], rows.map((r) => ({
       ard_number: text(r.ard_number) ?? '—',
       trf_number: r.trf_number,
       trf_date: asDate(r.trf_date),
-      customer_name: text(r.customer_name),
       product_name: text(r.product_name),
       batch_number: text(r.batch_number),
+      customer_name: text(r.customer_name),
       workflow_status: text(r.workflow_status),
       analyst_name: text(r.analyst_name),
       analysis_start_date: asDate(r.analysis_start_date),
       reporting_status: text(r.reporting_status),
       coa_status: text(r.coa_status),
+      ard_remarks: text(r.ard_remarks),
+      ard_remarks_status: text(r.ard_remarks_status),
       tat: r.tat ?? null,
-      remarks: text(r.ard_remarks),
+      remarks_status: text(r.remarks_status),
+      sample_received_by_name: text(r.sample_received_by_name),
     })), { statusKey: 'workflow_status' }) });
   }
 

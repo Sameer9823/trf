@@ -1,4 +1,4 @@
-import { MESSAGES, TrfStatus, canTransitionTrf, canTransitionArd, ArdWorkflowStatus } from '@trf/shared';
+import { MESSAGES, TrfStatus, canTransitionTrf, canTransitionArd, ArdWorkflowStatus, RemarksStatus, ArdRemarksStatus } from '@trf/shared';
 
 const LABELS: Record<TrfStatus, string> = {
   New: 'New',
@@ -40,8 +40,34 @@ const ARD_WORKFLOW_TONE: Record<string, string> = {
   Cancelled: 'badge--muted',
 };
 
+const REMARKS_STATUS_TONE: Record<RemarksStatus, string> = {
+  Pending: 'badge--warn',
+  Approved: 'badge--ok',
+  Rejected: 'badge--danger',
+};
+
 export function ArdWorkflowBadge({ status }: { status: string }) {
   return <span className={`badge ${ARD_WORKFLOW_TONE[status] ?? 'badge--muted'}`}>{status}</span>;
+}
+
+export function RemarksStatusBadge({ status }: { status: RemarksStatus | string }) {
+  const tone = REMARKS_STATUS_TONE[status as RemarksStatus] ?? 'badge--muted';
+  return <span className={`badge ${tone}`}>{status}</span>;
+}
+
+const ARD_REMARKS_STATUS_TONE: Record<string, string> = {
+  Pending: 'badge--warn',
+  'Sample Received': 'badge--info',
+  'Under Analysis': 'badge--info',
+  'Result Reported': 'badge--ok',
+  'Retest Required': 'badge--warn',
+  'On Hold': 'badge--warn',
+  Completed: 'badge--ok',
+};
+
+export function ArdRemarksStatusBadge({ status }: { status: ArdRemarksStatus | string }) {
+  const tone = ARD_REMARKS_STATUS_TONE[status] ?? 'badge--muted';
+  return <span className={`badge ${tone}`}>{status}</span>;
 }
 
 export function ArdCoaBadge({ status }: { status: string }) {

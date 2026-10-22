@@ -116,9 +116,11 @@ DELETE FROM schema_migrations WHERE name = '005_analysis.sql';
 DROP TABLE IF EXISTS coa_lines, coas;
 DELETE FROM schema_migrations WHERE name = '006_coa.sql';
 
-  -- Phase 12
-  DROP TABLE IF EXISTS ard_status_history;
-  DROP TABLE IF EXISTS ards;
+  -- Phase 12 (undo all Phase 12 migrations 007–009 so they re-apply cleanly)
+  DROP TABLE IF EXISTS ard_status_history CASCADE;
+  DROP TABLE IF EXISTS ards CASCADE;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS remarks_status;
+  ALTER TABLE trfs DROP COLUMN IF EXISTS sample_received_by;
   ALTER TABLE trfs DROP COLUMN IF EXISTS ard_number;
   ALTER TABLE trfs DROP COLUMN IF EXISTS ard_stage;
   ALTER TABLE trfs DROP COLUMN IF EXISTS ard_analyst_id;
@@ -143,7 +145,7 @@ DELETE FROM schema_migrations WHERE name = '006_coa.sql';
   ALTER TABLE trfs DROP COLUMN IF EXISTS analysis_purpose;
   ALTER TABLE trfs DROP COLUMN IF EXISTS sample_given_by;
   ALTER TABLE trfs DROP COLUMN IF EXISTS signature_date;
-  DELETE FROM schema_migrations WHERE name IN ('007_ard_tracking.sql', '008_ard_columns_on_trfs.sql');
+   DELETE FROM schema_migrations WHERE name IN ('007_ard_tracking.sql', '008_ard_columns_on_trfs.sql', '009_idempotent_ard_and_seed.sql');
   ```
 
 ## Never point this at a real database

@@ -13,6 +13,9 @@ interface AuthSessionState {
 
 const Ctx = createContext<AuthSessionState | null>(null);
 
+/** Exported so a screen can be rendered with a known session, e.g. in a check. */
+export const AuthContext = Ctx;
+
 interface MeResponse extends EmployeeProfile { permissions: Permission[] }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

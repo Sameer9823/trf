@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import {
-  PRIORITIES, TRF_SORT_FIELDS, TRF_STATUSES, TrfDetail, TrfFilters, TrfListItem, TrfStatus, Priority,
-  ArdWorkflowStatus, ArdReportingStatus, ArdCoaStatus,
-} from '@trf/shared';
+   PRIORITIES, TRF_SORT_FIELDS, TRF_STATUSES, TrfDetail, TrfFilters, TrfListItem, TrfStatus, Priority,
+   ArdWorkflowStatus, ArdReportingStatus, ArdCoaStatus, RemarksStatus, ArdRemarksStatus,
+ } from '@trf/shared';
 
 /** One parser for the list endpoint's query string, so the client cannot inject SQL fragments. */
 export const trfListQuerySchema = z.object({
@@ -66,6 +66,33 @@ export const TRF_SORT_SQL: Record<string, string> = {
   tat: 'tat',
   createdBy: 't.created_by',
   createdAt: 't.created_at',
+  ardRemarksStatus: 't.ard_remarks_status',
+  remarksStatus: 't.remarks_status',
+  assignedEmployeeName: 'e.full_name',
+  batchSize: 't.batch_size',
+  dosageForm: 't.dosage_form',
+  manufacturingLocation: 't.manufacturing_location',
+  labelClaim: 't.label_claim',
+  packSize: 't.pack_size',
+  packType: 't.pack_type',
+  storageCondition: 't.storage_condition',
+  storagePeriod: 't.storage_period',
+  manufacturingDate: 't.manufacturing_date',
+  expiryDate: 't.expiry_date',
+  sampleQuantity: 't.sample_quantity',
+  requestedAnalysis: 't.requested_analysis',
+  specialInstructions: 't.special_instructions',
+  analysisPurpose: 't.analysis_purpose',
+  remarks: 't.remarks',
+  sampleGivenBy: 't.sample_given_by',
+  signatureDate: 't.signature_date',
+  ardNumber: 't.ard_number',
+  analystName: 'an.full_name',
+  analysisStartDate: 't.analysis_start_date',
+  reportingStatus: 't.reporting_status',
+  coaStatus: 't.coa_status',
+  ardRemarks: 't.ard_remarks',
+  sampleReceivedByName: 'srb.full_name',
 };
 
 /** Overdue is always this expression: due date passed and status not terminal. Never stored. */
@@ -86,7 +113,16 @@ export const TRF_SELECT = `
   t.id, t.trf_number, t.trf_date, t.customer_id, c.name AS customer_name,
   t.product_id, p.name AS product_name, t.batch_number, t.priority, t.status,
   t.required_completion_date, t.assigned_employee_id, e.full_name AS assigned_employee_name,
-  t.department_id, d.name AS department_name, t.created_at, t.updated_at, t.version
+  t.department_id, d.name AS department_name, t.created_at, t.updated_at, t.version,
+  t.sample_quantity, t.sample_received_date, t.requested_analysis, t.special_instructions,
+  t.remarks, t.created_by, cb.full_name AS created_by_name,
+  t.batch_size, t.dosage_form, t.manufacturing_location, t.label_claim,
+  t.pack_size, t.pack_type, t.storage_condition, t.storage_period,
+  t.manufacturing_date, t.expiry_date, t.analysis_purpose, t.sample_given_by, t.signature_date,
+  t.ard_number, t.ard_stage, t.ard_analyst_id, an.full_name AS analyst_name,
+  t.analysis_start_date, t.reporting_status, t.coa_status, t.workflow_status, t.ard_remarks,
+  t.remarks_status, t.ard_remarks_status, t.sample_received_by, srb.full_name AS sample_received_by_name,
+  t.finalized_at, t.deleted_at
 `;
 
 export const TRF_FROM = `
@@ -100,19 +136,29 @@ export const TRF_FROM = `
 /** ARD analyst joined so the list can show their name. */
 export const TRF_DETAIL_FROM = `${TRF_FROM}
   LEFT JOIN employees cb ON cb.id = t.created_by
-  LEFT JOIN employees an ON an.id = t.ard_analyst_id`;
+  LEFT JOIN employees an ON an.id = t.ard_analyst_id
+  LEFT JOIN employees srb ON srb.id = t.sample_received_by`;
 
+/**
+ * A DATE column arrives as a Date at local midnight. Reading it back through
+ * toISOString() would move it to the previous day for anyone east of
+ * Greenwich, so the local calendar day is taken instead. The Excel export
+ * writes the same local day, so the two agree.
+ */
 const dateOnly = (value: Date | string | null): string | null => {
   if (!value) return null;
   if (typeof value === 'string') return value.slice(0, 10);
-  return value.toISOString().slice(0, 10);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 const timestamp = (value: Date | string | null): string | null =>
   value ? new Date(value).toISOString() : null;
 
 export interface TrfRow {
-  id: number; trf_number: string; trf_date: string; customer_id: number | null; customer_name: string | null;
+   id: number; trf_number: string; trf_date: string; customer_id: number | null; customer_name: string | null;
   product_id: number | null; product_name: string | null; batch_number: string | null; priority: Priority;
   status: TrfStatus; required_completion_date: string | null; assigned_employee_id: number | null;
   assigned_employee_name: string | null; department_id: number | null; department_name: string | null;
@@ -127,8 +173,11 @@ export interface TrfRow {
   sample_given_by: string | null; signature_date: string | null;
   ard_number: string | null; ard_stage: string; ard_analyst_id: number | null; analyst_name: string | null;
   analysis_start_date: string | null; reporting_status: string; coa_status: string;
-  workflow_status: string; ard_remarks: string | null; finalized_at: Date | string | null;
-  tat: number | null; deleted_at: Date | string | null;
+  workflow_status: string; ard_remarks: string | null;
+  remarks_status: string; ard_remarks_status: string; sample_received_by: number | null;
+  sample_received_by_name: string | null;
+  finalized_at: Date | string | null; deleted_at: Date | string | null;
+  tat: number | null;
 }
 
 export function toListItem(row: TrfRow, overdue: boolean): TrfListItem {
@@ -152,21 +201,6 @@ export function toListItem(row: TrfRow, overdue: boolean): TrfListItem {
     createdAt: timestamp(row.created_at)!,
     updatedAt: timestamp(row.updated_at)!,
     version: row.version,
-    ardNumber: row.ard_number,
-    ardAnalystId: row.ard_analyst_id,
-    stage: (row.ard_stage ?? 'Received') as ArdWorkflowStatus,
-    analystName: row.analyst_name,
-    analysisStartDate: dateOnly(row.analysis_start_date),
-    reportingStatus: (row.reporting_status ?? 'Pending') as ArdReportingStatus,
-    coaStatus: (row.coa_status ?? 'Pending') as ArdCoaStatus,
-    tat: row.tat,
-    workflowStatus: (row.workflow_status ?? 'Received') as ArdWorkflowStatus,
-  };
-}
-
-export function toDetail(row: TrfRow, overdue: boolean): TrfDetail {
-  return {
-    ...toListItem(row, overdue),
     sampleQuantity: row.sample_quantity,
     sampleReceivedDate: dateOnly(row.sample_received_date),
     requestedAnalysis: row.requested_analysis,
@@ -187,9 +221,27 @@ export function toDetail(row: TrfRow, overdue: boolean): TrfDetail {
     analysisPurpose: row.analysis_purpose,
     sampleGivenBy: row.sample_given_by,
     signatureDate: dateOnly(row.signature_date),
+    ardNumber: row.ard_number,
+    ardAnalystId: row.ard_analyst_id,
+    stage: (row.ard_stage ?? 'Received') as ArdWorkflowStatus,
+    analystName: row.analyst_name,
+    analysisStartDate: dateOnly(row.analysis_start_date),
+    reportingStatus: (row.reporting_status ?? 'Pending') as ArdReportingStatus,
+    coaStatus: (row.coa_status ?? 'Pending') as ArdCoaStatus,
+    tat: row.tat,
+    workflowStatus: (row.workflow_status ?? 'Received') as ArdWorkflowStatus,
+    remarksStatus: (row.remarks_status ?? 'Pending') as RemarksStatus,
+    sampleReceivedBy: row.sample_received_by,
+    sampleReceivedByName: row.sample_received_by_name,
+    ardRemarksStatus: (row.ard_remarks_status ?? 'Pending') as ArdRemarksStatus,
     ardRemarks: row.ard_remarks,
     finalizedAt: timestamp(row.finalized_at),
+    deletedAt: timestamp(row.deleted_at),
   };
+}
+
+export function toDetail(row: TrfRow, overdue: boolean): TrfDetail {
+  return { ...toListItem(row, overdue) };
 }
 
 export const TRF_DETAIL_SELECT = `${TRF_SELECT},
@@ -200,5 +252,6 @@ export const TRF_DETAIL_SELECT = `${TRF_SELECT},
   t.manufacturing_date, t.expiry_date, t.analysis_purpose, t.sample_given_by, t.signature_date,
   t.ard_number, t.ard_stage, t.ard_analyst_id, an.full_name AS analyst_name,
   t.analysis_start_date, t.reporting_status, t.coa_status, t.workflow_status,
-  t.ard_remarks, t.finalized_at,
-  (${ARD_TAT_SQL}) AS tat, t.deleted_at`;
+   t.ard_remarks, t.finalized_at,
+   (${ARD_TAT_SQL}) AS tat, t.deleted_at,
+   t.remarks_status, t.sample_received_by, srb.full_name AS sample_received_by_name`;

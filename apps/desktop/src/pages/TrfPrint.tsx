@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { TrfDetail } from '@trf/shared';
 import { messageOf } from '../lib/api';
-import { formatDate } from '../components/Badges';
+import { formatDate, RemarksStatusBadge, ArdRemarksStatusBadge } from '../components/Badges';
 import { useAuth } from '../lib/auth';
 import { OfflineNotice } from '../components/OfflineNotice';
 import { useServerStatus } from '../lib/server-status';
@@ -84,9 +84,26 @@ export function TrfPrint() {
           <dt>Sample received</dt><dd>{formatDate(trf.sampleReceivedDate)}</dd>
           <dt>Required completion</dt><dd>{formatDate(trf.requiredCompletionDate)}</dd>
           <dt>Analysis purpose</dt><dd>{trf.analysisPurpose ?? '—'}</dd>
-          <dt>Sample given by</dt><dd>{trf.sampleGivenBy ?? '—'}</dd>
-          <dt>Signature date</dt><dd>{formatDate(trf.signatureDate)}</dd>
+           <dt>Sample submitted by</dt><dd>{trf.sampleGivenBy ?? '—'}</dd>
+           <dt>Sample received by</dt><dd>{trf.sampleReceivedByName ?? '—'}</dd>
+           <dt>Signature date</dt><dd>{formatDate(trf.signatureDate)}</dd>
           <dt>Department</dt><dd>{trf.departmentName ?? '—'}</dd>
+        </dl>
+      </section>
+
+      <section className="trf-print__section">
+        <h2>ARD Analysis Details</h2>
+        <dl className="facts facts--two">
+          <dt>A.R. No.</dt><dd>{trf.ardNumber ?? '—'}</dd>
+          <dt>Stage</dt><dd>{trf.workflowStatus}</dd>
+          <dt>Test requested</dt><dd className="pre">{trf.requestedAnalysis ?? '—'}</dd>
+          <dt>Analyst</dt><dd>{trf.analystName ?? 'Not assigned'}</dd>
+          <dt>Date of analysis</dt><dd>{formatDate(trf.analysisStartDate)}</dd>
+          <dt>Reporting</dt><dd>{trf.reportingStatus}</dd>
+          <dt>COA</dt><dd>{trf.coaStatus}</dd>
+          <dt>Remark</dt><dd className="pre">{trf.ardRemarks ?? '—'}</dd>
+          <dt>ARD remarks status</dt><dd><ArdRemarksStatusBadge status={trf.ardRemarksStatus} /></dd>
+          <dt>TAT (days)</dt><dd>{trf.tat?.toString() ?? '—'}</dd>
         </dl>
       </section>
 
@@ -95,12 +112,9 @@ export function TrfPrint() {
         <pre className="pre">{trf.requestedAnalysis ?? '—'}</pre>
         <h2>Special Instructions</h2>
         <pre className="pre">{trf.specialInstructions ?? '—'}</pre>
-        {trf.remarks && (
-          <>
-            <h2>Remarks</h2>
-            <pre className="pre">{trf.remarks}</pre>
-          </>
-        )}
+        <h2>Remarks</h2>
+        <pre className="pre">{trf.remarks ?? '—'}</pre>
+        <p>Remarks status: <RemarksStatusBadge status={trf.remarksStatus} /></p>
       </section>
 
       <footer className="trf-print__foot">

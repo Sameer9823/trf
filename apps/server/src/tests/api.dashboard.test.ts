@@ -6,6 +6,7 @@ import type { DashboardPayload } from '@trf/shared';
 import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
+import { baseLookups } from './fixtures';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -70,8 +71,9 @@ const trfIds: number[] = [];
 const employeeIds: number[] = [];
 
 async function makeTrf(createdBy: string) {
+  const lookups = await baseLookups();
   const res = await api('/api/trfs', {
-    method: 'POST', body: JSON.stringify({ trfDate: TODAY, priority: 'Normal' }),
+    method: 'POST', body: JSON.stringify({ trfDate: TODAY, priority: 'Normal', ...lookups }),
   }, createdBy);
   assert.equal(res.status, 201, JSON.stringify(res.body));
   trfIds.push(res.body.id);
@@ -156,9 +158,10 @@ maybe('the totals count the same TRFs the TRF list returns', async () => {
 
 maybe('overdue is computed, not stored, and matches the TRF list', async () => {
   const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  const lookups = await baseLookups();
   const created = await api('/api/trfs', {
     method: 'POST',
-    body: JSON.stringify({ trfDate: TODAY, priority: 'Urgent', requiredCompletionDate: yesterday }),
+    body: JSON.stringify({ trfDate: TODAY, priority: 'Urgent', requiredCompletionDate: yesterday, ...lookups }),
   }, adminToken);
   assert.equal(created.status, 201, JSON.stringify(created.body));
   trfIds.push(created.body.id);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { Customer, Department, Priority, Product, TrfListItem, TrfListPage, TrfSortField, TrfStatus } from '@trf/shared';
 import { DEFAULT_TRF_FILTERS, PRIORITIES, TRF_STATUSES, canEditTrfPartA, canEditTrfPartB, canDeleteTrf } from '@trf/shared';
@@ -6,7 +7,7 @@ import { messageOf, toQuery } from '../lib/api';
 import { useTrfSort } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { OfflineNotice } from '../components/OfflineNotice';
-import { OverdueBadge, PriorityBadge, StatusBadge, ArdWorkflowBadge, formatDate } from '../components/Badges';
+import { OverdueBadge, PriorityBadge, StatusBadge, ArdWorkflowBadge, ArdCoaBadge, RemarksStatusBadge, ArdRemarksStatusBadge, formatDate } from '../components/Badges';
 import { ExportButton } from '../components/ExportButton';
 import { useServerStatus } from '../lib/server-status';
 
@@ -19,20 +20,45 @@ interface ColumnDef {
 
 const ALL_COLUMNS: ColumnDef[] = [
   { field: 'trfNumber', label: 'TRF No.', className: 'col-trf-number', alwaysVisible: true },
-  { field: 'trfDate', label: 'Date', alwaysVisible: true },
-  { field: 'customerName', label: 'Customer', alwaysVisible: true },
-  { field: 'productName', label: 'Product', alwaysVisible: true },
-  { field: 'batchNumber', label: 'Batch', alwaysVisible: true },
+  { field: 'trfDate', label: 'Date of Request', alwaysVisible: false },
+  { field: 'productName', label: 'Product', alwaysVisible: false },
+  { field: 'batchNumber', label: 'Batch Number', alwaysVisible: false },
+  { field: 'batchSize', label: 'Batch Size', alwaysVisible: false },
+  { field: 'customerName', label: 'Customer', alwaysVisible: false },
+  { field: 'dosageForm', label: 'Dosage Form', alwaysVisible: false },
+  { field: 'manufacturingLocation', label: 'Mfg Location', alwaysVisible: false },
+  { field: 'labelClaim', label: 'Label Claim', alwaysVisible: false },
+  { field: 'packSize', label: 'Pack Size', alwaysVisible: false },
+  { field: 'packType', label: 'Pack Type', alwaysVisible: false },
+  { field: 'storageCondition', label: 'Storage Condition', alwaysVisible: false },
+  { field: 'storagePeriod', label: 'Storage Period', alwaysVisible: false },
+  { field: 'manufacturingDate', label: 'Mfg Date', alwaysVisible: false },
+  { field: 'expiryDate', label: 'Expiry Date', alwaysVisible: false },
+  { field: 'sampleQuantity', label: 'Sample Quantity', alwaysVisible: false },
+  { field: 'requestedAnalysis', label: 'Test Requested', alwaysVisible: false },
+  { field: 'specialInstructions', label: 'Test Details', alwaysVisible: false },
+  { field: 'analysisPurpose', label: 'Purpose', alwaysVisible: false },
+  { field: 'requiredCompletionDate', label: 'Due Date', alwaysVisible: false },
+  { field: 'remarks', label: 'Remarks', alwaysVisible: false },
+  { field: 'sampleGivenBy', label: 'Sample Submitted By', alwaysVisible: false },
+  { field: 'signatureDate', label: 'Signature/Date', alwaysVisible: false },
+  { field: 'ardNumber', label: 'A.R. No.', alwaysVisible: false },
+  { field: null, label: 'Stage', alwaysVisible: false },
+  { field: 'analystName', label: 'Analyst', alwaysVisible: false },
+  { field: 'analysisStartDate', label: 'Date of Analysis', alwaysVisible: false },
+  { field: 'reportingStatus', label: 'Reporting', alwaysVisible: false },
+  { field: 'coaStatus', label: 'COA', alwaysVisible: false },
+  { field: 'ardRemarks', label: 'ARD Remark', alwaysVisible: false },
+  { field: 'ardRemarksStatus', label: 'ARD Remarks Status', alwaysVisible: false },
+  { field: 'tat', label: 'TAT', alwaysVisible: false },
+  { field: 'workflowStatus', label: 'Workflow Status', alwaysVisible: false },
+  { field: 'remarksStatus', label: 'Remarks Status', alwaysVisible: false },
+  { field: 'sampleReceivedByName', label: 'Sample Received By', alwaysVisible: false },
+  { field: 'status', label: 'Status', alwaysVisible: false },
   { field: 'priority', label: 'Priority', className: 'col-priority', alwaysVisible: false },
-  { field: 'status', label: 'Status', alwaysVisible: true },
-  { field: 'requiredCompletionDate', label: 'Due Date', alwaysVisible: true },
-  { field: null, label: 'Assigned', className: 'col-assigned', alwaysVisible: false },
-  { field: 'workflowStatus', label: 'ARD Stage', alwaysVisible: true },
-  { field: null, label: 'ARD Analyst', alwaysVisible: true },
-  { field: 'tat', label: 'TAT', alwaysVisible: true },
+  { field: 'assignedEmployeeName', label: 'Assigned', className: 'col-assigned', alwaysVisible: false },
+  { field: null, label: 'Overdue', alwaysVisible: false },
 ];
-
-const DEFAULT_VISIBLE = ALL_COLUMNS.filter((c) => c.alwaysVisible).map((c) => c.label);
 
 export function TrfList() {
   const { state } = useServerStatus();
@@ -46,7 +72,11 @@ export function TrfList() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [visibleCols, setVisibleCols] = useState<Set<string>>(() => new Set(DEFAULT_VISIBLE));
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => {
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('trfListHiddenColumns') : null;
+    if (saved) { try { return new Set(JSON.parse(saved) as string[]); } catch { } }
+    return new Set<string>();
+  });
   const [showColumnToggle, setShowColumnToggle] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<TrfListItem | null>(null);
   const [confirmDeleteText, setConfirmDeleteText] = useState('');
@@ -55,12 +85,21 @@ export function TrfList() {
   const canEditAny = employee ? (canEditTrfPartA(employee) || canEditTrfPartB(employee)) : false;
   const canDeleteAny = employee ? canDeleteTrf(employee) : false;
 
-  const columns = useMemo(() => ALL_COLUMNS.filter((c) => visibleCols.has(c.label) || c.alwaysVisible), [visibleCols]);
+  const columns = useMemo(
+    () => ALL_COLUMNS.filter((c) => c.alwaysVisible || !hiddenCols.has(c.label)),
+    [hiddenCols],
+  );
 
   const toggleColumn = (label: string) => {
-    const next = new Set(visibleCols);
+    const next = new Set(hiddenCols);
     if (next.has(label)) next.delete(label); else next.add(label);
-    setVisibleCols(next);
+    setHiddenCols(next);
+    if (typeof localStorage !== 'undefined') localStorage.setItem('trfListHiddenColumns', JSON.stringify([...next]));
+  };
+
+  const showAllColumns = () => {
+    setHiddenCols(new Set<string>());
+    if (typeof localStorage !== 'undefined') localStorage.removeItem('trfListHiddenColumns');
   };
 
   const toggleDelete = (trf: TrfListItem) => {
@@ -81,7 +120,6 @@ export function TrfList() {
     }
   };
 
-  // Filters live in the URL so a filtered list can be bookmarked or shared internally.
   const filters = useMemo(() => ({
     search: params.get('search') ?? DEFAULT_TRF_FILTERS.search,
     status: (params.get('status') ? params.get('status')!.split(',') : []) as TrfStatus[],
@@ -195,10 +233,11 @@ export function TrfList() {
 
       {showColumnToggle && (
         <div className="col-toggle__panel">
+          <button className="btn btn--ghost" onClick={showAllColumns}>Show all columns</button>
           {ALL_COLUMNS.filter((c) => !c.alwaysVisible).map((c) => (
             <label key={c.label} className="col-toggle__item">
               <input type="checkbox"
-                checked={visibleCols.has(c.label)}
+                checked={!hiddenCols.has(c.label)}
                 onChange={() => toggleColumn(c.label)}
               />
               {c.label}
@@ -265,7 +304,7 @@ export function TrfList() {
       {error && <p className="error-text" role="alert">{error}</p>}
 
       <div className="table-wrap">
-        <table className="table">
+        <table className="table table--wide">
           <thead>
             <tr>
               {columns.map((column) => (
@@ -333,6 +372,14 @@ export function TrfList() {
   );
 }
 
+const TRUNCATE_FIELDS = new Set([
+   'Customer', 'Product', 'Batch Number', 'Batch Size', 'Dosage Form', 'Mfg Location',
+   'Label Claim', 'Pack Size', 'Pack Type', 'Storage Condition', 'Storage Period',
+   'Test Requested', 'Test Details', 'Purpose', 'Remarks', 'Sample Submitted By',
+   'A.R. No.', 'Analyst', 'ARD Remark', 'Reporting', 'COA', 'Remarks Status',
+   'ARD Remarks Status', 'Sample Received By', 'Signature/Date',
+]);
+
 function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
   trf: TrfListItem; columns: ColumnDef[]; canEditAny: boolean; canDeleteAny: boolean;
   onDelete: () => void;
@@ -340,40 +387,109 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
   const canDelete = canDeleteAny && trf.status === 'New';
   const showEdit = canEditAny && trf.status !== 'Completed' && trf.status !== 'Cancelled';
 
-  const cellContent = (column: ColumnDef) => {
+  const rawCell = (column: ColumnDef): { node: ReactNode; text: string | null } => {
     switch (column.label) {
       case 'TRF No.':
-        return <a className="link nowrap" href={`#/trfs/${trf.id}`}>{trf.trfNumber}</a>;
-      case 'Date':
-        return <span className="nowrap">{formatDate(trf.trfDate)}</span>;
-      case 'Customer':
-        return <span className="muted-cell">{trf.customerName ?? '—'}</span>;
+        return { node: <a className="link nowrap" href={`#/trfs/${trf.id}`}>{trf.trfNumber}</a>, text: null };
+      case 'Date of Request':
+        return { node: <span className="nowrap">{formatDate(trf.trfDate)}</span>, text: null };
       case 'Product':
-        return <span className="muted-cell">{trf.productName ?? '—'}</span>;
-      case 'Batch':
-        return <span className="muted-cell">{trf.batchNumber ?? '—'}</span>;
-      case 'Priority':
-        return <PriorityBadge priority={trf.priority} />;
-      case 'Status':
-        return (
-          <span className="nowrap">
-            <StatusBadge status={trf.status} />
-            {trf.isOverdue && <OverdueBadge />}
-          </span>
-        );
+        return { node: <span className="muted-cell">{trf.productName ?? '—'}</span>, text: trf.productName };
+      case 'Batch Number':
+        return { node: <span className="muted-cell">{trf.batchNumber ?? '—'}</span>, text: trf.batchNumber };
+      case 'Batch Size':
+        return { node: <span className="muted-cell">{trf.batchSize ?? '—'}</span>, text: trf.batchSize };
+      case 'Customer':
+        return { node: <span className="muted-cell">{trf.customerName ?? '—'}</span>, text: trf.customerName };
+      case 'Dosage Form':
+        return { node: <span className="muted-cell">{trf.dosageForm ?? '—'}</span>, text: trf.dosageForm };
+      case 'Mfg Location':
+        return { node: <span className="muted-cell">{trf.manufacturingLocation ?? '—'}</span>, text: trf.manufacturingLocation };
+      case 'Label Claim':
+        return { node: <span className="muted-cell">{trf.labelClaim ?? '—'}</span>, text: trf.labelClaim };
+      case 'Pack Size':
+        return { node: <span className="muted-cell">{trf.packSize ?? '—'}</span>, text: trf.packSize };
+      case 'Pack Type':
+        return { node: <span className="muted-cell">{trf.packType ?? '—'}</span>, text: trf.packType };
+      case 'Storage Condition':
+        return { node: <span className="muted-cell">{trf.storageCondition ?? '—'}</span>, text: trf.storageCondition };
+      case 'Storage Period':
+        return { node: <span className="muted-cell">{trf.storagePeriod ?? '—'}</span>, text: trf.storagePeriod };
+      case 'Mfg Date':
+        return { node: <span className="nowrap">{formatDate(trf.manufacturingDate)}</span>, text: null };
+      case 'Expiry Date':
+        return { node: <span className="nowrap">{formatDate(trf.expiryDate)}</span>, text: null };
+      case 'Sample Quantity':
+        return { node: <span className="muted-cell">{trf.sampleQuantity ?? '—'}</span>, text: trf.sampleQuantity };
+      case 'Test Requested':
+        return { node: <span className="muted-cell">{trf.requestedAnalysis ?? '—'}</span>, text: trf.requestedAnalysis };
+      case 'Test Details':
+        return { node: <span className="muted-cell">{trf.specialInstructions ?? '—'}</span>, text: trf.specialInstructions };
+      case 'Purpose':
+        return { node: <span className="muted-cell">{trf.analysisPurpose ?? '—'}</span>, text: trf.analysisPurpose };
       case 'Due Date':
-        return <span className="nowrap">{formatDate(trf.requiredCompletionDate)}</span>;
-      case 'Assigned':
-        return <span className="muted-cell">{trf.assignedEmployeeName ?? '—'}</span>;
-      case 'ARD Stage':
-        return <ArdWorkflowBadge status={trf.workflowStatus} />;
-      case 'ARD Analyst':
-        return <span className="muted-cell">{trf.analystName ?? '—'}</span>;
+        return { node: <span className="nowrap">{formatDate(trf.requiredCompletionDate)}</span>, text: null };
+      case 'Remarks':
+        return { node: <span className="muted-cell">{trf.remarks ?? '—'}</span>, text: trf.remarks };
+      case 'Sample Submitted By':
+        return { node: <span className="muted-cell">{trf.sampleGivenBy ?? '—'}</span>, text: trf.sampleGivenBy };
+      case 'Signature/Date':
+        return { node: <span className="nowrap">{formatDate(trf.signatureDate)}</span>, text: null };
+      case 'A.R. No.':
+        return { node: <span className="muted-cell">{trf.ardNumber ?? '—'}</span>, text: trf.ardNumber };
+      case 'Stage':
+        return { node: <ArdWorkflowBadge status={trf.workflowStatus} />, text: null };
+      case 'Analyst':
+        return { node: <span className="muted-cell">{trf.analystName ?? '—'}</span>, text: trf.analystName };
+      case 'Date of Analysis':
+        return { node: <span className="nowrap">{formatDate(trf.analysisStartDate)}</span>, text: null };
+      case 'Reporting':
+        return { node: <span className="nowrap">{trf.reportingStatus}</span>, text: null };
+      case 'COA':
+        return { node: <ArdCoaBadge status={trf.coaStatus} />, text: null };
+      case 'ARD Remark':
+        return { node: <span className="muted-cell">{trf.ardRemarks ?? '—'}</span>, text: trf.ardRemarks };
+      case 'ARD Remarks Status':
+        return { node: <ArdRemarksStatusBadge status={trf.ardRemarksStatus} />, text: null };
       case 'TAT':
-        return <span className="nowrap">{trf.tat?.toString() ?? '—'}</span>;
+        return { node: <span className="nowrap">{trf.tat?.toString() ?? '—'}</span>, text: null };
+      case 'Workflow Status':
+        return { node: <ArdWorkflowBadge status={trf.workflowStatus} />, text: null };
+      case 'Remarks Status':
+        return { node: <RemarksStatusBadge status={trf.remarksStatus} />, text: null };
+      case 'Sample Received By':
+        return { node: <span className="muted-cell">{trf.sampleReceivedByName ?? '—'}</span>, text: trf.sampleReceivedByName };
+      case 'Status':
+        return {
+          node: (
+            <span className="nowrap">
+              <StatusBadge status={trf.status} />
+              {trf.isOverdue && <OverdueBadge />}
+            </span>
+          ),
+          text: null,
+        };
+      case 'Priority':
+        return { node: <PriorityBadge priority={trf.priority} />, text: null };
+      case 'Assigned':
+        return { node: <span className="muted-cell">{trf.assignedEmployeeName ?? '—'}</span>, text: trf.assignedEmployeeName };
+      case 'Overdue':
+        return {
+          node: trf.isOverdue ? <OverdueBadge /> : <span className="muted-cell">—</span>,
+          text: null,
+        };
       default:
-        return null;
+        return { node: null, text: null };
     }
+  };
+
+  const cellContent = (column: ColumnDef) => {
+    const { node, text } = rawCell(column);
+    if (!node) return null;
+    // A long value is cut to one line with an ellipsis, and the whole value is
+    // in the tooltip so nothing is lost.
+    if (!TRUNCATE_FIELDS.has(column.label) || !text) return node;
+    return <span className="truncate" title={text}>{node}</span>;
   };
 
   return (

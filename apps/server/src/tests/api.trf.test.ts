@@ -90,24 +90,51 @@ async function tokenFor(username: string, password: string): Promise<string> {
 const today = new Date().toISOString().slice(0, 10);
 const TRF_BODY = {
   trfDate: today,
-  customerId: null, productId: null, batchNumber: null, sampleQuantity: null,
+  batchNumber: null, sampleQuantity: null,
   sampleReceivedDate: null, requiredCompletionDate: null, priority: 'Normal',
   requestedAnalysis: null, specialInstructions: null, departmentId: null, remarks: null,
   batchSize: null, dosageForm: null, manufacturingLocation: null,
   labelClaim: null, packSize: null, packType: null, storageCondition: null,
   storagePeriod: null, manufacturingDate: null, expiryDate: null,
   analysisPurpose: null, sampleGivenBy: null, signatureDate: null,
+  remarksStatus: 'Pending', sampleReceivedBy: null,
 };
+
+/**
+ * A customer and a product every test can use. A TRF cannot be created without
+ * both, so they are made once and reused rather than created per test.
+ */
+let baseCustomerId = 0;
+let baseProductId = 0;
 
 async function createTrf(overrides: Record<string, unknown> = {}, token = adminToken) {
   return api<TrfDetail>('/api/trfs', {
-    method: 'POST', body: JSON.stringify({ ...TRF_BODY, ...overrides }),
+    method: 'POST', body: JSON.stringify({
+      ...TRF_BODY,
+      customerId: baseCustomerId,
+      productId: baseProductId,
+      ...overrides,
+    }),
   }, token);
 }
 
 maybe('setup: an admin session and an analyst exist', async () => {
   adminToken = await ensureAdmin();
   assertToken(adminToken);
+
+  // A customer and a product every later test builds its TRF on.
+  const suffix = Date.now().toString(36);
+  const customer = await api<{ id: number }>('/api/lookups/customers', {
+    method: 'POST', body: JSON.stringify({ name: `Base Customer ${suffix}`, code: `BC-${suffix}` }),
+  }, adminToken);
+  assert.equal(customer.status, 201, JSON.stringify(customer.body));
+  baseCustomerId = customer.body.id;
+
+  const product = await api<{ id: number }>('/api/lookups/products', {
+    method: 'POST', body: JSON.stringify({ name: `Base Product ${suffix}`, code: `BP-${suffix}` }),
+  }, adminToken);
+  assert.equal(product.status, 201, JSON.stringify(product.body));
+  baseProductId = product.body.id;
 });
 
 function assertToken(token: string) {
@@ -668,9 +695,11 @@ maybe('creating a TRF with the full field set returns 201 with ARD tracking', as
     storagePeriod: '24 months',
     manufacturingDate: '2026-01-15',
     expiryDate: '2028-01-15',
-    analysisPurpose: 'Stability',
-    sampleGivenBy: 'QA Dept',
-     signatureDate: today,
+     analysisPurpose: 'Stability',
+     sampleGivenBy: 'QA Dept',
+      signatureDate: today,
+      remarksStatus: 'Pending',
+      sampleReceivedBy: null,
   });
 
   assert.equal(res.status, 201);
@@ -678,6 +707,7 @@ maybe('creating a TRF with the full field set returns 201 with ARD tracking', as
   assert.ok(res.body.ardNumber?.startsWith('ARD-'));
   assert.equal(res.body.workflowStatus, 'Received');
   assert.equal(res.body.stage, 'Received');
+  assert.equal(res.body.remarksStatus, 'Pending');
 
   await pool.query('DELETE FROM trfs WHERE id = $1', [res.body.id]);
   await pool.query('DELETE FROM products WHERE id = $1', [product.body.id]);
@@ -701,4 +731,395 @@ maybe('creating a TRF with a non-existent customer ID returns 400', async () => 
   assert.equal(res.body.error!.code, 'BAD_REQUEST');
   assert.ok(res.body.requestId);
   assert.ok(res.body.error!.fields?.customerId);
+});
+
+maybe('the departments "Formulation" and "ARD" are seeded', async () => {
+  const res = await pool.query<{ name: string }>(`SELECT name FROM departments WHERE name IN ('Formulation', 'ARD') ORDER BY name`);
+  const names = res.rows.map((r) => r.name);
+  assert.deepEqual(names, ['ARD', 'Formulation']);
+});
+
+maybe('standard products are seeded', async () => {
+  const res = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM products WHERE code IN
+      ('CAFRELEXC','ASPARREXC','NACRELEXC','ALPHA75','ALPHA15WS','CARNIREXC',
+       'ARGRELEXC','METRELEXC','AKRELEXC','BRANCRELEXC','TELMERELEXC',
+       'VITB121','VITB1201','COQ10','COQ20','COQRELEXC','DHARELEXC',
+       'SOLUEXACTMCT','SOLUEXACTORANGE')`);
+  assert.equal(Number(res.rows[0].count), 19);
+});
+
+maybe('a Manager in a non-Formulation department can create a TRF', async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const password = 'Manager-Test-Pass-42';
+  const dept = await pool.query<{ id: number }>(`SELECT id FROM departments WHERE name = 'Analysis' LIMIT 1`);
+  const deptId = dept.rows[0]?.id;
+  await pool.query(
+    `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, department_id)
+     VALUES ($1, $2, $3, $4, $5, 'Manager', $6)
+     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, role = 'Manager', department_id = $6`,
+    [`P3-MGR-${suffix}`, `Phase3 Manager ${suffix}`, `p3mgr${suffix}@test.local`, `p3mgr${suffix}`, await hashPassword(password), deptId],
+  );
+  const token = await tokenFor(`p3mgr${suffix}`, password);
+  const res = await createTrf({ batchNumber: `MGR-TEST-${Date.now()}` }, token);
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  await pool.query('DELETE FROM trfs WHERE id = $1', [res.body.id]);
+});
+
+maybe('an ARD department user cannot create a TRF', async () => {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const password = 'ARD-Test-Pass-42';
+  const ardDept = await pool.query<{ id: number }>(`SELECT id FROM departments WHERE name = 'ARD' LIMIT 1`);
+  const deptId = ardDept.rows[0]?.id;
+  await pool.query(
+    `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, department_id)
+     VALUES ($1, $2, $3, $4, $5, 'Analyst', $6)
+     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, department_id = $6`,
+    [`P3-ARD-${suffix}`, `Phase3 ARD ${suffix}`, `p3ard${suffix}@test.local`, `p3ard${suffix}`, await hashPassword(password), deptId],
+  );
+  const token = await tokenFor(`p3ard${suffix}`, password);
+  const res = await createTrf({ batchNumber: `ARD-TEST-${Date.now()}` }, token);
+  assert.equal(res.status, 403);
+});
+
+/* ------------------------------------------------------------------ *
+ * Lookups: quick-add, duplicates, and who may add.
+ * ------------------------------------------------------------------ */
+
+/** Creates an employee in a named department and returns a token for them. */
+async function userInDepartment(role: 'Analyst' | 'Manager' | 'Viewer', department: string): Promise<{ token: string; id: number }> {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const password = 'Lookup-Test-Pass-42';
+  const dept = await pool.query<{ id: number }>(`SELECT id FROM departments WHERE name = $1 LIMIT 1`, [department]);
+  const deptId = dept.rows[0]?.id;
+  const username = `p3lu${suffix}`;
+  await pool.query(
+    `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, department_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE,
+       role = EXCLUDED.role, department_id = EXCLUDED.department_id`,
+    [`P3-LU-${suffix}`, `Phase3 Lookup ${suffix}`, `${username}@test.local`, username, await hashPassword(password), role, deptId],
+  );
+  const found = await pool.query<{ id: number }>(`SELECT id FROM employees WHERE username = $1`, [username]);
+  return { token: await tokenFor(username, password), id: found.rows[0].id };
+}
+
+maybe('the quick-add path the form uses is the plural one, and it returns the new id', async () => {
+  const suffix = Date.now().toString(36);
+
+  const customer = await api<{ id: number; name: string }>('/api/lookups/customers', {
+    method: 'POST', body: JSON.stringify({ name: `Quick Add Customer ${suffix}`, code: `QAC-${suffix}` }),
+  }, adminToken);
+  assert.equal(customer.status, 201, JSON.stringify(customer.body));
+  assert.ok(customer.body.id > 0, 'the quick-add must return the id so the form can select it');
+  assert.equal(customer.body.name, `Quick Add Customer ${suffix}`);
+
+  const product = await api<{ id: number; name: string }>('/api/lookups/products', {
+    method: 'POST', body: JSON.stringify({ name: `Quick Add Product ${suffix}`, code: `QAP-${suffix}` }),
+  }, adminToken);
+  assert.equal(product.status, 201, JSON.stringify(product.body));
+  assert.ok(product.body.id > 0, 'the quick-add must return the id so the form can select it');
+
+  // The record is really there afterwards, and the TRF picks it up.
+  const list = await api<{ items: { id: number; name: string }[] }>('/api/lookups/products', {}, adminToken);
+  assert.ok(list.body.items.some((p) => p.id === product.body.id));
+
+  const trf = await createTrf({ customerId: customer.body.id, productId: product.body.id });
+  assert.equal(trf.status, 201, JSON.stringify(trf.body));
+  assert.equal(trf.body.productId, product.body.id);
+  assert.equal(trf.body.productName, `Quick Add Product ${suffix}`);
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trf.body.id]);
+  await pool.query('DELETE FROM products WHERE id = $1', [product.body.id]);
+  await pool.query('DELETE FROM customers WHERE id = $1', [customer.body.id]);
+});
+
+maybe('a duplicate customer or product name is refused whatever its case', async () => {
+  const suffix = Date.now().toString(36);
+  const name = `Case Check ${suffix}`;
+
+  const first = await api<{ id: number }>('/api/lookups/customers', {
+    method: 'POST', body: JSON.stringify({ name }),
+  }, adminToken);
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+
+  // "CASE CHECK ..." is the same record to a person, so it is refused.
+  const again = await api('/api/lookups/customers', {
+    method: 'POST', body: JSON.stringify({ name: name.toUpperCase() }),
+  }, adminToken);
+  assert.equal(again.status, 409, JSON.stringify(again.body));
+
+  const product = await api<{ id: number }>('/api/lookups/products', {
+    method: 'POST', body: JSON.stringify({ name: `Case Product ${suffix}` }),
+  }, adminToken);
+  assert.equal(product.status, 201, JSON.stringify(product.body));
+  const productAgain = await api('/api/lookups/products', {
+    method: 'POST', body: JSON.stringify({ name: `case product ${suffix}` }),
+  }, adminToken);
+  assert.equal(productAgain.status, 409, JSON.stringify(productAgain.body));
+
+  await pool.query('DELETE FROM products WHERE id = $1', [product.body.id]);
+  await pool.query('DELETE FROM customers WHERE id = $1', [first.body.id]);
+});
+
+maybe('a non-admin Formulation user can add a customer and a product', async () => {
+  const user = await userInDepartment('Analyst', 'Formulation');
+  const suffix = Date.now().toString(36);
+
+  const customer = await api<{ id: number }>('/api/lookups/customers', {
+    method: 'POST', body: JSON.stringify({ name: `Formulation Customer ${suffix}` }),
+  }, user.token);
+  assert.equal(customer.status, 201, JSON.stringify(customer.body));
+
+  const product = await api<{ id: number }>('/api/lookups/products', {
+    method: 'POST', body: JSON.stringify({ name: `Formulation Product ${suffix}` }),
+  }, user.token);
+  assert.equal(product.status, 201, JSON.stringify(product.body));
+
+  // An audit row records who added it.
+  const audit = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM audit_logs WHERE action = 'product.created' AND record_ref = $1`,
+    [`Formulation Product ${suffix}`],
+  );
+  assert.ok(Number(audit.rows[0].count) >= 1, 'the quick-add must be audited');
+
+  await pool.query('DELETE FROM products WHERE id = $1', [product.body.id]);
+  await pool.query('DELETE FROM customers WHERE id = $1', [customer.body.id]);
+});
+
+maybe('editing or deactivating a customer or product stays Admin-only', async () => {
+  const user = await userInDepartment('Analyst', 'Formulation');
+  const suffix = Date.now().toString(36);
+
+  const customer = await api<{ id: number }>('/api/lookups/customers', {
+    method: 'POST', body: JSON.stringify({ name: `Admin Only Customer ${suffix}` }),
+  }, adminToken);
+  assert.equal(customer.status, 201, JSON.stringify(customer.body));
+
+  const edit = await api(`/api/lookups/customers/${customer.body.id}`, {
+    method: 'PATCH', body: JSON.stringify({ name: `Renamed ${suffix}` }),
+  }, user.token);
+  assert.equal(edit.status, 403, JSON.stringify(edit.body));
+
+  const deactivate = await api(`/api/lookups/customers/${customer.body.id}`, {
+    method: 'PATCH', body: JSON.stringify({ isActive: false }),
+  }, user.token);
+  assert.equal(deactivate.status, 403, JSON.stringify(deactivate.body));
+
+  // The Admin may still do it.
+  const asAdmin = await api(`/api/lookups/customers/${customer.body.id}`, {
+    method: 'PATCH', body: JSON.stringify({ isActive: false }),
+  }, adminToken);
+  assert.equal(asAdmin.status, 200, JSON.stringify(asAdmin.body));
+
+  await pool.query('DELETE FROM customers WHERE id = $1', [customer.body.id]);
+});
+
+maybe('a TRF without a customer or a product is refused with a field message', async () => {
+  const noCustomer = await api('/api/trfs', {
+    method: 'POST', body: JSON.stringify({ ...TRF_BODY, customerId: null, productId: baseProductId }),
+  }, adminToken);
+  assert.equal(noCustomer.status, 400, JSON.stringify(noCustomer.body));
+  assert.ok(noCustomer.body.error?.fields?.customerId, 'the customer field must be named');
+  assert.match(noCustomer.body.error?.fields?.customerId ?? '', /customer/i);
+
+  const noProduct = await api('/api/trfs', {
+    method: 'POST', body: JSON.stringify({ ...TRF_BODY, customerId: baseCustomerId, productId: null }),
+  }, adminToken);
+  assert.equal(noProduct.status, 400, JSON.stringify(noProduct.body));
+  assert.ok(noProduct.body.error?.fields?.productId, 'the product field must be named');
+  assert.match(noProduct.body.error?.fields?.productId ?? '', /product/i);
+
+  const neither = await api('/api/trfs', {
+    method: 'POST', body: JSON.stringify({ ...TRF_BODY, customerId: null, productId: null }),
+  }, adminToken);
+  assert.equal(neither.status, 400, JSON.stringify(neither.body));
+  assert.ok(neither.body.error?.fields?.customerId);
+  assert.ok(neither.body.error?.fields?.productId);
+});
+
+maybe('the list payload carries every field of both parts, including the ARD number', async () => {
+  const suffix = Date.now().toString(36);
+  const created = await createTrf({
+    batchNumber: `LIST-FIELDS-${suffix}`,
+    batchSize: '1000',
+    dosageForm: 'Tablet',
+    manufacturingLocation: 'Plant A',
+    labelClaim: '100mg',
+    packSize: '500',
+    packType: 'Bottle',
+    storageCondition: '2-8C',
+    storagePeriod: '24 months',
+    manufacturingDate: '2026-01-15',
+    expiryDate: '2028-01-15',
+    sampleQuantity: '100g',
+    requestedAnalysis: 'Potency panel',
+    specialInstructions: 'Keep cold',
+    analysisPurpose: 'Stability',
+    remarks: 'Handle with care',
+    remarksStatus: 'Approved',
+    sampleGivenBy: 'QA Dept',
+    signatureDate: today,
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+
+  const list = await api<TrfListPage>('/api/trfs?pageSize=200', {}, adminToken);
+  const item = list.body.items.find((t) => t.id === created.body.id);
+  assert.ok(item, 'the new TRF must be in the list');
+
+  // Part A.
+  assert.equal(item.trfNumber, created.body.trfNumber);
+  assert.equal(item.trfDate, today);
+  assert.equal(item.productName, created.body.productName);
+  assert.equal(item.customerName, created.body.customerName);
+  assert.equal(item.batchNumber, `LIST-FIELDS-${suffix}`);
+  assert.equal(item.batchSize, '1000');
+  assert.equal(item.dosageForm, 'Tablet');
+  assert.equal(item.manufacturingLocation, 'Plant A');
+  assert.equal(item.labelClaim, '100mg');
+  assert.equal(item.packSize, '500');
+  assert.equal(item.packType, 'Bottle');
+  assert.equal(item.storageCondition, '2-8C');
+  assert.equal(item.storagePeriod, '24 months');
+  assert.equal(item.manufacturingDate, '2026-01-15');
+  assert.equal(item.expiryDate, '2028-01-15');
+  assert.equal(item.sampleQuantity, '100g');
+  assert.equal(item.requestedAnalysis, 'Potency panel');
+  assert.equal(item.specialInstructions, 'Keep cold');
+  assert.equal(item.analysisPurpose, 'Stability');
+  assert.equal(item.requiredCompletionDate, null);
+  assert.equal(item.remarks, 'Handle with care');
+  assert.equal(item.remarksStatus, 'Approved');
+  assert.equal(item.sampleGivenBy, 'QA Dept');
+  assert.equal(item.signatureDate, today);
+  assert.equal(item.status, 'New');
+  assert.equal(item.priority, 'Normal');
+  assert.equal(item.isOverdue, false);
+
+  // Part B.
+  assert.ok(item.ardNumber, 'the list must carry the ARD number');
+  assert.match(item.ardNumber ?? '', /^ARD-\d{4}-\d{5}$/);
+  assert.equal(item.ardAnalystId, null);
+  assert.equal(item.stage, 'Received');
+  assert.equal(item.workflowStatus, 'Received');
+  assert.equal(item.analystName, null);
+  assert.equal(item.analysisStartDate, null);
+  assert.equal(item.reportingStatus, 'Pending');
+  assert.equal(item.coaStatus, 'Pending');
+  assert.equal(item.ardRemarks, null);
+  assert.equal(item.ardRemarksStatus, 'Pending');
+  assert.equal(item.tat, null);
+  assert.equal(item.assignedEmployeeName, null);
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [created.body.id]);
+});
+
+maybe('the remarks status values are validated and each belongs to one part', async () => {
+  const created = await createTrf({ batchNumber: `REMARKS-VALIDATION-${Date.now()}` });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+
+  // A value outside the list is refused.
+  const badFormulation = await api(`/api/trfs/${created.body.id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, remarksStatus: 'Maybe' }),
+  }, adminToken);
+  assert.equal(badFormulation.status, 400, JSON.stringify(badFormulation.body));
+
+  const badArd = await api(`/api/trfs/${created.body.id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, ardRemarksStatus: 'Halfway' }),
+  }, adminToken);
+  assert.equal(badArd.status, 400, JSON.stringify(badArd.body));
+
+  // A good value is accepted and comes back.
+  const good = await api<TrfDetail>(`/api/trfs/${created.body.id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, ardRemarksStatus: 'Under Analysis' }),
+  }, adminToken);
+  assert.equal(good.status, 200, JSON.stringify(good.body));
+  assert.equal(good.body.ardRemarksStatus, 'Under Analysis');
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [created.body.id]);
+});
+
+maybe('only Formulation users edit the remarks status and only ARD users edit the ARD remark status', async () => {
+  const formulation = await userInDepartment('Analyst', 'Formulation');
+  const ard = await userInDepartment('Analyst', 'ARD');
+  const created = await createTrf({ batchNumber: `REMARKS-OWNER-${Date.now()}` });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const id = created.body.id;
+
+  // The Formulation user owns the remarks status.
+  const formulationEdit = await api<TrfDetail>(`/api/trfs/${id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, remarksStatus: 'Approved' }),
+  }, formulation.token);
+  assert.equal(formulationEdit.status, 200, JSON.stringify(formulationEdit.body));
+  assert.equal(formulationEdit.body.remarksStatus, 'Approved');
+
+  // ... and not the ARD remark status.
+  const formulationArdEdit = await api(`/api/trfs/${id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, ardRemarksStatus: 'On Hold' }),
+  }, formulation.token);
+  assert.equal(formulationArdEdit.status, 403, JSON.stringify(formulationArdEdit.body));
+
+  const refreshed = await api<TrfDetail>(`/api/trfs/${id}`, {}, adminToken);
+
+  // The ARD user owns the ARD remark status.
+  const ardEdit = await api<TrfDetail>(`/api/trfs/${id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: refreshed.body.version, ardRemarksStatus: 'On Hold' }),
+  }, ard.token);
+  assert.equal(ardEdit.status, 200, JSON.stringify(ardEdit.body));
+  assert.equal(ardEdit.body.ardRemarksStatus, 'On Hold');
+
+  // ... and not the remarks status.
+  const ardFormulationEdit = await api(`/api/trfs/${id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: ardEdit.body.version, remarksStatus: 'Rejected' }),
+  }, ard.token);
+  assert.equal(ardFormulationEdit.status, 403, JSON.stringify(ardFormulationEdit.body));
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
+});
+
+maybe('a rejected remark needs a note saying why', async () => {
+  const created = await createTrf({ batchNumber: `REJECTED-NOTE-${Date.now()}` });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+
+  const withoutNote = await api(`/api/trfs/${created.body.id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, remarksStatus: 'Rejected', remarks: '  ' }),
+  }, adminToken);
+  assert.equal(withoutNote.status, 400, JSON.stringify(withoutNote.body));
+  assert.ok(withoutNote.body.error?.fields?.remarks, 'the note field must be named');
+
+  const withNote = await api<TrfDetail>(`/api/trfs/${created.body.id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, remarksStatus: 'Rejected', remarks: 'Sample contaminated' }),
+  }, adminToken);
+  assert.equal(withNote.status, 200, JSON.stringify(withNote.body));
+  assert.equal(withNote.body.remarksStatus, 'Rejected');
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [created.body.id]);
+});
+
+maybe('a Formulation user can create a TRF, and the UI and the API agree', async () => {
+  // The form only offers the screen when the caller has Part A rights, so the
+  // API must accept exactly the same people.
+  const user = await userInDepartment('Analyst', 'Formulation');
+  const created = await createTrf({ batchNumber: `FORMULATION-CREATE-${Date.now()}` }, user.token);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  await pool.query('DELETE FROM trfs WHERE id = $1', [created.body.id]);
+});
+
+maybe('the list sorts by the new columns the server whitelists', async () => {
+  const first = await createTrf({ batchNumber: `SORT-${Date.now()}-A`, packSize: '111', labelClaim: 'AAA' });
+  const second = await createTrf({ batchNumber: `SORT-${Date.now()}-B`, packSize: '222', labelClaim: 'BBB' });
+
+  const byPack = await api<TrfListPage>('/api/trfs?sortBy=packSize&sortDir=asc&pageSize=200', {}, adminToken);
+  const packOrder = byPack.body.items.map((t) => t.packSize).filter(Boolean);
+  assert.deepEqual(packOrder, [...packOrder].sort(), 'sorting by pack size must be ordered');
+
+  const byClaim = await api<TrfListPage>('/api/trfs?sortBy=labelClaim&sortDir=asc&pageSize=200', {}, adminToken);
+  const claimOrder = byClaim.body.items.map((t) => t.labelClaim).filter(Boolean);
+  assert.deepEqual(claimOrder, [...claimOrder].sort(), 'sorting by label claim must be ordered');
+
+  // A field that is not on the whitelist is refused, not interpolated.
+  const bad = await api('/api/trfs?sortBy=drop%20table', {}, adminToken);
+  assert.equal(bad.status, 400);
+
+  await pool.query('DELETE FROM trfs WHERE id = ANY($1)', [[first.body.id, second.body.id]]);
 });

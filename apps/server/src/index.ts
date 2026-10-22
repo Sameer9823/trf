@@ -4,6 +4,58 @@ import { pool, isDatabaseReachable } from './db';
 import { runMigrations } from './migrate';
 
 /**
+ * Checks that required columns exist on the `trfs` table. Returns the list of
+ * missing columns so the server can log exactly what needs a migration.
+ */
+async function checkRequiredColumns(): Promise<string[]> {
+  const result = await pool.query(
+    `SELECT column_name FROM information_schema.columns WHERE table_name = 'trfs'`,
+  );
+  const existing = new Set(result.rows.map((row) => row.column_name));
+  const required = [
+    'trf_number', 'trf_date', 'customer_id', 'product_id', 'batch_number',
+    'sample_quantity', 'sample_received_date', 'required_completion_date',
+    'priority', 'requested_analysis', 'special_instructions', 'department_id',
+    'remarks', 'created_by', 'created_at', 'updated_at', 'version', 'status',
+    'assigned_employee_id', 'deleted_at', 'deleted_by',
+    'batch_size', 'dosage_form', 'manufacturing_location', 'label_claim',
+    'pack_size', 'pack_type', 'storage_condition', 'storage_period',
+    'manufacturing_date', 'expiry_date', 'analysis_purpose',
+    'sample_given_by', 'signature_date',
+    'ard_number', 'ard_stage', 'ard_analyst_id', 'analysis_start_date',
+    'reporting_status', 'coa_status', 'workflow_status', 'ard_remarks',
+    'finalized_at', 'remarks_status', 'sample_received_by',
+  ];
+  return required.filter((col) => !existing.has(col));
+}
+
+/** Essential tables the server needs to function. */
+const REQUIRED_TABLES = ['trfs', 'employees', 'departments', 'customers', 'products', 'analysis_tests', 'coas'];
+
+/**
+ * Checks that required tables and columns exist after migration. If essential
+ * schema is missing, the server refuses to start so operators see the failure
+ * immediately rather than getting 500s on every request.
+ */
+async function checkSchema(): Promise<void> {
+  const missingTables: string[] = [];
+  for (const table of REQUIRED_TABLES) {
+    const result = await pool.query(
+      `SELECT 1 FROM information_schema.tables WHERE table_name = $1`,
+      [table],
+    );
+    if (result.rowCount === 0) missingTables.push(table);
+  }
+  if (missingTables.length) {
+    throw new Error(`Missing required tables: ${missingTables.join(', ')}`);
+  }
+  const missingColumns = await checkRequiredColumns();
+  if (missingColumns.length) {
+    throw new Error(`Missing required TRF columns: ${missingColumns.join(', ')}`);
+  }
+}
+
+/**
  * How long to let an in-flight request finish before giving up on it. A request
  * that is still running after this is almost certainly stuck on a database lock,
  * and holding the process open for it would stop the deployment from completing.
@@ -14,6 +66,13 @@ async function main() {
   const app = buildApp();
   if (await isDatabaseReachable()) {
     await runMigrations();
+    try {
+      await checkSchema();
+      logger.info('Database schema verified');
+    } catch (err) {
+      logger.error({ err }, 'Database schema check failed');
+      throw err;
+    }
   } else {
     // Starting anyway is deliberate: the desktop app needs a server to ask, so it
     // can show "company server is unavailable" rather than a connection refused.

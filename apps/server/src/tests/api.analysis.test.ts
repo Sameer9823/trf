@@ -6,6 +6,7 @@ import { MESSAGES } from '@trf/shared';
 import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
+import { baseLookups } from './fixtures';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -72,8 +73,9 @@ const trfIds: number[] = [];
 const employeeIds: number[] = [];
 
 async function makeTrf() {
+  const lookups = await baseLookups();
   const res = await api('/api/trfs', {
-    method: 'POST', body: JSON.stringify({ trfDate: TODAY, priority: 'Normal' }),
+    method: 'POST', body: JSON.stringify({ trfDate: TODAY, priority: 'Normal', ...lookups }),
   }, adminToken);
   assert.equal(res.status, 201, JSON.stringify(res.body));
   trfIds.push(res.body.id);

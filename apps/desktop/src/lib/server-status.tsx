@@ -12,6 +12,9 @@ interface ServerStatus {
 }
 
 const Ctx = createContext<ServerStatus | null>(null);
+
+/** Exported so a screen can be rendered with a known state, e.g. in a check. */
+export const ServerStatusContext = Ctx;
 const POLL_MS = 10_000;
 
 export function ServerStatusProvider({ children }: { children: ReactNode }) {
