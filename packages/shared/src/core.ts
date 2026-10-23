@@ -122,17 +122,20 @@ export interface Department {
 
 /** Modules shown in the sidebar, with the roles that may open them. Enforced again on the server. */
 export const MODULE_ACCESS: Record<string, readonly Role[]> = {
-  dashboard: ['Admin', 'Manager', 'Analyst', 'Viewer'],
-  trf: ['Admin', 'Manager', 'Analyst', 'Viewer'],
+  dashboard: ['Admin', 'Manager', 'Analyst', 'Viewer', 'GM', 'AGM'],
+  trf: ['Admin', 'Manager', 'Analyst', 'Viewer', 'GM', 'AGM'],
   assignments: ['Admin', 'Manager', 'Analyst'],
-  analysis: ['Admin', 'Manager', 'Analyst', 'Viewer'],
-  coa: ['Admin', 'Manager', 'Viewer'],
+  analysis: ['Admin', 'Manager', 'Analyst', 'Viewer', 'GM', 'AGM'],
+  coa: ['Admin', 'Manager', 'Viewer', 'GM', 'AGM'],
   employees: ['Admin', 'Manager'],
-  reports: ['Admin', 'Manager', 'Viewer'],
-  audit: ['Admin', 'Manager'],
+  reports: ['Admin', 'Manager', 'Viewer', 'GM', 'AGM'],
+  audit: ['Admin', 'Manager', 'GM', 'AGM'],
   settings: ['Admin'],
-  formulation: ['Admin', 'Manager', 'Analyst', 'Viewer'],
-  analytical: ['Admin', 'Manager', 'Analyst', 'Viewer'],
+  formulation: ['Admin', 'Manager', 'Analyst', 'Viewer', 'GM'],
+  analytical: ['Admin', 'Manager', 'Analyst', 'Viewer', 'AGM'],
+  approvals: ['Admin', 'GM', 'AGM'],
+  notifications: ['Admin', 'Manager', 'Analyst', 'Viewer', 'GM', 'AGM'],
+  teamaccounts: ['Admin'],
 };
 
 export function canAccessModule(module: string, role: Role): boolean {

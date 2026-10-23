@@ -7,6 +7,8 @@ export interface AccessTokenPayload {
   role: Role;
   employeeCode: string;
   type: 'access';
+  actingEmployeeId?: number | null;
+  accountId?: number | null;
 }
 
 function ttlSeconds(iso: string): number {
@@ -35,7 +37,14 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
   if (decoded.type !== 'access' || !decoded.sub || !decoded.role) {
     throw new jwt.JsonWebTokenError('Not an access token');
   }
-  return { sub: decoded.sub, role: decoded.role, employeeCode: decoded.employeeCode ?? '', type: 'access' };
+  return { 
+    sub: decoded.sub, 
+    role: decoded.role, 
+    employeeCode: decoded.employeeCode ?? '', 
+    type: 'access',
+    actingEmployeeId: decoded.actingEmployeeId ?? null,
+    accountId: decoded.accountId ?? null,
+  };
 }
 
 export function refreshTokenExpiry(): Date {

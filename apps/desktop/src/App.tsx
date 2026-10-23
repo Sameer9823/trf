@@ -11,6 +11,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Employees } from './pages/Employees';
 import { ReportsPage } from './pages/Reports';
 import { Login } from './pages/Login';
+import { SelectMember } from './pages/SelectMember';
 import { Settings } from './pages/Settings';
 import { TrfDetailPage } from './pages/TrfDetail';
 import { TrfForm } from './pages/TrfForm';
@@ -37,7 +38,7 @@ function RequireModule({ module, children }: { module: string; children: JSX.Ele
 }
 
 function Shell() {
-  const { employee } = useAuth();
+  const { employee, actingEmployeeId } = useAuth();
 
   // A pending password change blocks the rest of the application until it is done.
   if (employee?.mustChangePassword) {
@@ -45,6 +46,16 @@ function Shell() {
       <Routes>
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="*" element={<Navigate to="/change-password" replace />} />
+      </Routes>
+    );
+  }
+
+  // Shared team accounts must select a member before accessing the app.
+  if (employee?.accountType === 'SHARED_TEAM' && actingEmployeeId === null) {
+    return (
+      <Routes>
+        <Route path="/select-member" element={<SelectMember />} />
+        <Route path="*" element={<Navigate to="/select-member" replace />} />
       </Routes>
     );
   }
@@ -96,6 +107,7 @@ function Root() {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/select-member" element={<SelectMember />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/settings" element={<Settings />} />
@@ -108,6 +120,7 @@ function Root() {
       <Route path="/login" element={<Navigate to="/" replace />} />
       <Route path="/forgot-password" element={<Navigate to="/" replace />} />
       <Route path="/reset-password" element={<Navigate to="/" replace />} />
+      <Route path="/select-member" element={<SelectMember />} />
       <Route path="*" element={<Shell />} />
     </Routes>
   );

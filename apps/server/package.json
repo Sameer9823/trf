@@ -10,6 +10,7 @@
     "migrate": "tsx src/migrate.ts",
     "seed:admin": "tsx src/seed-admin.ts",
     "seed:dummy": "tsx src/seed-dummy.ts",
+    "delete:dummy": "tsx src/delete-dummy-employees.ts",
     "backup": "tsx src/backup.ts",
     "backup:counts": "tsx src/backup.ts counts",
     "test": "tsx --test --test-concurrency=1 --import ./src/tests/setup.ts src/tests/*.test.ts",

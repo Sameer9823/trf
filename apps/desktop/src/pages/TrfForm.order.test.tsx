@@ -44,6 +44,10 @@ function formulationEmployee(): EmployeeProfile {
     lastLoginAt: null,
     version: 1,
     createdAt: '2026-01-01T00:00:00Z',
+    accountType: 'INDIVIDUAL',
+    team: null,
+    pinFailedAttempts: 0,
+    pinLockedUntil: null,
   };
 }
 
@@ -51,9 +55,12 @@ function makeAuthValue(employee: EmployeeProfile): AuthSessionState {
   return {
     employee,
     status: 'signed-in',
+    actingEmployeeId: null,
+    accountId: null,
     can: () => false,
     canAccessModule: () => true,
     login: async () => ({ ok: true }),
+    selectMember: async () => ({ ok: true }),
     logout: async () => {},
   };
 }
@@ -135,7 +142,7 @@ function makeTrfBridge(trf: TrfDetail, employees: EmployeeOption[] = EMPLOYEES) 
       if (req.method === 'GET' && req.path === '/api/lookups/products') {
         return { ok: true, status: 200, data: { items: [] } };
       }
-      if (req.method === 'GET' && req.path === '/api/employees/for-select') {
+      if (req.method === 'GET' && req.path === '/api/lookups/employees') {
         return { ok: true, status: 200, data: { items: employees } };
       }
       if (req.method === 'GET' && req.path === '/api/trfs/1') {
@@ -252,7 +259,6 @@ test('the ARD block fields are in the agreed order', async () => {
     'ARD Remark',
     'TAT',
     'Final Status',
-    'Sample Received By',
     'Sample Received Date',
   ]);
 });
@@ -262,7 +268,7 @@ test('Sample Submitted By is a searchable employee dropdown, not a free-text box
   renderForm();
 
   await waitFor(() => {
-    expect(calls.some((c) => c.path === '/api/employees/for-select')).toBe(true);
+    expect(calls.some((c) => c.path === '/api/lookups/employees')).toBe(true);
   });
 
   const combo = screen.getByLabelText('Sample Submitted By') as HTMLInputElement;
@@ -285,7 +291,7 @@ test('picking an employee in the Sample Submitted By dropdown keeps the choice',
   renderForm();
 
   await waitFor(() => {
-    expect(calls.some((c) => c.path === '/api/employees/for-select')).toBe(true);
+    expect(calls.some((c) => c.path === '/api/lookups/employees')).toBe(true);
   });
 
   const combo = screen.getByLabelText('Sample Submitted By');
@@ -315,7 +321,7 @@ test('an empty employee list shows a clear message instead of an empty box', asy
   renderForm(makeTrf(), []);
 
   await waitFor(() => {
-    expect(calls.some((c) => c.path === '/api/employees/for-select')).toBe(true);
+    expect(calls.some((c) => c.path === '/api/lookups/employees')).toBe(true);
   });
 
   await user.click(screen.getByLabelText('Sample Submitted By'));

@@ -33,6 +33,10 @@ function formulationEmployee(): EmployeeProfile {
     lastLoginAt: null,
     version: 1,
     createdAt: '2026-01-01T00:00:00Z',
+    accountType: 'INDIVIDUAL',
+    team: null,
+    pinFailedAttempts: 0,
+    pinLockedUntil: null,
   };
 }
 
@@ -65,9 +69,12 @@ function makeAuthValue(employee: EmployeeProfile): AuthSessionState {
   return {
     employee,
     status: 'signed-in',
+    actingEmployeeId: null,
+    accountId: null,
     can: () => false,
     canAccessModule: () => true,
     login: async () => ({ ok: true }),
+    selectMember: async () => ({ ok: true }),
     logout: async () => {},
   };
 }

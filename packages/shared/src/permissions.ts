@@ -1,6 +1,6 @@
 /** Single source of truth for what each role may do. The server enforces this; the UI only hides what it knows. */
 
-export const ROLES = ['Admin', 'Manager', 'Analyst', 'Viewer'] as const;
+export const ROLES = ['Admin', 'Manager', 'Analyst', 'Viewer', 'GM', 'AGM'] as const;
 export type Role = (typeof ROLES)[number];
 
 export const PERMISSIONS = [
@@ -30,6 +30,10 @@ export const PERMISSIONS = [
   'reports.export',
   'audit.view',
   'settings.manage',
+  'approval.formulation',
+  'approval.ard',
+  'teamaccounts.manage',
+  'notifications.view',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -77,6 +81,38 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'reports.view',
     'reports.export',
   ],
+  GM: [
+    'dashboard.view',
+    'trf.view',
+    'trf.viewAll',
+    'trf.editFormulation',
+    'trf.changeStatus',
+    'assignments.viewAll',
+    'analysis.view',
+    'analysis.viewAll',
+    'coa.view',
+    'reports.view',
+    'reports.export',
+    'audit.view',
+    'approval.formulation',
+    'notifications.view',
+  ],
+  AGM: [
+    'dashboard.view',
+    'trf.view',
+    'trf.viewAll',
+    'trf.editArd',
+    'trf.changeStatus',
+    'assignments.viewAll',
+    'analysis.view',
+    'analysis.viewAll',
+    'coa.view',
+    'reports.view',
+    'reports.export',
+    'audit.view',
+    'approval.ard',
+    'notifications.view',
+  ],
 };
 
 export function roleHasPermission(role: Role, permission: Permission): boolean {
@@ -115,4 +151,112 @@ export function canEditTrfPartB(employee: RoleAndDepartment): boolean {
  */
 export function canDeleteTrf(employee: RoleAndDepartment): boolean {
   return employee.role === 'Admin' || employee.departmentName === FORMULATION_DEPARTMENT;
+}
+
+export const TEAM_TYPES = ['FRD', 'ARD'] as const;
+export type TeamType = (typeof TEAM_TYPES)[number];
+
+export const ACCOUNT_TYPES = ['INDIVIDUAL', 'SHARED_TEAM'] as const;
+export type AccountType = (typeof ACCOUNT_TYPES)[number];
+
+export const APPROVAL_TRACKS = ['FORMULATION', 'ARD'] as const;
+export type ApprovalTrack = (typeof APPROVAL_TRACKS)[number];
+
+export const APPROVAL_STATUSES = ['Pending', 'Approved', 'Rejected', 'Returned'] as const;
+export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
+
+export interface TeamAccount {
+  id: number;
+  team: TeamType;
+  username: string;
+  email: string;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeamMember {
+  id: number;
+  employeeCode: string;
+  fullName: string;
+  designation: string | null;
+  departmentName: string | null;
+  isActive: boolean;
+  pinFailedAttempts: number;
+  pinLockedUntil: string | null;
+}
+
+export interface TrfApproval {
+  id: number;
+  trfId: number;
+  track: ApprovalTrack;
+  status: ApprovalStatus;
+  requestedByEmployeeId: number;
+  requestedByAccountId: number;
+  requestedAt: string;
+  decidedBy: number | null;
+  decidedAt: string | null;
+  reason: string | null;
+  version: number;
+}
+
+export interface Notification {
+  id: number;
+  recipientType: 'EMPLOYEE' | 'TEAM';
+  recipientEmployeeId: number | null;
+  recipientTeam: TeamType | null;
+  type: string;
+  title: string;
+  body: string;
+  relatedTrfId: number | null;
+  link: string | null;
+  isRead: boolean;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface EmailOutbox {
+  id: number;
+  to: string;
+  cc: string | null;
+  subject: string;
+  bodyHtml: string;
+  bodyText: string;
+  fromMailbox: string;
+  relatedTrfId: number | null;
+  actingEmployeeId: number | null;
+  status: 'pending' | 'sent' | 'failed';
+  attempts: number;
+  lastError: string | null;
+  createdAt: string;
+  sentAt: string | null;
+}
+
+export interface DepartmentMailbox {
+  team: TeamType;
+  address: string;
+  displayName: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  smtpUser: string;
+  smtpPassEncrypted: string;
+  isActive: boolean;
+}
+
+export function isSharedTeamAccount(role: Role): boolean {
+  return role === 'GM' || role === 'AGM' ? false : false; // This is determined by account_type, not role
+}
+
+export function canApproveFormulation(role: Role): boolean {
+  return role === 'GM' || role === 'Admin';
+}
+
+export function canApproveArd(role: Role): boolean {
+  return role === 'AGM' || role === 'Admin';
+}
+
+export function requiresNameSelection(accountType: AccountType): boolean {
+  return accountType === 'SHARED_TEAM';
 }

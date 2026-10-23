@@ -1,4 +1,4 @@
-import type { EmployeeProfile } from '@trf/shared';
+import type { EmployeeProfile, AccountType, TeamType } from '@trf/shared';
 import type { Role } from '@trf/shared';
 
 export interface EmployeeRow {
@@ -20,13 +20,19 @@ export interface EmployeeRow {
   last_login_at: Date | null;
   version: number;
   created_at: Date;
+  account_type: AccountType;
+  team: TeamType | null;
+  pin_hash: string | null;
+  pin_failed_attempts: number;
+  pin_locked_until: Date | null;
 }
 
 /** Explicit column list: the password hash must never be sent to the client. */
 export const EMPLOYEE_SELECT = `
   e.id, e.employee_code, e.full_name, e.designation, e.department_id, d.name AS department_name,
   e.email, e.phone, e.username, e.password_hash, e.role, e.is_active, e.must_change_password,
-  e.failed_login_count, e.locked_until, e.last_login_at, e.version, e.created_at
+  e.failed_login_count, e.locked_until, e.last_login_at, e.version, e.created_at,
+  e.account_type, e.team, e.pin_hash, e.pin_failed_attempts, e.pin_locked_until
 `;
 
 export const EMPLOYEE_FROM = `
@@ -50,5 +56,9 @@ export function toProfile(row: EmployeeRow): EmployeeProfile {
     lastLoginAt: row.last_login_at ? new Date(row.last_login_at).toISOString() : null,
     version: row.version,
     createdAt: new Date(row.created_at).toISOString(),
+    accountType: row.account_type,
+    team: row.team,
+    pinFailedAttempts: row.pin_failed_attempts,
+    pinLockedUntil: row.pin_locked_until ? new Date(row.pin_locked_until).toISOString() : null,
   };
 }

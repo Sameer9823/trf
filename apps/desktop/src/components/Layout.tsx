@@ -9,8 +9,6 @@ export const NAV = [
   { to: '/', label: 'Dashboard', module: 'dashboard' },
   { to: '/trf', label: 'TRF Management', module: 'trf' },
   { to: '/assignments', label: 'Assignments', module: 'assignments' },
-  { to: '/analysis', label: 'Analysis', module: 'analysis' },
-  { to: '/coa', label: 'COA', module: 'coa' },
   { to: '/employees', label: 'Employees', module: 'employees' },
   { to: '/reports', label: 'Reports', module: 'reports' },
   { to: '/audit', label: 'Audit Log', module: 'audit' },
@@ -51,30 +49,24 @@ export function Layout() {
           
           {showFormulation && (
             <div className="sidebar__section">
-              <div className="sidebar__section-title">Formulation</div>
+              <div className="sidebar__section-title">FRD (Formulation)</div>
               <NavLink to="/trf" end className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
                 TRF Management
               </NavLink>
               <NavLink to="/assignments" className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
                 Assignments
               </NavLink>
-              <NavLink to="/coa" className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
-                COA
-              </NavLink>
             </div>
           )}
           
           {showAnalytical && (
             <div className="sidebar__section">
-              <div className="sidebar__section-title">Analytical</div>
-              <NavLink to="/analysis" className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
-                Analysis
+              <div className="sidebar__section-title">ARD (Analytical)</div>
+              <NavLink to="/trf" className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
+                TRF Management
               </NavLink>
               <NavLink to="/assignments" className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
                 Assignments
-              </NavLink>
-              <NavLink to="/coa" className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
-                COA
               </NavLink>
             </div>
           )}

@@ -410,3 +410,34 @@ employeesRouter.post('/:id/activate', requirePermission('employees.manage'), asy
     next(err);
   }
 });
+
+/** Get team members for the current user's team (for shared team account member selection). */
+employeesRouter.get('/team-members', authenticate, async (req, res, next) => {
+  try {
+    const me = currentEmployee(req);
+    
+    // Only shared team accounts can access this
+    if (me.accountType !== 'SHARED_TEAM') {
+      throw forbidden('This action is only available for shared team accounts.');
+    }
+
+    const result = await pool.query<EmployeeRow>(
+      `SELECT ${EMPLOYEE_SELECT} ${EMPLOYEE_FROM}
+       WHERE e.team = $1 AND e.is_active = TRUE AND e.account_type = 'SHARED_TEAM'
+       ORDER BY e.full_name`,
+      [me.team]
+    );
+
+    const items = result.rows.map((row) => ({
+      id: row.id,
+      employeeCode: row.employee_code,
+      fullName: row.full_name,
+      designation: row.designation,
+      departmentName: row.department_name,
+    }));
+
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+});
