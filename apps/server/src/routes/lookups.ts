@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import type { Customer, Product, StageOption } from '@trf/shared';
+import type { Customer, Product, StageOption, EmployeeOption } from '@trf/shared';
 import { QueryResult } from 'pg';
 import { pool, withTransaction } from '../db';
 import { duplicateError, forbidden, conflict, badRequest } from '../lib/errors';
@@ -247,4 +247,36 @@ lookupsRouter.post('/stages', requireArdEdit(), validateBody(stageSchema), async
   } catch (err) {
     next(duplicateError(err, { ard_stages_name_unique: 'A stage with this name already exists.' }) ?? err);
   }
+});
+
+/**
+ * Active employees for dropdowns: id, employeeCode, fullName, designation, departmentName.
+ * Anyone who can view a TRF may call this (permission: trf.view).
+ * Returns employees of ANY role, sorted by name.
+ * Used for Analyst Name and Sample Submitted By dropdowns.
+ */
+lookupsRouter.get('/employees', requirePermission('trf.view'), async (_req, res, next) => {
+  try {
+    const result = await pool.query<{
+      id: number;
+      employee_code: string;
+      full_name: string;
+      designation: string | null;
+      department_name: string | null;
+    }>(
+      `SELECT e.id, e.employee_code, e.full_name, e.designation, d.name AS department_name
+       FROM employees e
+       LEFT JOIN departments d ON d.id = e.department_id
+       WHERE e.is_active = TRUE
+       ORDER BY e.full_name ASC`,
+    );
+    const items: EmployeeOption[] = result.rows.map((row) => ({
+      id: row.id,
+      employeeCode: row.employee_code,
+      fullName: row.full_name,
+      designation: row.designation,
+      departmentName: row.department_name,
+    }));
+    res.json({ items });
+  } catch (err) { next(err); }
 });

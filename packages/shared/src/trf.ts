@@ -57,8 +57,6 @@ export interface TrfListItem {
   tat: number | null;
   workflowStatus: ArdWorkflowStatus;
   remarksStatus: RemarksStatus;
-  sampleReceivedBy: number | null;
-  sampleReceivedByName: string | null;
   /** ARD remark Status dropdown. */
   ardRemarksStatus: ArdRemarksStatus;
   ardRemarks: string | null;
@@ -136,7 +134,7 @@ export const TRF_SORT_FIELDS = [
    'packType', 'storageCondition', 'storagePeriod', 'manufacturingDate', 'expiryDate',
    'sampleQuantity', 'requestedAnalysis', 'specialInstructions', 'analysisPurpose',
    'remarks', 'sampleGivenBy', 'sampleSubmittedByName', 'signatureDate', 'ardNumber', 'analystName',
-   'analysisStartDate', 'reportingStatus', 'coaStatus', 'ardRemarks', 'sampleReceivedByName',
+   'analysisStartDate', 'reportingStatus', 'coaStatus', 'ardRemarks',
    'sampleReceivedDate', 'stage',
   ] as const;
 export type TrfSortField = (typeof TRF_SORT_FIELDS)[number];

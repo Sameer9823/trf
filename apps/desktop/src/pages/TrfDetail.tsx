@@ -14,6 +14,69 @@ import { FinalStatusStepper } from './TrfForm';
 
 type Tab = 'details' | 'history' | 'ard-history';
 
+/** Admin-only dialog to reopen a Formulation-approved TRF. */
+function ReopenFormulationDialog({ trfId, trfNumber, version, onReopen }: {
+  trfId: number;
+  trfNumber: string;
+  version: number;
+  onReopen: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    if (reason.trim().length < 10) {
+      setError('The reason must be at least 10 characters.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const res = await window.trf.request<TrfDetail>({
+      method: 'POST',
+      path: `/api/trfs/${trfId}/reopen`,
+      body: { version, reason: reason.trim() },
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error ?? 'Reopen failed.');
+      return;
+    }
+    setOpen(false);
+    setReason('');
+    onReopen();
+  }
+
+  return (
+    <>
+      <button className="btn btn--danger" onClick={() => setOpen(true)}>Reopen Formulation</button>
+      {open && (
+        <div className="modal-overlay" onClick={() => { setOpen(false); setReason(''); setError(null); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Reopen Formulation: {trfNumber}</h3>
+            <p className="muted">This action requires a reason (minimum 10 characters).</p>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Enter the reason for reopening…"
+              rows={4}
+              style={{ width: '100%', marginBottom: 12 }}
+            />
+            {error && <p className="field-error">{error}</p>}
+            <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => { setOpen(false); setReason(''); setError(null); }}>Cancel</button>
+              <button className="btn btn--primary btn--danger" disabled={busy} onClick={submit}>
+                {busy ? 'Reopening…' : 'Confirm Reopen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function TrfDetailPage() {
    const { id } = useParams();
    const navigate = useNavigate();
@@ -263,7 +326,6 @@ export function TrfDetailPage() {
               <dt>ARD Remark</dt><dd className="pre">{trf.ardRemarks ?? '—'}</dd>
               <dt>TAT</dt><dd>{trf.tat?.toString() ?? '—'}</dd>
               <dt>Final Status</dt><dd><ArdFinalStatusBadge status={trf.workflowStatus} /></dd>
-              <dt>Sample Received By</dt><dd>{trf.sampleReceivedByName ?? '—'}</dd>
               <dt>Sample Received Date</dt><dd>{formatDate(trf.sampleReceivedDate)}</dd>
             </dl>
 
@@ -328,6 +390,18 @@ export function TrfDetailPage() {
                   ))}
                 </div>
               )}
+            </section>
+          )}
+
+          {/* Admin-only Reopen Formulation action */}
+          {can('settings.manage') && trf.remarksStatus === 'Approved' && (
+            <section className="panel">
+              <h2>Reopen Formulation</h2>
+              <p className="muted">
+                This will set the Formulation Status back to Pending, unlock Part A for editing,
+                and lock the ARD block again until re-approved. All ARD data will be preserved.
+              </p>
+              <ReopenFormulationDialog trfId={trf.id} trfNumber={trf.trfNumber} version={trf.version} onReopen={load} />
             </section>
           )}
 

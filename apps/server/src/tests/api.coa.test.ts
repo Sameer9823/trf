@@ -88,6 +88,11 @@ async function makeTrf() {
  */
 async function analysedTrf(label: string) {
   const trf = await makeTrf();
+  // Approve the TRF so ARD work can begin.
+  const approved = await api<TrfDetail>(`/api/trfs/${trf.id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: trf.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approved.status, 200, 'TRF approved for analysis');
   const assigned = await api(`/api/assignments/trfs/${trf.id}/assignments`, {
     method: 'POST',
     body: JSON.stringify({ assignments: [{ testName: `${label} Test`, assignedEmployeeId: analyst.id }] }),
@@ -103,9 +108,8 @@ async function analysedTrf(label: string) {
   }, analyst.token);
   assert.equal(done.status, 200, JSON.stringify(done.body));
   assert.equal(done.body.outcome, 'Pass');
-  return { trf, test };
+  return { trf: approved.body, test };
 }
-
 let adminToken = '';
 let managerA: { id: number; token: string };
 let managerB: { id: number; token: string };

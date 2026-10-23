@@ -98,7 +98,6 @@ export function TrfPrint() {
           <dt>ARD Remark</dt><dd className="pre">{trf.ardRemarks ?? '—'}</dd>
           <dt>TAT</dt><dd>{trf.tat?.toString() ?? '—'}</dd>
           <dt>Final Status</dt><dd><ArdFinalStatusBadge status={trf.workflowStatus} /></dd>
-          <dt>Sample Received By</dt><dd>{trf.sampleReceivedByName ?? '—'}</dd>
           <dt>Sample Received Date</dt><dd>{formatDate(trf.sampleReceivedDate)}</dd>
         </dl>
       </section>

@@ -80,7 +80,6 @@ const TRF_MASTER_COLUMN: Record<string, { key: string; width?: number }> = {
   ardRemarks: { key: 'ard_remarks', width: 30 },
   tat: { key: 'tat', width: 10 },
   workflowStatus: { key: 'workflow_status', width: 18 },
-  sampleReceivedByName: { key: 'sample_received_by_name', width: 24 },
   sampleReceivedDate: { key: 'sample_received_date' },
 };
 
@@ -274,7 +273,7 @@ export async function buildExportWorkbook(
               t.ard_number, t.ard_stage, an.full_name AS analyst_name, t.analysis_start_date,
               t.reporting_status, t.coa_status, t.ard_remarks_status, t.ard_remarks,
               (${ARD_TAT_SQL}) AS tat, t.workflow_status,
-              srb.full_name AS sample_received_by_name, t.sample_received_date,
+              t.sample_received_date,
               e.full_name AS assigned_name,
               (${OVERDUE_SQL}) AS is_overdue
        FROM trfs t
@@ -283,7 +282,6 @@ export async function buildExportWorkbook(
        LEFT JOIN employees e ON e.id = t.assigned_employee_id
        LEFT JOIN employees ssb ON ssb.id = t.sample_submitted_by_id
        LEFT JOIN employees an ON an.id = t.ard_analyst_id
-       LEFT JOIN employees srb ON srb.id = t.sample_received_by
        ${where.where}
        ORDER BY t.trf_number ASC
        LIMIT ${cap + 1}`, where.params);
@@ -329,7 +327,6 @@ export async function buildExportWorkbook(
       ard_remarks: text(r.ard_remarks),
       tat: r.tat ?? null,
       workflow_status: text(r.workflow_status),
-      sample_received_by_name: text(r.sample_received_by_name),
       sample_received_date: asDate(r.sample_received_date),
       priority: text(r.priority),
       status: text(r.status),
@@ -352,12 +349,11 @@ export async function buildExportWorkbook(
               an.full_name AS analyst_name,
               t.analysis_start_date, t.reporting_status, t.coa_status, t.ard_remarks,
               t.ard_remarks_status, (${ARD_TAT_SQL}) AS tat, t.workflow_status,
-              srb.full_name AS sample_received_by_name, t.sample_received_date
+              t.sample_received_date
        FROM trfs t
        LEFT JOIN customers cu ON cu.id = t.customer_id
        LEFT JOIN products p ON p.id = t.product_id
        LEFT JOIN employees an ON an.id = t.ard_analyst_id
-       LEFT JOIN employees srb ON srb.id = t.sample_received_by
        ${where.where}
        ORDER BY t.ard_number ASC NULLS LAST
        LIMIT ${cap + 1}`, where.params);
@@ -380,7 +376,6 @@ export async function buildExportWorkbook(
       { header: 'ARD Remark', key: 'ard_remarks', width: 30 },
       { header: 'TAT', key: 'tat', width: 10 },
       { header: 'Final Status', key: 'workflow_status', width: 18 },
-      { header: 'Sample Received By', key: 'sample_received_by_name', width: 24 },
       { header: 'Sample Received Date', key: 'sample_received_date' },
     ], rows.map((r) => ({
       ard_number: text(r.ard_number) ?? '—',
@@ -400,7 +395,6 @@ export async function buildExportWorkbook(
       ard_remarks_status: text(r.ard_remarks_status),
       tat: r.tat ?? null,
       workflow_status: text(r.workflow_status),
-      sample_received_by_name: text(r.sample_received_by_name),
       sample_received_date: asDate(r.sample_received_date),
     })), { statusKey: 'ard_stage' }) });
   }

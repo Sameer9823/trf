@@ -50,7 +50,6 @@ interface FormState {
   ardRemarksStatus: ArdRemarksStatus;
   ardRemarks: string;
   workflowStatus: ArdWorkflowStatus;
-  sampleReceivedBy: string;
   sampleReceivedDate: string;
 }
 
@@ -65,16 +64,16 @@ const blank = (today: string): FormState => ({
   remarksStatus: 'Pending', remarks: '', signatureDate: '',
   stage: DEFAULT_ARD_STAGE, ardAnalystId: '', analysisStartDate: '',
   reportingStatus: 'Pending', coaStatus: 'Pending', ardRemarksStatus: 'Pending',
-  ardRemarks: '', workflowStatus: 'Received', sampleReceivedBy: '',
-  sampleReceivedDate: '',
+  ardRemarks: '', workflowStatus: 'Received', sampleReceivedDate: '',
 });
 
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** The lookup routes are plural on the server; the kind here is singular. */
-const LOOKUP_PATH: Record<'customer' | 'product', string> = {
+const LOOKUP_PATH: Record<'customer' | 'product' | 'employee', string> = {
   customer: '/api/lookups/customers',
   product: '/api/lookups/products',
+  employee: '/api/lookups/employees',
 };
 
 const LOOKUP_LABEL: Record<'customer' | 'product', string> = {
@@ -365,6 +364,7 @@ export function TrfForm() {
   const [ardNumber, setArdNumber] = useState('');
   const [tat, setTat] = useState<number | null>(null);
   const [sampleSubmittedByName, setSampleSubmittedByName] = useState<string | null>(null);
+  const [trfData, setTrfData] = useState<TrfDetail | null>(null);
   const [version, setVersion] = useState<number | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -399,9 +399,9 @@ export function TrfForm() {
     // TRF may read them.
     void window.trf.request<{ items: StageOption[] }>({ method: 'GET', path: '/api/lookups/stages' })
       .then((r) => { if (r.ok && r.data) setStages(r.data.items); });
-    // The employee dropdown lists active employees for anyone who can see a
+    // The employee dropdown lists active employees of ANY role for anyone who can see a
     // TRF. It is a read-only lookup, so it needs no management permission.
-    void window.trf.request<{ items: EmployeeOption[] }>({ method: 'GET', path: '/api/employees/for-select' })
+    void window.trf.request<{ items: EmployeeOption[] }>({ method: 'GET', path: '/api/lookups/employees' })
       .then((r) => { if (r.ok && r.data) setEmployees(r.data.items); });
   }, []);
 
@@ -413,6 +413,7 @@ export function TrfForm() {
       setLoading(false);
       if (!res.ok || !res.data) { setError(messageOf(res.data, 'This TRF could not be loaded.')); return; }
       const trf = res.data;
+      setTrfData(trf);
       setVersion(trf.version);
       setTrfNumber(trf.trfNumber);
       setArdNumber(trf.ardNumber ?? '');
@@ -451,7 +452,6 @@ export function TrfForm() {
         ardRemarksStatus: trf.ardRemarksStatus ?? 'Pending',
         ardRemarks: trf.ardRemarks ?? '',
         workflowStatus: trf.workflowStatus,
-        sampleReceivedBy: trf.sampleReceivedBy ? String(trf.sampleReceivedBy) : '',
         sampleReceivedDate: trf.sampleReceivedDate ?? '',
       });
     });
@@ -518,10 +518,9 @@ export function TrfForm() {
       signatureDate: form.signatureDate || null,
     };
 
-    // The sample received fields are Formulation data that the ARD block
-    // shows. They are only sent when the user may change Part A.
+    // The sample received date is Formulation data that the ARD block
+    // shows. It is only sent when the user may change Part A.
     if (canEditA) {
-      body.sampleReceivedBy = form.sampleReceivedBy ? Number(form.sampleReceivedBy) : null;
       body.sampleReceivedDate = form.sampleReceivedDate || null;
     }
 
@@ -560,8 +559,9 @@ export function TrfForm() {
   if (isEdit && !canEditA && !canEditB) return <div className="page"><p className="error-text">{MESSAGES.NO_PERMISSION}</p></div>;
 
   // The lock is shown on every field the signed-in user may not change.
-  const partALock: FieldOwner | undefined = canEditA ? undefined : 'Formulation';
-  const ardLock: FieldOwner | undefined = canEditB ? undefined : 'ARD';
+  const isApproved = isEdit && trfData ? trfData.remarksStatus === 'Approved' : false;
+  const partALock: FieldOwner | undefined = (canEditA && !isApproved) ? undefined : 'Formulation';
+  const ardLock: FieldOwner | undefined = (canEditB && isApproved) ? undefined : 'ARD';
 
   return (
     <div className="page page--wide">
@@ -708,7 +708,7 @@ export function TrfForm() {
               placeholder="Search an employee…"
               emptyMessage="No employees are available to pick."
               selectedOption={sampleSubmittedByName
-                ? { id: Number(form.sampleSubmittedById) || -1, fullName: sampleSubmittedByName, designation: null, departmentName: null }
+                ? { id: Number(form.sampleSubmittedById) || -1, employeeCode: '', fullName: sampleSubmittedByName, designation: null, departmentName: null }
                 : null}
             />
 
@@ -747,6 +747,22 @@ export function TrfForm() {
             <span className="badge badge--info">ARD</span>
             {!canEditB && <span className="badge badge--muted">Read-only</span>}
           </header>
+
+          {/* Formulation Approval Gate banner */}
+          {isEdit && trfData && trfData.remarksStatus !== 'Approved' && (
+            <div className="approval-banner approval-banner--waiting" role="alert">
+              <span className="approval-banner__icon" aria-hidden="true">🔒</span>
+              <span className="approval-banner__text">Waiting for Formulation approval</span>
+            </div>
+          )}
+
+          {/* Part A locked after approval banner */}
+          {isEdit && trfData && trfData.remarksStatus === 'Approved' && (
+            <div className="approval-banner approval-banner--locked" role="alert">
+              <span className="approval-banner__icon" aria-hidden="true">🔒</span>
+              <span className="approval-banner__text">Approved by Formulation: Part A is locked</span>
+            </div>
+          )}
 
           <div className="grid">
             <Field htmlFor="trf-ard-number" label="A.R. No." lockOwner="System">
@@ -830,14 +846,6 @@ export function TrfForm() {
                 ))}
               </select>
               <p className="field-hint">Current state: <ArdFinalStatusBadge status={form.workflowStatus} /></p>
-            </Field>
-
-            <Field htmlFor="trf-sample-received-by" label="Sample Received By" lockOwner={partALock}>
-              <select id="trf-sample-received-by" disabled={!canEditA} value={form.sampleReceivedBy}
-                onChange={(e) => set('sampleReceivedBy', e.target.value)}>
-                <option value="">Not set</option>
-                {employees.map((e) => <option key={e.id} value={e.id}>{e.fullName}</option>)}
-              </select>
             </Field>
 
             <Field htmlFor="trf-sample-received-date" label="Sample Received Date" lockOwner={partALock} error={fields.sampleReceivedDate}>

@@ -471,6 +471,7 @@ maybe('the ownership matrix: Formulation edits Part A, ARD edits the ARD block',
   const formulationViewer = await userInDepartment('Viewer', 'Formulation');
   const ardAnalyst = await userInDepartment('Analyst', 'ARD');
   const ardManager = await userInDepartment('Manager', 'ARD');
+  const formulationApprover = await userInDepartment('Manager', 'Formulation');
   const admin = { token: adminToken };
 
   const created = await createTrf({ batchNumber: `OWNERSHIP-${Date.now()}` });
@@ -498,42 +499,61 @@ maybe('the ownership matrix: Formulation edits Part A, ARD edits the ARD block',
   const formulationPartA = await partAEdit(formulationViewer.token);
   assert.equal(formulationPartA.status, 200, 'a Formulation user edits Part A');
 
-  // ... and not the ARD block.
+  // ... and not the ARD block (409 because ARD block is locked until approval).
   const formulationArd = await ardEdit(formulationViewer.token);
-  assert.equal(formulationArd.status, 403, 'a Formulation user does not edit the ARD block');
+  assert.equal(formulationArd.status, 409, 'a Formulation user does not edit the ARD block');
 
-  // An ARD Analyst owns the ARD block ...
+  // An ARD Analyst owns the ARD block ... (409 because ARD block is locked until approval)
   const ardArdEdit = await ardEdit(ardAnalyst.token);
-  assert.equal(ardArdEdit.status, 200, 'an ARD user edits the ARD block');
+  assert.equal(ardArdEdit.status, 409, 'an ARD user cannot edit the ARD block before approval');
 
   // ... and not Part A.
   const ardPartA = await partAEdit(ardAnalyst.token);
   assert.equal(ardPartA.status, 403, 'an ARD user does not edit Part A');
 
-  // A Manager may do both.
+  // First, approve the TRF so the ARD block unlocks.
+  const approve = await api<TrfDetail>(`/api/trfs/${id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: formulationPartA.body.version, remarksStatus: 'Approved' }),
+  }, formulationApprover.token);
+  assert.equal(approve.status, 200, 'Formulation Manager approves the TRF');
+  version = approve.body.version;
+
+  // A Manager may edit the ARD block (now that TRF is approved).
   const managerArd = await ardEdit(ardManager.token);
   assert.equal(managerArd.status, 200, 'a Manager edits the ARD block');
+  version = managerArd.body.version;
+  // But Part A is locked after approval for non-Admins.
   const managerPartA = await partAEdit(ardManager.token);
-  assert.equal(managerPartA.status, 200, 'a Manager edits Part A');
+  assert.equal(managerPartA.status, 409, 'a Manager cannot edit Part A after approval');
+  assert.equal(managerPartA.body.error?.code, 'PART_A_LOCKED');
 
-  // An Admin may do both.
+  // An Admin may do both (Admin can bypass Part A lock).
   const adminArd = await ardEdit(admin.token);
   assert.equal(adminArd.status, 200, 'an Admin edits the ARD block');
+  version = adminArd.body.version;
   const adminPartA = await partAEdit(admin.token);
   assert.equal(adminPartA.status, 200, 'an Admin edits Part A');
+  version = adminPartA.body.version;
 
   await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
 });
 
 maybe('an ARD Analyst can set the Final Status without the trf.changeStatus permission', async () => {
   const ardAnalyst = await userInDepartment('Analyst', 'ARD');
+  const formulationApprover = await userInDepartment('Manager', 'Formulation');
   const created = await createTrf({ batchNumber: `FINAL-STATUS-${Date.now()}` });
   assert.equal(created.status, 201);
   const id = created.body.id;
 
+  // First, approve the TRF so the ARD block unlocks.
+  const approve = await api<TrfDetail>(`/api/trfs/${id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, remarksStatus: 'Approved' }),
+  }, formulationApprover.token);
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+
   // The ard-status route must not ask for trf.changeStatus.
   const viaRoute = await api<TrfDetail>(`/api/trfs/${id}/ard-status`, {
-    method: 'POST', body: JSON.stringify({ status: 'In Progress', version: created.body.version }),
+    method: 'POST', body: JSON.stringify({ status: 'In Progress', version: approve.body.version }),
   }, ardAnalyst.token);
   assert.equal(viaRoute.status, 200, JSON.stringify(viaRoute.body));
   assert.equal(viaRoute.body.workflowStatus, 'In Progress');

@@ -23,9 +23,9 @@ interface RecordedRequest {
 const calls: RecordedRequest[] = [];
 
 const EMPLOYEES: EmployeeOption[] = [
-  { id: 7, fullName: 'Aarti Sharma', designation: 'Analyst', departmentName: 'ARD' },
-  { id: 8, fullName: 'Bhavin Patel', designation: 'Executive', departmentName: 'Formulation' },
-  { id: 9, fullName: 'Chitra Nair', designation: null, departmentName: 'Quality' },
+  { id: 7, employeeCode: 'EMP007', fullName: 'Aarti Sharma', designation: 'Analyst', departmentName: 'ARD' },
+  { id: 8, employeeCode: 'EMP008', fullName: 'Bhavin Patel', designation: 'Executive', departmentName: 'Formulation' },
+  { id: 9, employeeCode: 'EMP009', fullName: 'Chitra Nair', designation: null, departmentName: 'Quality' },
 ];
 
 function formulationEmployee(): EmployeeProfile {

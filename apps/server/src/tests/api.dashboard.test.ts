@@ -7,6 +7,7 @@ import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
 import { baseLookups } from './fixtures';
+import type { TrfDetail } from '@trf/shared';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -81,16 +82,21 @@ async function makeTrf(createdBy: string) {
 }
 
 /** A TRF with one assigned test, which is enough to move it out of New. */
+/** A TRF with one assigned test, which is enough to move it out of New. */
 async function assignedTrf(createdBy: string, employeeId: number, label: string) {
   const trf = await makeTrf(createdBy);
+  // Approve the TRF so ARD work can begin.
+  const approved = await api<TrfDetail>(`/api/trfs/${trf.id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: trf.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approved.status, 200, 'TRF approved for analysis');
   const res = await api(`/api/assignments/trfs/${trf.id}/assignments`, {
     method: 'POST',
     body: JSON.stringify({ assignments: [{ testName: `${label} Test`, assignedEmployeeId: employeeId }] }),
   }, adminToken);
   assert.equal(res.status, 201, JSON.stringify(res.body));
-  return { trf, test: res.body.items[0] as { id: number; version: number } };
+  return { trf: approved.body, test: res.body.items[0] as { id: number; version: number } };
 }
-
 let adminToken = '';
 let analyst: { id: number; token: string };
 let otherAnalyst: { id: number; token: string };

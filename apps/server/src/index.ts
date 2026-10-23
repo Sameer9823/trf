@@ -25,7 +25,7 @@ async function checkRequiredColumns(): Promise<string[]> {
      'sample_submitted_by_id',
      'ard_number', 'ard_stage', 'ard_analyst_id', 'analysis_start_date',
     'reporting_status', 'coa_status', 'workflow_status', 'ard_remarks',
-    'finalized_at', 'remarks_status', 'sample_received_by',
+    'finalized_at', 'remarks_status',
   ];
   return required.filter((col) => !existing.has(col));
 }

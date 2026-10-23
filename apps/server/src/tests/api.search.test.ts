@@ -6,6 +6,7 @@ import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
 import { baseLookups } from './fixtures';
+import type { TrfDetail } from '@trf/shared';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -94,11 +95,17 @@ async function makeAssignedTrf(createdBy: string, employeeId: number, tag: strin
   const trfId = created.body.id as number;
   const trfNumber = created.body.trfNumber as string;
 
+  // Approve the TRF so ARD work can begin (assigning tests, starting analysis).
+  const approved = await api<TrfDetail>(`/api/trfs/${trfId}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approved.status, 200, 'TRF approved for analysis');
+
   // The TRF is assigned to the same person as its tests, because the TRF list
   // scope is the TRF's own assignee, not whoever is doing the bench work.
   const assignedTrf = await api(`/api/trfs/${trfId}/assign`, {
     method: 'POST',
-    body: JSON.stringify({ assignedEmployeeId: employeeId, version: created.body.version }),
+    body: JSON.stringify({ assignedEmployeeId: employeeId, version: approved.body.version }),
   }, adminToken);
   assert.equal(assignedTrf.status, 200, JSON.stringify(assignedTrf.body));
 
@@ -111,8 +118,6 @@ async function makeAssignedTrf(createdBy: string, employeeId: number, tag: strin
 
   return { trfId, trfNumber, testId: item.id, testName: `${MARKER} ${tag} Titration` };
 }
-
-/** Runs a test to completion, which is the precondition for drafting any certificate. */
 async function completeTest(fixture: Fixture, analystToken: string) {
   await api(`/api/analysis/tests/${fixture.testId}/start`, {
     method: 'POST', body: JSON.stringify({ version: 1 }),

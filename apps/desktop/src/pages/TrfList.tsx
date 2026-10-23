@@ -356,7 +356,7 @@ const TRUNCATE_FIELDS = new Set([
    'Storage Condition', 'Storage Period', 'Test Requested', 'Test Details',
    'Analysis Required For / Purpose', 'Remarks', 'Sample Submitted By',
    'A.R. No.', 'Analyst Name', 'ARD Remark', 'Reporting', 'COA', 'Remarks / Status',
-   'ARD Remarks / Status', 'Sample Received By', 'Signature / Date',
+   'ARD Remarks / Status', 'Signature / Date',
 ]);
 
 function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
@@ -438,9 +438,18 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
       case 'TAT':
         return { node: <span className="nowrap">{trf.tat?.toString() ?? '—'}</span>, text: null };
       case 'Final Status':
+        if (trf.remarksStatus !== 'Approved') {
+          return {
+            node: (
+              <span className="nowrap">
+                <ArdFinalStatusBadge status={trf.workflowStatus} />
+                <span className="badge badge--warning badge--small" style={{ marginLeft: 4 }}>Awaiting approval</span>
+              </span>
+            ),
+            text: null,
+          };
+        }
         return { node: <ArdFinalStatusBadge status={trf.workflowStatus} />, text: null };
-      case 'Sample Received By':
-        return { node: <span className="muted-cell">{trf.sampleReceivedByName ?? '—'}</span>, text: trf.sampleReceivedByName };
       case 'Sample Received Date':
         return { node: <span className="nowrap">{formatDate(trf.sampleReceivedDate)}</span>, text: null };
       case 'Status':

@@ -14,7 +14,7 @@ import {
   OVERDUE_SQL, ARD_TAT_SQL, TRF_DETAIL_FROM, TRF_DETAIL_SELECT, TRF_FROM, TRF_SELECT, TRF_SORT_SQL,
   TrfRow, toDetail, toListItem, trfListQuerySchema, toFilters,
 } from '../lib/trf-query';
-import { authenticate, currentEmployee, requirePermission, requireTrfCreate, requireTrfEdit, requireArdEdit, requireTrfDelete, validateBody } from '../middleware/auth';
+import { authenticate, currentEmployee, requirePermission, requireTrfCreate, requireTrfEdit, requireArdEdit, requireTrfDelete, requireRole, validateBody } from '../middleware/auth';
 
 export const trfsRouter = Router();
 trfsRouter.use(authenticate);
@@ -53,7 +53,6 @@ const createSchema = z.object({
     sampleSubmittedById: z.number().int().positive().nullable().optional(),
     signatureDate: ISO_DATE.nullable().optional(),
     remarksStatus: z.enum(['Pending', 'Approved', 'Rejected']).optional(),
-    sampleReceivedBy: z.number().int().positive().nullable().optional(),
     ardRemarksStatus: z.enum(ARD_REMARKS_STATUSES).optional(),
 });
 
@@ -70,7 +69,6 @@ const updateSchema = createSchema.partial().extend({
   ardRemarks: z.string().trim().max(2000).nullable().optional(),
   ardRemarksStatus: z.enum(ARD_REMARKS_STATUSES).optional(),
   remarksStatus: z.enum(['Pending', 'Approved', 'Rejected']).optional(),
-  sampleReceivedBy: z.number().int().positive().nullable().optional(),
   note: z.string().trim().max(500).nullable().optional(),
 });
 
@@ -110,7 +108,7 @@ const EDITABLE_FORMULATION = [
   'batchSize', 'dosageForm', 'manufacturingLocation', 'labelClaim', 'packSize',
   'packType', 'storageCondition', 'storagePeriod', 'manufacturingDate', 'expiryDate',
   'analysisPurpose', 'sampleGivenBy', 'sampleSubmittedById', 'signatureDate',
-  'priority', 'sampleReceivedBy', 'sampleReceivedDate', 'remarksStatus',
+  'priority', 'sampleReceivedDate', 'remarksStatus',
 ] as const;
 
 /**
@@ -158,7 +156,6 @@ const COLUMN: Record<string, string> = {
   coaStatus: 'coa_status',
    ardRemarks: 'ard_remarks',
    remarksStatus: 'remarks_status',
-   sampleReceivedBy: 'sample_received_by',
    sampleReceivedDate: 'sample_received_date',
    ardRemarksStatus: 'ard_remarks_status',
 };
@@ -357,9 +354,9 @@ trfsRouter.post('/', requireTrfCreate(), validateBody(createSchema), async (req,
              special_instructions, department_id, remarks, batch_size, dosage_form,
              manufacturing_location, label_claim, pack_size, pack_type, storage_condition,
              storage_period, manufacturing_date, expiry_date, analysis_purpose,
-             sample_given_by, sample_submitted_by_id, signature_date, created_by, remarks_status, ard_remarks_status, sample_received_by)
+             sample_given_by, sample_submitted_by_id, signature_date, created_by, remarks_status, ard_remarks_status)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-             $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
+             $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
            RETURNING id`,
          [trfNumber, body.trfDate, body.customerId, body.productId,
            body.batchNumber ?? null, body.sampleQuantity ?? null, body.sampleReceivedDate ?? null,
@@ -370,7 +367,7 @@ trfsRouter.post('/', requireTrfCreate(), validateBody(createSchema), async (req,
            body.packType ?? null, body.storageCondition ?? null, body.storagePeriod ?? null,
            body.manufacturingDate ?? null, body.expiryDate ?? null, body.analysisPurpose ?? null,
            body.sampleGivenBy ?? null, body.sampleSubmittedById ?? null, body.signatureDate ?? null, user.id,
-           body.remarksStatus ?? 'Pending', body.ardRemarksStatus ?? 'Pending', body.sampleReceivedBy ?? null],
+           body.remarksStatus ?? 'Pending', body.ardRemarksStatus ?? 'Pending'],
       );
       const id = inserted.rows[0].id;
 
@@ -420,6 +417,23 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
         throw conflict(`This TRF is ${current.status} and can no longer be edited.`);
       }
 
+      // Formulation Approval Gate: ARD fields are locked until Formulation approves.
+      // A TRF is "approved" when remarks_status = 'Approved'.
+      const isApproved = current.remarks_status === 'Approved';
+      const ardFieldsRequested = EDITABLE_ARD.filter((key) => body[key] !== undefined);
+      if (ardFieldsRequested.length && !isApproved) {
+        // Only Admin can bypass the gate (for reopen/re-edit scenarios).
+        if (user.role !== 'Admin') {
+          throw new AppError(409, 'ARD_LOCKED', 'ARD work opens once the Formulation team approves this TRF.');
+        }
+      }
+
+      // Prevent non-Admins from moving an Approved TRF back to Pending or Rejected.
+      const nextRemarksStatus = body.remarksStatus ?? current.remarks_status;
+      if (current.remarks_status === 'Approved' && nextRemarksStatus !== 'Approved' && user.role !== 'Admin') {
+        throw new AppError(409, 'APPROVED_LOCKED', 'Approved TRFs can only be reopened by an Administrator.');
+      }
+
       // Split the incoming fields by part and enforce department-based access.
       const formFields = EDITABLE_FORMULATION.filter((key) => body[key] !== undefined);
       const ardFields = EDITABLE_ARD.filter((key) => body[key] !== undefined);
@@ -431,9 +445,13 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
         throw forbidden('You do not have ARD department access to edit these fields.');
       }
 
+      // After approval, Part A becomes read-only for everyone except Admin.
+      if (isApproved && formFields.length && user.role !== 'Admin') {
+        throw new AppError(409, 'PART_A_LOCKED', 'Approved by Formulation: Part A is locked.');
+      }
+
       // A rejected remark must say why, whether the note is being set now or
       // was already there. A rejection with no explanation is not actionable.
-      const nextRemarksStatus = body.remarksStatus ?? current.remarks_status;
       if (nextRemarksStatus === 'Rejected') {
         const nextRemarks = body.remarks !== undefined ? body.remarks : current.remarks;
         if (!nextRemarks?.trim()) {
@@ -556,6 +574,17 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
           [id, current.workflow_status, body.workflowStatus, user.id, body.note ?? null],
         );
       }
+
+      // Audit log for Formulation approval: when remarks_status becomes Approved.
+      const remarksStatusChanged = body.remarksStatus !== undefined && body.remarksStatus !== current.remarks_status;
+      if (remarksStatusChanged && body.remarksStatus === 'Approved') {
+        await writeAudit(client, {
+          userId: user.id, userName: user.fullName, action: 'trf.approved', module: 'trf',
+          recordType: 'TRF', recordRef: current.trf_number,
+          oldValue: { remarksStatus: current.remarks_status },
+          newValue: { remarksStatus: 'Approved', note: body.remarks ?? null },
+        });
+      }
       return id;
     });
 
@@ -659,6 +688,14 @@ trfsRouter.delete('/:id', requireTrfDelete(), async (req, res, next) => {
         throw conflict(`This TRF is ${current.status} and cannot be deleted. Only TRFs in "New" status can be deleted.`);
       }
 
+      // Non-admins cannot delete Approved TRFs.
+      const trfDetails = await client.query<{ remarks_status: string }>(
+        `SELECT remarks_status FROM trfs WHERE id = $1`, [id]);
+      const isApproved = trfDetails.rows[0]?.remarks_status === 'Approved';
+      if (isApproved && user.role !== 'Admin') {
+        throw new AppError(409, 'APPROVED_LOCKED', 'Approved TRFs can only be deleted by an Administrator.');
+      }
+
       // Non-admins can only delete their own TRFs.
       if (user.role !== 'Admin' && current.created_by !== user.id) {
         throw forbidden('You can only delete TRFs you created.');
@@ -705,11 +742,18 @@ trfsRouter.post('/:id/ard-status', requireArdEdit(), validateBody(ardStatusSchem
         workflow_status: ArdWorkflowStatus; ard_stage: string; version: number;
         ard_analyst_id: number | null; analysis_start_date: string | null;
         ard_number: string | null; trf_number: string;
+        remarks_status: string;
       }>(`SELECT workflow_status, ard_stage, version, ard_analyst_id, analysis_start_date,
-                 ard_number, t.trf_number FROM trfs t WHERE t.id = $1 FOR UPDATE OF t`, [id]);
+                   ard_number, t.trf_number, t.remarks_status FROM trfs t WHERE t.id = $1 FOR UPDATE OF t`, [id]);
       const current = locked.rows[0];
       if (!current) throw notFound();
       if (current.version !== body.version) throw versionConflict();
+
+      // Formulation Approval Gate: ARD workflow status changes are locked until Formulation approves.
+      const isApproved = current.remarks_status === 'Approved';
+      if (!isApproved && user.role !== 'Admin') {
+        throw new AppError(409, 'ARD_LOCKED', 'ARD work opens once the Formulation team approves this TRF.');
+      }
 
       // Completed needs an Analyst Name and a Date of Analysis, and the error
       // says which field is missing.
@@ -748,6 +792,77 @@ trfsRouter.post('/:id/ard-status', requireArdEdit(), validateBody(ardStatusSchem
         oldValue: { ardStatus: current.workflow_status, stage: current.ard_stage },
         newValue: { ardStatus: body.status, stage: current.ard_stage, note: body.note ?? null },
       });
+      return id;
+    });
+
+    const detail = await pool.query<TrfRow & { is_overdue: boolean }>(
+      `SELECT ${TRF_DETAIL_SELECT}, (${OVERDUE_SQL}) AS is_overdue ${TRF_DETAIL_FROM} WHERE t.id = $1`,
+      [result],
+    );
+    res.json(toDetail(detail.rows[0], detail.rows[0].is_overdue));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Admin-only "Reopen Formulation" action.
+ * Sets remarks_status back to Pending, unlocks Part A, keeps all ARD data,
+ * and locks ARD again until re-approved.
+ * Requires a reason (min 10 characters). Writes audit rows for trf.reopened.
+ */
+const reopenSchema = z.object({
+  version: z.number().int().positive(),
+  reason: z.string().trim().min(10, 'The reason must be at least 10 characters.'),
+});
+
+trfsRouter.post('/:id/reopen', requireRole('Admin'), validateBody(reopenSchema), async (req, res, next) => {
+  const user = currentEmployee(req);
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) throw notFound();
+    const body = req.body as z.infer<typeof reopenSchema>;
+
+    const result = await withTransaction(async (client) => {
+      const locked = await client.query<{
+        version: number; trf_number: string; remarks_status: string;
+        ard_analyst_id: number | null; analysis_start_date: string | null;
+        ard_stage: string; workflow_status: ArdWorkflowStatus;
+        ard_remarks: string | null; ard_remarks_status: string;
+      }>(`SELECT version, trf_number, remarks_status, ard_analyst_id, analysis_start_date,
+                   ard_stage, workflow_status, ard_remarks, ard_remarks_status
+            FROM trfs t WHERE t.id = $1 FOR UPDATE OF t`, [id]);
+      const current = locked.rows[0];
+      if (!current) throw notFound();
+      if (current.version !== body.version) throw versionConflict();
+      if (current.remarks_status !== 'Approved') {
+        throw conflict('Only Approved TRFs can be reopened.');
+      }
+
+      // Store previous ARD data for audit
+      const previousArdData = {
+        ardAnalystId: current.ard_analyst_id,
+        analysisStartDate: current.analysis_start_date,
+        ardStage: current.ard_stage,
+        workflowStatus: current.workflow_status,
+        ardRemarks: current.ard_remarks,
+        ardRemarksStatus: current.ard_remarks_status,
+      };
+
+      // Set remarks_status back to Pending
+      await client.query(
+        `UPDATE trfs SET remarks_status = 'Pending', version = version + 1 WHERE id = $1`,
+        [id],
+      );
+
+      // Audit log for reopen
+      await writeAudit(client, {
+        userId: user.id, userName: user.fullName, action: 'trf.reopened', module: 'trf',
+        recordType: 'TRF', recordRef: current.trf_number,
+        oldValue: { remarksStatus: 'Approved', ardData: previousArdData },
+        newValue: { remarksStatus: 'Pending', reason: body.reason },
+      });
+
       return id;
     });
 
@@ -806,6 +921,14 @@ trfsRouter.post('/:id/assign', requirePermission('trf.assign'), validateBody(ass
       if (current.version !== body.version) throw versionConflict();
       if (current.status === 'Completed' || current.status === 'Cancelled') {
         throw conflict(`This TRF is ${current.status} and can no longer be assigned.`);
+      }
+
+      // Formulation Approval Gate: assignments cannot be created for non-approved TRFs.
+      const trfDetails = await client.query<{ remarks_status: string }>(
+        `SELECT remarks_status FROM trfs WHERE id = $1`, [id]);
+      const isApproved = trfDetails.rows[0]?.remarks_status === 'Approved';
+      if (!isApproved && user.role !== 'Admin') {
+        throw new AppError(409, 'ARD_LOCKED', 'ARD work opens once the Formulation team approves this TRF.');
       }
 
       let newName: string | null = null;

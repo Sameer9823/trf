@@ -169,9 +169,9 @@ employeesRouter.get('/assignable', requirePermission('employees.view'), async (_
 employeesRouter.get('/for-select', requirePermission('trf.view'), async (_req, res, next) => {
   try {
     const result = await pool.query<{
-      id: number; full_name: string; designation: string | null; department_name: string | null;
+      id: number; employee_code: string; full_name: string; designation: string | null; department_name: string | null;
     }>(
-      `SELECT e.id, e.full_name, e.designation, d.name AS department_name
+      `SELECT e.id, e.employee_code, e.full_name, e.designation, d.name AS department_name
        FROM employees e
        LEFT JOIN departments d ON d.id = e.department_id
        WHERE e.is_active = TRUE
@@ -179,6 +179,7 @@ employeesRouter.get('/for-select', requirePermission('trf.view'), async (_req, r
     );
     const items: EmployeeOption[] = result.rows.map((row) => ({
       id: row.id,
+      employeeCode: row.employee_code,
       fullName: row.full_name,
       designation: row.designation,
       departmentName: row.department_name,

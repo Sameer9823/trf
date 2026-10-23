@@ -3,6 +3,7 @@ import { after, before, test, TestContext } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { MESSAGES } from '@trf/shared';
+import type { TrfDetail } from '@trf/shared';
 import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
@@ -85,6 +86,11 @@ async function makeTrf() {
 /** Assigns tests on a new TRF and returns them in the order they were assigned. */
 async function assignedTests(specs: { name: string; employeeId: number; dueDate?: string }[]) {
   const trf = await makeTrf();
+  // Approve the TRF so ARD work can begin.
+  const approved = await api<TrfDetail>(`/api/trfs/${trf.id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: trf.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approved.status, 200, 'TRF approved for analysis');
   const res = await api(`/api/assignments/trfs/${trf.id}/assignments`, {
     method: 'POST',
     body: JSON.stringify({
@@ -92,7 +98,7 @@ async function assignedTests(specs: { name: string; employeeId: number; dueDate?
     }),
   }, adminToken);
   assert.equal(res.status, 201, JSON.stringify(res.body));
-  return { trf, items: res.body.items as { id: number; version: number; testName: string }[] };
+  return { trf: approved.body, items: res.body.items as { id: number; version: number; testName: string }[] };
 }
 
 let adminToken = '';

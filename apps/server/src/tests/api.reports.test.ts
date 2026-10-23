@@ -233,7 +233,7 @@ maybe('the TRF Master sheet carries every column the list shows', async () => {
     'Sample Quantity', 'Sample Submitted By', 'Remarks / Status', 'Remarks', 'Signature / Date',
     'A.R. No.', 'Stage', 'Analyst Name', 'Date of Analysis', 'Reporting', 'COA',
     'ARD Remarks / Status', 'ARD Remark', 'TAT', 'Final Status',
-    'Sample Received By', 'Sample Received Date',
+    'Sample Received Date',
     'Status', 'Priority', 'Assigned Employee', 'Overdue',
   ]) {
     assert.ok(headers.includes(heading), `the TRF Master sheet is missing "${heading}"`);
@@ -255,7 +255,7 @@ maybe('the TRF Master sheet uses the same field order as the TRF screen', async 
     'Sample Quantity', 'Sample Submitted By', 'Remarks / Status', 'Remarks', 'Signature / Date',
     'A.R. No.', 'Stage', 'Test Requested', 'Test Details', 'Analyst Name', 'Date of Analysis',
     'Reporting', 'COA', 'ARD Remarks / Status', 'ARD Remark', 'TAT', 'Final Status',
-    'Sample Received By', 'Sample Received Date',
+    'Sample Received Date', 'Status',
   ];
   assert.deepEqual(headers.slice(0, expected.length), expected,
     'the TRF Master columns must follow the field order of the TRF screen');
@@ -293,7 +293,7 @@ maybe('the ARD Tracking sheet is present and lists the seeded ARDs', async () =>
     );
     assert.equal(r['TAT'], null, 'no start date means no TAT');
     assert.ok(r['ARD Remarks / Status'], 'each row has an ARD remark status');
-    assert.ok(r['Sample Received By'] !== undefined, 'each row has a sample received by column');
+    assert.ok(r['Final Status'] !== undefined, 'each row has a final status column');
   }
   // A TRF created now starts as the active stage.
   const mine = rows.find((r) => r['TRF No.'] === myTrf);
@@ -303,7 +303,7 @@ maybe('the ARD Tracking sheet is present and lists the seeded ARDs', async () =>
   for (const heading of [
     'A.R. No.', 'TRF No.', 'Date of Request', 'Product Name', 'Batch Number', 'Market/Customer',
     'Stage', 'Test Requested', 'Test Details', 'Analyst Name', 'Date of Analysis', 'Reporting', 'COA',
-    'ARD Remarks / Status', 'ARD Remark', 'TAT', 'Final Status', 'Sample Received By',
+    'ARD Remarks / Status', 'ARD Remark', 'TAT', 'Final Status',
     'Sample Received Date',
   ]) {
     assert.ok(ardHeaders.includes(heading), `the ARD Tracking sheet is missing "${heading}"`);

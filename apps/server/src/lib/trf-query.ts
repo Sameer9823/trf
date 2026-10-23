@@ -95,7 +95,6 @@ export const TRF_SORT_SQL: Record<string, string> = {
   reportingStatus: 't.reporting_status',
   coaStatus: 't.coa_status',
   ardRemarks: 't.ard_remarks',
-  sampleReceivedByName: 'srb.full_name',
   sampleReceivedDate: 't.sample_received_date',
   stage: 't.ard_stage',
 };
@@ -127,7 +126,7 @@ export const TRF_SELECT = `
   t.manufacturing_date, t.expiry_date, t.analysis_purpose, t.sample_given_by, t.signature_date,
   t.ard_number, t.ard_stage, t.ard_analyst_id, an.full_name AS analyst_name,
   t.analysis_start_date, t.reporting_status, t.coa_status, t.workflow_status, t.ard_remarks,
-  t.remarks_status, t.ard_remarks_status, t.sample_received_by, srb.full_name AS sample_received_by_name,
+  t.remarks_status, t.ard_remarks_status,
   t.sample_submitted_by_id, ssb.full_name AS sample_submitted_by_name,
   t.finalized_at, t.deleted_at
 `;
@@ -142,13 +141,12 @@ export const TRF_FROM = `
 `;
 
 /**
- * ARD analyst, creator and sample receiver joined so the screens can show
+ * ARD analyst and creator joined so the screens can show
  * their names. Every alias used by TRF_SELECT has to be joined exactly once.
  */
 export const TRF_DETAIL_FROM = `${TRF_FROM}
   LEFT JOIN employees cb ON cb.id = t.created_by
-  LEFT JOIN employees an ON an.id = t.ard_analyst_id
-  LEFT JOIN employees srb ON srb.id = t.sample_received_by`;
+  LEFT JOIN employees an ON an.id = t.ard_analyst_id`;
 
 /**
  * A DATE column arrives as a Date at local midnight. Reading it back through
@@ -185,8 +183,7 @@ export interface TrfRow {
   ard_number: string | null; ard_stage: string; ard_analyst_id: number | null; analyst_name: string | null;
   analysis_start_date: string | null; reporting_status: string; coa_status: string;
   workflow_status: string; ard_remarks: string | null;
-   remarks_status: string; ard_remarks_status: string; sample_received_by: number | null;
-   sample_received_by_name: string | null;
+   remarks_status: string; ard_remarks_status: string;
    sample_submitted_by_id: number | null; sample_submitted_by_name: string | null;
    finalized_at: Date | string | null; deleted_at: Date | string | null;
    tat: number | null;
@@ -245,8 +242,6 @@ export function toListItem(row: TrfRow, overdue: boolean): TrfListItem {
     tat: row.tat,
     workflowStatus: (row.workflow_status ?? 'Received') as ArdWorkflowStatus,
     remarksStatus: (row.remarks_status ?? 'Pending') as RemarksStatus,
-    sampleReceivedBy: row.sample_received_by,
-    sampleReceivedByName: row.sample_received_by_name,
     ardRemarksStatus: (row.ard_remarks_status ?? 'Pending') as ArdRemarksStatus,
     ardRemarks: row.ard_remarks,
     finalizedAt: timestamp(row.finalized_at),

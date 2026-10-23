@@ -97,7 +97,8 @@ const TRF_BODY = {
   labelClaim: null, packSize: null, packType: null, storageCondition: null,
   storagePeriod: null, manufacturingDate: null, expiryDate: null,
   analysisPurpose: null, sampleGivenBy: null, signatureDate: null,
-  remarksStatus: 'Pending', sampleReceivedBy: null,
+  sampleSubmittedById: null,
+  remarksStatus: 'Pending',
 };
 
 /**
@@ -1079,11 +1080,12 @@ maybe('only Formulation users edit the Formulation Status and only ARD users edi
   assert.equal(ardEdit.status, 200, JSON.stringify(ardEdit.body));
   assert.equal(ardEdit.body.ardRemarksStatus, 'On Hold');
 
-  // ... and not the Formulation Status.
+  // ... and not the Formulation Status (409 because TRF is now approved and locked).
   const ardFormulationEdit = await api(`/api/trfs/${id}`, {
     method: 'PATCH', body: JSON.stringify({ version: ardEdit.body.version, remarksStatus: 'Rejected' }),
   }, ard.token);
-  assert.equal(ardFormulationEdit.status, 403, JSON.stringify(ardFormulationEdit.body));
+  assert.equal(ardFormulationEdit.status, 409, JSON.stringify(ardFormulationEdit.body));
+  assert.equal(ardFormulationEdit.body.error?.code, 'APPROVED_LOCKED');
 
   await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
 });

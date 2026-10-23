@@ -5,7 +5,7 @@ import {
   ANALYSIS_STATUS_TRANSITIONS, canTransitionAnalysis, canTransitionTrf, MESSAGES, roleHasPermission,
 } from '@trf/shared';
 import { pool, withTransaction } from '../db';
-import { badRequest, conflict, forbidden, notFound, versionConflict } from '../lib/errors';
+import { AppError, badRequest, conflict, forbidden, notFound, versionConflict } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import {
   ANALYSIS_FROM, ANALYSIS_SELECT, ANALYSIS_SORT_SQL, AnalysisRow, OUTCOME_SQL,
@@ -208,6 +208,14 @@ analysisRouter.post('/tests/:id/start', requirePermission('analysis.changeStatus
     const id = Number(req.params.id);
 
     await withLockedTest(id, version, user, assertTransition('In Progress'), async (client, current) => {
+      // Formulation Approval Gate: analysis cannot be started for non-approved TRFs.
+      const trfDetails = await client.query<{ remarks_status: string }>(
+        `SELECT remarks_status FROM trfs WHERE id = $1`, [current.trf_id]);
+      const isApproved = trfDetails.rows[0]?.remarks_status === 'Approved';
+      if (!isApproved && user.role !== 'Admin') {
+        throw new AppError(409, 'ARD_LOCKED', 'ARD work opens once the Formulation team approves this TRF.');
+      }
+
       // Starting the same test again keeps the original start date, so the
       // turnaround time still measures the whole job.
       await client.query(

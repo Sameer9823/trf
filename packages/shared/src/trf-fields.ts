@@ -82,7 +82,6 @@ export const ARD_FIELDS: readonly TrfFieldSpec[] = [
   spec('ardRemarks', 'ARD Remark', 'ard'),
   spec('tat', 'TAT', 'system', { computed: true }),
   spec('workflowStatus', 'Final Status', 'ard'),
-  spec('sampleReceivedByName', 'Sample Received By', 'formulation'),
   spec('sampleReceivedDate', 'Sample Received Date', 'formulation'),
 ] as const;
 
@@ -138,6 +137,7 @@ export const FORMULATION_EDITABLE_KEYS: readonly string[] = PART_A_FIELDS
  */
 export interface EmployeeOption {
   id: number;
+  employeeCode: string;
   fullName: string;
   designation: string | null;
   departmentName: string | null;
