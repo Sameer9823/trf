@@ -23,6 +23,15 @@ const schema = z.object({
   ADMIN_EMPLOYEE_CODE: z.string().min(1).optional(),
   ADMIN_FULL_NAME: z.string().min(1).optional(),
   ADMIN_EMAIL: z.string().email().optional(),
+  /** Email configuration for Zoho SMTP */
+  EMAIL_HOST: z.string().default('smtp.zoho.in'),
+  EMAIL_PORT: z.coerce.number().int().default(465),
+  EMAIL_SECURE: z.coerce.boolean().default(true),
+  EMAIL_USER: z.string().optional(),
+  EMAIL_PASS: z.string().optional(),
+  EMAIL_FROM: z.string().email().optional(),
+  /** Frontend URL for password reset links */
+  FRONTEND_URL: z.string().url().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

@@ -8,6 +8,9 @@ import { EMPLOYEE_FROM, EMPLOYEE_SELECT, EmployeeRow, toProfile } from '../lib/e
 import { hashPassword } from '../lib/password';
 import { diffFields, writeAudit } from '../lib/audit';
 import { authenticate, currentEmployee, invalidateEmployeeCache, requirePermission, validateBody } from '../middleware/auth';
+import { config } from '../config';
+import { sendEmail } from '../lib/email';
+import { generateInitialPasswordEmail } from '../lib/email-templates';
 
 export const employeesRouter = Router();
 employeesRouter.use(authenticate);
@@ -224,6 +227,18 @@ employeesRouter.post('/', requirePermission('employees.manage'), validateBody(cr
         newValue: { fullName: body.fullName, role: body.role, email: body.email, departmentId: body.departmentId ?? null },
       });
       return loadEmployee(id, client);
+    });
+
+    // Send initial password email
+    const frontendUrl = config.FRONTEND_URL ?? 'http://localhost:5173';
+    const loginUrl = `${frontendUrl}/#/login`;
+    const emailContent = generateInitialPasswordEmail(body.fullName, body.username, body.password, loginUrl);
+    
+    await sendEmail({
+      to: body.email,
+      subject: emailContent.subject,
+      html: emailContent.html,
+      text: emailContent.text,
     });
 
     res.status(201).json(toProfile(created!));

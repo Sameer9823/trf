@@ -43,6 +43,18 @@ CREATE TABLE refresh_tokens (
 CREATE INDEX idx_refresh_tokens_employee ON refresh_tokens (employee_id);
 CREATE INDEX idx_refresh_tokens_expires ON refresh_tokens (expires_at);
 
+-- Password reset tokens (hashed, single-use, time-limited)
+CREATE TABLE password_reset_tokens (
+  id         SERIAL PRIMARY KEY,
+  employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at    TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_password_reset_tokens_employee ON password_reset_tokens (employee_id);
+CREATE INDEX idx_password_reset_tokens_expires ON password_reset_tokens (expires_at);
+
 -- Append-only audit trail (Phase 9 completes the coverage; the table starts here).
 CREATE TABLE audit_logs (
   id          BIGSERIAL PRIMARY KEY,

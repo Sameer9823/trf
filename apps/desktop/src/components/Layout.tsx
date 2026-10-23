@@ -3,6 +3,7 @@ import { useServerStatus } from '../lib/server-status';
 import { useAuth } from '../lib/auth';
 import { OfflineNotice } from './OfflineNotice';
 import { GlobalSearch } from './GlobalSearch';
+import { canAccessFormulation, canAccessAnalytical } from '@trf/shared';
 
 export const NAV = [
   { to: '/', label: 'Dashboard', module: 'dashboard' },
@@ -33,6 +34,9 @@ export function Layout() {
   // Settings stays reachable offline so an administrator can correct the server address.
   const blocked = state === 'offline' && pathname !== '/settings';
 
+  const showFormulation = employee && canAccessFormulation(employee.departmentName, employee.role);
+  const showAnalytical = employee && canAccessAnalytical(employee.departmentName, employee.role);
+
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -44,6 +48,36 @@ export function Layout() {
               {n.label}
             </NavLink>
           ))}
+          
+          {showFormulation && (
+            <div className="sidebar__section">
+              <div className="sidebar__section-title">Formulation</div>
+              <NavLink to="/trf" end className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
+                TRF Management
+              </NavLink>
+              <NavLink to="/assignments" className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
+                Assignments
+              </NavLink>
+              <NavLink to="/coa" className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
+                COA
+              </NavLink>
+            </div>
+          )}
+          
+          {showAnalytical && (
+            <div className="sidebar__section">
+              <div className="sidebar__section-title">Analytical</div>
+              <NavLink to="/analysis" className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
+                Analysis
+              </NavLink>
+              <NavLink to="/assignments" className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
+                Assignments
+              </NavLink>
+              <NavLink to="/coa" className={({ isActive }) => 'nav-link' + (isActive ? ' nav-link--active' : '')}>
+                COA
+              </NavLink>
+            </div>
+          )}
         </nav>
       </aside>
       <div className="main">

@@ -131,10 +131,28 @@ export const MODULE_ACCESS: Record<string, readonly Role[]> = {
   reports: ['Admin', 'Manager', 'Viewer'],
   audit: ['Admin', 'Manager'],
   settings: ['Admin'],
+  formulation: ['Admin', 'Manager', 'Analyst', 'Viewer'],
+  analytical: ['Admin', 'Manager', 'Analyst', 'Viewer'],
 };
 
 export function canAccessModule(module: string, role: Role): boolean {
   return (MODULE_ACCESS[module] ?? []).includes(role);
+}
+
+/** Department-based access for Formulation and Analytical sections */
+export const FORMULATION_DEPARTMENTS = ['Formulation', 'Formulation R&D', 'Formulation Development'];
+export const ANALYTICAL_DEPARTMENTS = ['ARD', 'Analytical', 'Quality Control', 'QC', 'Analytical R&D'];
+
+export function canAccessFormulation(departmentName: string | null, role: Role): boolean {
+  if (role === 'Admin' || role === 'Manager') return true;
+  if (!departmentName) return false;
+  return FORMULATION_DEPARTMENTS.some(d => departmentName.toLowerCase().includes(d.toLowerCase()));
+}
+
+export function canAccessAnalytical(departmentName: string | null, role: Role): boolean {
+  if (role === 'Admin' || role === 'Manager') return true;
+  if (!departmentName) return false;
+  return ANALYTICAL_DEPARTMENTS.some(d => departmentName.toLowerCase().includes(d.toLowerCase()));
 }
 
 export interface HealthResponse {

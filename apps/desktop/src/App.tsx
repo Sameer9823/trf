@@ -16,6 +16,8 @@ import { TrfDetailPage } from './pages/TrfDetail';
 import { TrfForm } from './pages/TrfForm';
 import { TrfList } from './pages/TrfList';
 import { TrfPrint } from './pages/TrfPrint';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword } from './pages/ResetPassword';
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { status } = useAuth();
@@ -94,6 +96,8 @@ function Root() {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
@@ -102,6 +106,8 @@ function Root() {
   return (
     <Routes>
       <Route path="/login" element={<Navigate to="/" replace />} />
+      <Route path="/forgot-password" element={<Navigate to="/" replace />} />
+      <Route path="/reset-password" element={<Navigate to="/" replace />} />
       <Route path="*" element={<Shell />} />
     </Routes>
   );
