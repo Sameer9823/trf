@@ -800,7 +800,7 @@ export function TrfForm() {
               {form.testRequestedOptionIds.length} test{form.testRequestedOptionIds.length !== 1 ? 's' : ''}
             </span>
             <span className="badge badge--ok" style={{ fontSize: '13px', padding: '6px 12px' }}>
-              {testAssignments.filter(a => a.analystIds.length > 0).length} assigned
+              {testAssignments.filter(a => (a.analystIds?.length ?? 0) > 0).length} assigned
             </span>
           </div>
           
@@ -903,7 +903,7 @@ export function TrfForm() {
           }}>
             <p style={{ margin: 0 }}>
               <strong id="assignmentHint">
-                {testAssignments.filter(a => a.analystIds.length > 0).length} of {form.testRequestedOptionIds.length} tests assigned.
+                {testAssignments.filter(a => (a.analystIds?.length ?? 0) > 0).length} of {form.testRequestedOptionIds.length} tests assigned.
               </strong> Save to notify employees about new or changed assignments.
             </p>
             {canManageAssignments && (
