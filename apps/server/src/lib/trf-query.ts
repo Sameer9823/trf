@@ -303,6 +303,7 @@ export function toListItem(row: TrfRow, overdue: boolean): TrfListItem {
     dosageFormOptionIds: (row.dosage_form_options || []).map((o: any) => o.id),
     dosageFormOptionNames: (row.dosage_form_options || []).map((o: any) => o.name),
     dosageFormOther: row.dosage_form_other,
+    testAssignments: [],
   };
 }
 
