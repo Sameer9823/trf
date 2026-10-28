@@ -290,14 +290,20 @@ const load = useCallback(async () => {
   async function downloadPdf() {
     if (!document) return;
     await logPrint();
-    // Download the PDF from the server using the blob download handler
     setActionError(null);
     const fileName = `TRF-${currentTrf.trfNumber.replace(/\//g, '-')}.pdf`;
-    const res = await window.trf.downloadBlob(`/api/trfs/${currentTrf.id}/document/download`, fileName);
-    if (!res.ok) {
-      if (!res.cancelled) {
-        setActionError(res.message ?? 'PDF download failed.');
-      }
+    try {
+      // Use the configured server URL to download without an unavailable preload API.
+      const { serverUrl } = await window.trf.getConfig();
+      const link = window.document.createElement('a');
+      link.href = `${serverUrl.replace(/\/$/, '')}/api/trfs/${currentTrf.id}/document/download`;
+      link.download = fileName;
+      link.rel = 'noreferrer';
+      window.document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      setActionError((err as Error).message ?? 'PDF download failed.');
       return;
     }
     setNotice('PDF downloaded successfully.');
