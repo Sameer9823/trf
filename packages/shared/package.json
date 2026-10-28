@@ -1,0 +1,17 @@
+{
+  "name": "@trf/shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/cjs/index.js",
+  "types": "dist/cjs/index.d.ts",
+  "module": "dist/esm/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/cjs/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    }
+  },
+  "scripts": { "build": "tsc -p tsconfig.json && tsc -p tsconfig.esm.json" },
+  "devDependencies": { "typescript": "^5.6.0" }
+}

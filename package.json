@@ -1,0 +1,28 @@
+{
+  "name": "trf-system",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:shared": "npm run build -w @trf/shared",
+    "dev:server": "npm run build:shared && npm run dev -w @trf/server",
+    "dev:desktop": "npm run build:shared && npm run dev -w @trf/desktop",
+    "migrate": "npm run migrate -w @trf/server",
+    "typecheck": "npm run build:shared && npm run typecheck -w @trf/server && npm run typecheck -w @trf/desktop",
+    "test": "npm run build:shared && npm run test -w @trf/server && npm run test -w @trf/desktop",
+    "seed:admin": "npm run seed:admin -w @trf/server"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "argon2@0.41.1": true,
+    "esbuild@0.28.2": true,
+    "esbuild@0.21.5": true,
+    "puppeteer@25.16.0": true
+  },
+  "devDependencies": {
+    "electron": "^33.4.11"
+  }
+}
