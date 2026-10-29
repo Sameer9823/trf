@@ -51,6 +51,8 @@ let adminToken = '';
 let adminId = 0;
 let customerId = 0;
 let productId = 0;
+let testOptionId = 0;
+let dosageOptId = 0;
 const trfIds: number[] = [];
 const employeeIds: number[] = [];
 
@@ -82,6 +84,7 @@ async function newTrf(token: string) {
   const res = await post('/api/trfs', {
     trfDate: new Date().toISOString().slice(0, 10), customerId, productId, priority: 'Normal',
     batchNumber: `AP-${SUFFIX}-${Math.random().toString(36).slice(2, 6)}`,
+    testRequestedOptionIds: [testOptionId], dosageFormOptionIds: [dosageOptId],
   }, token);
   assert.equal(res.status, 201, JSON.stringify(res.body));
   trfIds.push(res.body.id);
@@ -105,6 +108,16 @@ maybe('setup: an administrator, the two team logins and the base lookups', async
   const c = await pool.query<{ id: number }>(`INSERT INTO customers (name, code) VALUES ('Test Base Customer', 'TBC-FIXTURE') ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name RETURNING id`);
   const p = await pool.query<{ id: number }>(`INSERT INTO products (name, code) VALUES ('Test Base Product', 'TBP-FIXTURE') ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name RETURNING id`);
   customerId = c.rows[0].id; productId = p.rows[0].id;
+  const tOpt = await pool.query<{ id: number }>('SELECT id FROM test_requested_options ORDER BY id LIMIT 1');
+  if (!tOpt.rowCount) {
+    await pool.query("INSERT INTO test_requested_options (name, display_order) VALUES ('Test Option 1', 1)");
+  }
+  testOptionId = (await pool.query<{ id: number }>('SELECT id FROM test_requested_options ORDER BY id LIMIT 1')).rows[0].id;
+  const dOpt = await pool.query<{ id: number }>('SELECT id FROM dosage_form_options ORDER BY id LIMIT 1');
+  if (!dOpt.rowCount) {
+    await pool.query("INSERT INTO dosage_form_options (name, display_order) VALUES ('Tablet', 1)");
+  }
+  dosageOptId = (await pool.query<{ id: number }>('SELECT id FROM dosage_form_options ORDER BY id LIMIT 1')).rows[0].id;
 });
 
 maybe('a team login is never read as an employee, and can do nothing until a member is chosen', async () => {

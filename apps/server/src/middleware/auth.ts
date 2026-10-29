@@ -243,64 +243,61 @@ export function requireAdminApproval() {
 }
 
 /**
- * Anyone who may approve at least one track: Admin, GM, and AGM.
- * Track-specific checks (e.g. AGM cannot approve FORMULATION) happen inside
- * the route handler.
+ * Anyone who may approve at least one track: Admin only (GM/AGM are designations on Admin).
+ * Track-specific checks happen inside the route handler.
  */
 export function requireAnyApprover() {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.employee) return next(unauthorized('Sign in to continue.'));
     if (req.accountId) return next(forbidden('Team accounts cannot approve.'));
-    if (req.employee.role === 'Admin' || req.employee.role === 'GM' || req.employee.role === 'AGM') return next();
+    if (req.employee.role === 'Admin') return next();
     next(forbidden('Only an authorized approver can take this action.'));
   };
 }
 
 /**
- * Unlock and reopen: Admin and GM only. AGM cannot unlock a locked TRF.
+ * Unlock and reopen: Admin only (GM/AGM are designations on Admin).
  */
 export function requireLockAdmin() {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.employee) return next(unauthorized('Sign in to continue.'));
     if (req.accountId) return next(forbidden('Team accounts cannot approve.'));
-    if (req.employee.role === 'Admin' || req.employee.role === 'GM' || req.employee.role === 'AGM') return next();
+    if (req.employee.role === 'Admin') return next();
     next(forbidden('Only an authorized approver can take this action.'));
   };
 }
 
 /**
- * Assigning ARD tests: Admin, GM, and AGM.
+ * Assigning ARD tests: requires assignments.manage permission (Admin, Manager).
  */
 export function requireAssignmentsManage() {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.employee) return next(unauthorized('Sign in to continue.'));
-    if (!['Admin', 'GM', 'AGM'].includes(req.employee.role)) return next(forbidden());
+    if (!roleHasPermission(req.employee.role, 'assignments.manage')) return next(forbidden());
     next();
   };
 }
 
 /**
- * Formulation approval: Admin and GM. The GM has full FRD authority including
- * approving FRD submissions. AGM cannot approve FRD by default.
+ * Formulation approval: Admin only (GM/AGM are designations on Admin).
  */
 export function requireFormulationApproval() {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.employee) return next(unauthorized('Sign in to continue.'));
     if (req.accountId) return next(forbidden('Team accounts cannot approve.'));
-    if (req.employee.role === 'Admin' || req.employee.role === 'GM') return next();
+    if (req.employee.role === 'Admin') return next();
     next(forbidden('Only an authorized approver can take this action.'));
   };
 }
 
 /**
- * ARD approval: Admin, GM, and AGM. GM has full ARD authority, AGM has full ARD
- * authority, and Admin can do everything. Used for final ARD approval and locking.
+ * ARD approval: Admin only (GM/AGM are designations on Admin).
  */
 export function requireArdApproval() {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.employee) return next(unauthorized('Sign in to continue.'));
     if (req.accountId) return next(forbidden('Team accounts cannot approve.'));
-    if (req.employee.role === 'Admin' || req.employee.role === 'GM' || req.employee.role === 'AGM') return next();
+    if (req.employee.role === 'Admin') return next();
     next(forbidden('Only an authorized approver can take this action.'));
   };
 }

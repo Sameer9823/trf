@@ -1,5 +1,5 @@
 {
   "extends": "../../../tsconfig.base.json",
-  "compilerOptions": { "module": "CommonJS", "moduleResolution": "node", "outDir": "../dist-electron", "rootDir": ".", "types": ["node"] },
+  "compilerOptions": { "module": "CommonJS", "moduleResolution": "node", "outDir": "../dist-electron", "rootDir": ".", "types": ["node"], "esModuleInterop": true },
   "include": ["."]
 }

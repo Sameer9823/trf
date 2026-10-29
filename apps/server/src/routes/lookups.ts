@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type { Customer, Product, StageOption, EmployeeOption, TeamType, DosageFormOption, TestRequestedOption, ManufacturingLocationOption } from '@trf/shared';
+import { ANALYTICAL_DEPARTMENTS } from '@trf/shared';
 import { QueryResult } from 'pg';
 import { pool, withTransaction } from '../db';
 import { duplicateError, forbidden, conflict, badRequest } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import { authenticate, currentEmployee, requirePermission, requireTrfLookupEdit, requireArdEdit, validateBody } from '../middleware/auth';
+import { canAccessAnalytical } from '@trf/shared';
 
 export const lookupsRouter = Router();
 // Customers and products are readable by anyone who can see a TRF, because the
@@ -326,6 +328,45 @@ lookupsRouter.get('/employees', requirePermission('trf.view'), async (_req, res,
        LEFT JOIN departments d ON d.id = e.department_id
        WHERE e.is_active = TRUE
        ORDER BY e.full_name ASC`,
+    );
+    const items: EmployeeOption[] = result.rows.map((row) => ({
+      id: row.id,
+      employeeCode: row.employee_code,
+      fullName: row.full_name,
+      designation: row.designation,
+      departmentName: row.department_name,
+      team: row.team as TeamType | null,
+    }));
+    res.json({ items });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Active ARD analysts for assignment dropdown.
+ * Returns active Admin/Manager/Analyst employees whose team is 'ARD' or whose
+ * department name matches ANALYTICAL_DEPARTMENTS (case-insensitive substring).
+ * Permission: trf.view
+ */
+lookupsRouter.get('/ard-analysts', requirePermission('trf.view'), async (_req, res, next) => {
+  try {
+    const analyticalDepts = ANALYTICAL_DEPARTMENTS.map(d => d.toLowerCase());
+    const result = await pool.query<{
+      id: number;
+      employee_code: string;
+      full_name: string;
+      designation: string | null;
+      department_name: string | null;
+      team: string | null;
+      role: string;
+    }>(
+      `SELECT e.id, e.employee_code, e.full_name, e.designation, d.name AS department_name, e.team, e.role
+       FROM employees e
+       LEFT JOIN departments d ON d.id = e.department_id
+       WHERE e.is_active = TRUE
+         AND e.role IN ('Admin', 'Manager', 'Analyst')
+         AND (e.team = 'ARD' OR d.name ILIKE ANY(ARRAY[${analyticalDepts.map((_, i) => `$${i + 1}`).join(',')}])
+       ORDER BY e.full_name ASC`,
+      analyticalDepts,
     );
     const items: EmployeeOption[] = result.rows.map((row) => ({
       id: row.id,

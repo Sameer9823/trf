@@ -31,8 +31,10 @@ export const PERMISSIONS = [
   'settings.view',
   'settings.manage',
   'approval.formulation',
-  'approval.ard',
-  'teamaccounts.manage',
+   'approval.ard',
+   'approval.ardSubmit',
+   'approval.ardComplete',
+   'teamaccounts.manage',
   'notifications.view',
 ] as const;
 
@@ -47,8 +49,41 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'trf.create',
     'trf.editFormulation',
     'trf.editArd',
+    'trf.changeStatus',
     'approval.formulation',
     'approval.ard',
+    'approval.ardSubmit',
+    'approval.ardComplete',
+    'assignments.viewAll',
+    'assignments.viewOwn',
+    'assignments.manage',
+    'analysis.view',
+    'analysis.viewAll',
+    'analysis.enterResults',
+    'analysis.changeStatus',
+    'coa.view',
+    'coa.prepare',
+    'coa.approve',
+    'coa.issue',
+    'employees.view',
+    'reports.view',
+    'reports.export',
+    'audit.view',
+    'settings.view',
+    'settings.manage',
+    'notifications.view',
+    'teamaccounts.manage',
+  ],
+  AGM: [
+    'dashboard.view',
+    'trf.view',
+    'trf.viewAll',
+    'trf.create',
+    'trf.editArd',
+    'trf.changeStatus',
+    'approval.ard',
+    'approval.ardSubmit',
+    'approval.ardComplete',
     'assignments.viewAll',
     'assignments.viewOwn',
     'assignments.manage',
@@ -67,12 +102,13 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'settings.view',
     'notifications.view',
   ],
-  AGM: [
+  Manager: [
     'dashboard.view',
     'trf.view',
     'trf.viewAll',
     'trf.create',
     'trf.editArd',
+    'trf.changeStatus',
     'approval.ard',
     'assignments.viewAll',
     'assignments.viewOwn',
@@ -81,36 +117,15 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'analysis.viewAll',
     'analysis.changeStatus',
     'coa.view',
+    'coa.prepare',
     'coa.approve',
     'coa.issue',
-    'coa.prepare',
     'employees.view',
     'reports.view',
     'reports.export',
     'audit.view',
     'settings.view',
     'notifications.view',
-  ],
-  Manager: [
-    'dashboard.view',
-    'trf.view',
-    'trf.viewAll',
-    'trf.create',
-    'trf.editArd',
-    'trf.changeStatus',
-    'assignments.viewAll',
-    'assignments.manage',
-    'notifications.view',
-    'analysis.view',
-    'analysis.viewAll',
-    'coa.view',
-    'coa.prepare',
-    'coa.approve',
-    'coa.issue',
-    'employees.view',
-    'reports.view',
-    'reports.export',
-    'audit.view',
   ],
   Analyst: [
     'dashboard.view',
@@ -155,20 +170,18 @@ interface RoleAndDepartment { role: Role; departmentName: string | null; /** The
  * fields on the TRF. A Manager who is not in Formulation is refused.
  */
 export function canEditTrfPartA(employee: RoleAndDepartment): boolean {
-  return employee.role === 'Admin' || employee.role === 'GM' || employee.role === 'Manager' || employee.team === 'FRD' || employee.departmentName === FORMULATION_DEPARTMENT;
+  return employee.role === 'Admin' || employee.role === 'Manager' || employee.team === 'FRD' || employee.departmentName === FORMULATION_DEPARTMENT;
 }
 
 /**
- * ARD department users (plus Admin, GM, AGM, and Manager) may edit Part B fields
+ * ARD department users (plus Admin and Manager) may edit Part B fields
  * and drive the workflow. Analysts and Viewers without the ARD department
  * are refused.
  *
- * GM has full ARD authority and AGM has full ARD authority per the role model,
- * so both roles may edit ARD fields regardless of department.
+ * Admin carries GM/AGM designations, so both have full ARD authority.
  */
 export function canEditTrfPartB(employee: RoleAndDepartment): boolean {
-  return employee.role === 'Admin' || employee.role === 'GM' || employee.role === 'AGM'
-    || employee.role === 'Manager'
+  return employee.role === 'Admin' || employee.role === 'Manager'
     || employee.team === 'ARD' || employee.departmentName === ARD_DEPARTMENT;
 }
 
@@ -278,37 +291,30 @@ export interface DepartmentMailbox {
  * one named person.
  *
  * Track-based authority:
- * - FORMULATION: Admin and GM may approve or reject.
- * - ARD: Admin, GM, and AGM may approve or reject.
- *
- * In this system GM, AGM and COO are designations carried by Admin users (see
- * migration 017), not separate roles. The function checks role === 'Admin' for
- * backwards compatibility, and also allows GM/AGM roles directly when the
- * application uses them as real role values.
+ * - FORMULATION: Admin, GM, AGM may approve or reject.
+ * - ARD: Admin, GM, AGM may approve or reject.
  */
 export function canDecideApprovals(role: Role | undefined): boolean {
-  return role === 'Admin' || role === 'GM';
+  return role === 'Admin' || role === 'GM' || role === 'AGM';
 }
 
 /**
- * ARD final-approval authority. GM has full FRD and ARD authority, AGM has full
- * ARD authority, and Admin can do everything.
+ * ARD final-approval authority. Admin, GM, AGM can do everything.
  */
 export function canApproveArd(role: Role | undefined): boolean {
   return role === 'Admin' || role === 'GM' || role === 'AGM';
 }
 
 /**
- * Formulation approval authority. Only GM and Admin can approve FRD submissions.
- * AGM cannot approve FRD unless explicitly granted GM approval permission.
+ * Formulation approval authority. Admin and GM only — AGM handles ARD, not Formulation.
  */
 export function canApproveFormulation(role: Role | undefined): boolean {
   return role === 'Admin' || role === 'GM';
 }
 
 /**
- * Only an administrator (Admin or GM) may reopen a TRF that has been approved and locked.
- * AGM and other users cannot unlock a locked TRF.
+ * Only an administrator (Admin, GM) may reopen a TRF that has been approved and locked.
+ * AGM handles ARD authority but cannot unlock Formulation-approved TRFs.
  */
 export function canReopenLockedTrf(role: Role | undefined): boolean {
   return role === 'Admin' || role === 'GM';

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { AnalystAssignedTest, ArdTestAssignmentStatus } from '@trf/shared';
+import type { AnalystAssignedTest, ArdTestAssignmentStatus, TrfDetail } from '@trf/shared';
 import { ARD_TEST_ASSIGNMENT_STATUSES } from '@trf/shared';
 import { useAuth } from '../lib/auth';
 import { useServerStatus } from '../lib/server-status';
 import { OfflineNotice } from '../components/OfflineNotice';
 import { formatDate } from '../components/Badges';
+import { messageOf } from '../lib/api';
 import { NotificationCentre } from '../components/NotificationCentre';
 
 interface AssignmentSummary {
@@ -19,6 +20,23 @@ interface AssignmentSummary {
   testStatus: ArdTestAssignmentStatus;
   assignedAt: string | null;
   dueDate: string | null;
+  /** Result fields */
+  outcome: 'Pass' | 'Fail' | 'NA' | null;
+  resultValue: string | null;
+  unit: string | null;
+  /** Completion fields */
+  analysisStartDate: string | null;
+  completionDate: string | null;
+  completedBy: number | null;
+  completedByName: string | null;
+  /** TRF-level fields for submit button */
+  trfId: number;
+  ardSubmittedAt: string | null;
+  workflowStatus: string | null;
+  remarksStatus: string | null;
+  completedAt: string | null;
+  completedByAgmName: string | null;
+  version: number;
 }
 
 const STATUS_LABEL: Record<ArdTestAssignmentStatus, string> = {
@@ -50,7 +68,15 @@ export function EmployeeDashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const res = await window.trf.request<{ items: AnalystAssignedTest[] }>({
+    const res = await window.trf.request<{ items: (AnalystAssignedTest & {
+      trfId: number;
+      ardSubmittedAt: string | null;
+      workflowStatus: string | null;
+      remarksStatus: string | null;
+      completedAt: string | null;
+      completedByAgmName: string | null;
+      version: number;
+    })[] }>({
       method: 'GET', path: '/api/ard-assignments/employee-dashboard',
     });
     setLoading(false);
@@ -69,6 +95,20 @@ export function EmployeeDashboard() {
       testStatus: a.testStatus,
       assignedAt: a.assignedAt,
       dueDate: a.dueDate,
+      outcome: a.outcome ?? null,
+      resultValue: a.resultValue ?? null,
+      unit: a.unit ?? null,
+      analysisStartDate: a.analysisStartDate ?? null,
+      completionDate: a.completionDate ?? null,
+      completedBy: a.completedBy ?? null,
+      completedByName: a.completedByName ?? null,
+      trfId: a.trfId ?? 0,
+      ardSubmittedAt: a.ardSubmittedAt ?? null,
+      workflowStatus: a.workflowStatus ?? null,
+      remarksStatus: a.remarksStatus ?? null,
+      completedAt: a.completedAt ?? null,
+      completedByAgmName: a.completedByAgmName ?? null,
+      version: a.version ?? 0,
     }));
     setAssignments(items);
   }, []);
@@ -107,6 +147,22 @@ export function EmployeeDashboard() {
     void load();
   }
 
+  async function submitToAgm(a: AssignmentSummary) {
+    setUpdatingId(a.id);
+    setError(null);
+    const res = await window.trf.request<TrfDetail>({
+      method: 'POST',
+      path: `/api/trfs/${a.trfId}/ard-submit`,
+      body: { version: a.version },
+    });
+    setUpdatingId(null);
+    if (!res.ok) {
+      setError(messageOf(res.data, 'Could not submit to AGM.'));
+      return;
+    }
+    void load();
+  }
+
   return (
     <div className="page page--wide">
       <div className="page__head">
@@ -135,44 +191,54 @@ export function EmployeeDashboard() {
         </div>
       ) : (
         <table className="table table--striped" role="grid">
-          <thead>
-            <tr>
-              <th>TRF</th><th>A.R. No.</th><th>Product</th><th>Generic Name</th><th>Test</th><th>Assigned</th><th>Due Date</th><th>Status</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {assignments.map((a) => (
-              <tr key={a.id}>
-                <td><Link to={`#/trfs/${a.trfNumber}`} className="link">{a.trfNumber}</Link></td>
-                <td>{a.arNumber ?? '—'}</td>
-                <td>{a.productName ?? '—'}</td>
-                <td>{a.genericName ?? '—'}</td>
-                <td>{a.testName}</td>
-                <td>{a.assignedAt ? formatDate(a.assignedAt) : '—'}</td>
-                <td>{a.dueDate ? formatDate(a.dueDate) : '—'}</td>
-                <td>
-                  <span className="badge" style={{ color: STATUS_COLOR[a.testStatus] }}>
-                    {STATUS_LABEL[a.testStatus]}
-                  </span>
-                </td>
-                <td>
-                  {updatingId === a.id ? <span className="muted">Saving…</span> : (
-                    <>
-                      <button
-                        className="btn btn--tiny"
-                        onClick={() => updateStatus(a.id, 'In Progress')}
-                        disabled={a.testStatus === 'In Progress' || a.testStatus === 'Completed' || a.testStatus === 'Cancelled'}
-                      >Mark In Progress</button>
-                      <button
-                        className="btn btn--tiny"
-                        onClick={() => updateStatus(a.id, 'Completed')}
-                        disabled={a.testStatus === 'Completed' || a.testStatus === 'Cancelled'}
-                      >Mark Complete</button>
-                    </>
-                  )}
-                </td>
+            <thead>
+              <tr>
+                <th>TRF</th><th>A.R. No.</th><th>Product</th><th>Generic Name</th><th>Test</th><th>Assigned</th><th>Due Date</th><th>Status</th><th>Result</th><th>Outcome</th><th>Completed</th><th>Actions</th>
               </tr>
-            ))}
+            </thead>
+          <tbody>
+             {assignments.map((a) => (
+               <tr key={a.id}>
+                 <td><Link to={`#/trfs/${a.trfId}`} className="link">{a.trfNumber}</Link></td>
+                 <td>{a.arNumber ?? '—'}</td>
+                 <td>{a.productName ?? '—'}</td>
+                 <td>{a.genericName ?? '—'}</td>
+                 <td>{a.testName}</td>
+                 <td>{a.assignedAt ? formatDate(a.assignedAt) : '—'}</td>
+                 <td>{a.dueDate ? formatDate(a.dueDate) : '—'}</td>
+                 <td>
+                   <span className="badge" style={{ color: STATUS_COLOR[a.testStatus] }}>
+                     {STATUS_LABEL[a.testStatus]}
+                   </span>
+                 </td>
+                 <td>{a.resultValue ?? '—'}{a.unit ? ` ${a.unit}` : ''}</td>
+                 <td>{a.outcome ?? '—'}</td>
+                 <td>{a.completedByName ? `${a.completedByName} (${formatDate(a.completionDate) ?? ''})` : '—'}</td>
+                 <td>
+                   {updatingId === a.id ? <span className="muted">Saving…</span> : (
+                     <>
+                       <button
+                         className="btn btn--tiny"
+                         onClick={() => updateStatus(a.id, 'In Progress')}
+                         disabled={a.testStatus === 'In Progress' || a.testStatus === 'Completed' || a.testStatus === 'Cancelled'}
+                       >Mark In Progress</button>
+                       <button
+                         className="btn btn--tiny"
+                         onClick={() => updateStatus(a.id, 'Completed')}
+                         disabled={a.testStatus === 'Completed' || a.testStatus === 'Cancelled'}
+                       >Mark Complete</button>
+                       {a.ardSubmittedAt === null && a.workflowStatus === 'Completed' && a.remarksStatus === 'Approved' && (
+                         <button
+                           className="btn btn--tiny btn--primary"
+                           onClick={() => submitToAgm(a)}
+                           disabled={updatingId === a.id}
+                         >Submit to AGM</button>
+                       )}
+                     </>
+                   )}
+                 </td>
+               </tr>
+             ))}
           </tbody>
         </table>
       )}

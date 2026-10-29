@@ -26,6 +26,24 @@ export interface ArdTestAssignment {
   analysts?: { id: number; fullName: string; employeeCode: string; departmentName: string | null; assignedAt: string }[];
   // Computed from analysts for client convenience
   analystIds?: number[];
+  /** Result fields (from ard_assignment_results) */
+  resultValue?: string | null;
+  resultText?: string | null;
+  unit?: string | null;
+  methodUsed?: string | null;
+  specification?: string | null;
+  lowerLimit?: string | null;
+  upperLimit?: string | null;
+  outcome?: 'Pass' | 'Fail' | 'NA' | null;
+  remarks?: string | null;
+  enteredBy?: number | null;
+  enteredByName?: string | null;
+  enteredAt?: string | null;
+  /** Completion fields */
+  analysisStartDate?: string | null;
+  completionDate?: string | null;
+  completedBy?: number | null;
+  completedByName?: string | null;
 }
 
 export interface ArdTestAssignmentAnalyst {
@@ -39,7 +57,7 @@ export interface ArdTestAssignmentAnalyst {
 export interface ArdTestAssignmentHistory {
   id: number;
   assignmentId: number;
-  action: 'ASSIGNED' | 'REASSIGNED' | 'UNASSIGNED' | 'STATUS_CHANGED';
+  action: 'ASSIGNED' | 'REASSIGNED' | 'UNASSIGNED' | 'STATUS_CHANGED' | 'RESULT_ENTERED' | 'RESULT_CHANGED';
   oldAnalystIds: number[];
   newAnalystIds: number[];
   oldStatus: string | null;
@@ -101,6 +119,24 @@ export interface AnalystAssignedTest {
   analystName: string;
   analystCode: string;
   analystDepartment: string | null;
+  /** Result fields */
+  resultValue?: string | null;
+  resultText?: string | null;
+  unit?: string | null;
+  methodUsed?: string | null;
+  specification?: string | null;
+  lowerLimit?: string | null;
+  upperLimit?: string | null;
+  outcome?: 'Pass' | 'Fail' | 'NA' | null;
+  remarks?: string | null;
+  enteredBy?: number | null;
+  enteredByName?: string | null;
+  enteredAt?: string | null;
+  /** Completion fields */
+  analysisStartDate?: string | null;
+  completionDate?: string | null;
+  completedBy?: number | null;
+  completedByName?: string | null;
 }
 
 // ARD overview view
@@ -216,6 +252,14 @@ export interface TrfListItem {
   ardDecidedByName: string | null;
   /** Test assignments for ARD multi-test workflow */
   testAssignments: ArdTestAssignment[];
+  /** ARD Submit-to-AGM workflow */
+  ardSubmittedAt: string | null;
+  ardSubmittedBy: number | null;
+  ardSubmittedByName: string | null;
+  ardSubmitNote: string | null;
+  completedByAgm: number | null;
+  completedByAgmName: string | null;
+  completedAt: string | null;
 }
 
 export interface TrfDetail extends TrfListItem {

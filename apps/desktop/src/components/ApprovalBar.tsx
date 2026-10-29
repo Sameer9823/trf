@@ -1,33 +1,42 @@
 ﻿import { useState } from 'react';
 import type { EmployeeProfile, TrfDetail } from '@trf/shared';
-import { canApproveFormulation, canApproveArd, canReopenLockedTrf } from '@trf/shared';
+import { canApproveFormulation, canApproveArd, canReopenLockedTrf, isAdminDesignation } from '@trf/shared';
 import { messageOf } from '../lib/api';
 import { Icons } from './Icons';
 import { Modal } from './Modal';
 
-type Action = 'approve-formulation' | 'reject-formulation' | 'approve-final' | 'reject-final' | 'unlock' | 'complete-and-lock';
+type Action = 'submit-to-agm' | 'approve-formulation' | 'reject-formulation' | 'agm-complete' | 'agm-reject' | 'unlock' | 'complete-and-lock';
 
 const ACTION_TRACK: Record<Action, 'FORMULATION' | 'ARD' | undefined> = {
+  'submit-to-agm': 'ARD',
   'approve-formulation': 'FORMULATION',
   'reject-formulation': 'FORMULATION',
-  'approve-final': 'ARD',
-  'reject-final': 'ARD',
+  'agm-complete': 'ARD',
+  'agm-reject': 'ARD',
   'complete-and-lock': 'ARD',
   unlock: undefined,
 };
 
 function canPerform(action: Action, employee: EmployeeProfile | null): boolean {
-  if (ACTION_TRACK[action] === undefined) return canReopenLockedTrf(employee?.role);
+  if (action === 'unlock') return canReopenLockedTrf(employee?.role);
+  if (action === 'submit-to-agm') return employee?.role === 'Admin' || employee?.role === 'Manager' || employee?.role === 'AGM';
   const track = ACTION_TRACK[action];
   if (track === 'FORMULATION') return canApproveFormulation(employee?.role);
-  return canApproveArd(employee?.role);
+  if (track === 'ARD') {
+    if (action === 'agm-complete' || action === 'agm-reject' || action === 'complete-and-lock') {
+      return employee?.role === 'Admin' && isAdminDesignation(employee?.designation);
+    }
+    return canApproveArd(employee?.role);
+  }
+  return false;
 }
 
 const COPY: Record<Action, { title: string; confirm: string; needsReason: boolean; hint: string }> = {
+  'submit-to-agm': { title: 'Submit to AGM', confirm: 'Submit', needsReason: false, hint: 'Submits the completed ARD work for final approval by an AGM.' },
   'approve-formulation': { title: 'Approve this request', confirm: 'Approve', needsReason: false, hint: 'ARD work opens as soon as you approve.' },
   'reject-formulation': { title: 'Reject this request', confirm: 'Reject', needsReason: true, hint: 'Say why, so the Formulation team knows what to fix.' },
-  'approve-final': { title: 'Approve and lock', confirm: 'Approve and lock', needsReason: false, hint: 'The TRF locks. Nobody can change it until you unlock it.' },
-  'reject-final': { title: 'Send back to ARD', confirm: 'Send back', needsReason: true, hint: 'ARD reopens at In Progress and completes again when ready.' },
+  'agm-complete': { title: 'Complete and lock TRF', confirm: 'Complete & Lock', needsReason: false, hint: 'Approves the final approval and locks the TRF.' },
+  'agm-reject': { title: 'Send back to ARD', confirm: 'Send back', needsReason: true, hint: 'ARD reopens at In Progress and completes again when ready.' },
   'complete-and-lock': { title: 'Complete and lock TRF', confirm: 'Complete and lock', needsReason: false, hint: 'Sets Final Status to Completed, then approves and locks the TRF in one step.' },
   unlock: { title: 'Unlock this TRF', confirm: 'Unlock', needsReason: true, hint: 'The reason is kept in the audit trail. ARD work reopens at In Progress and needs a fresh final approval.' },
 };
@@ -71,15 +80,23 @@ export function ApprovalBar({ trf, employee, onChanged }: { trf: TrfDetail; empl
     tone = 'pending';
     title = 'ARD is complete: waiting for final approval';
     detail = 'Approving locks the TRF.';
-    buttons = [{ action: 'approve-final', label: 'Approve and lock', primary: true }, { action: 'reject-final', label: 'Send back' }];
-    // If workflowStatus is not yet Completed, AGM can do both steps at once
+    // If workflowStatus is not yet Completed, show submit-to-agm and complete-and-lock
     if (trf.workflowStatus !== 'Completed') {
-      buttons = [{ action: 'complete-and-lock', label: 'Complete & Lock', primary: true }, { action: 'approve-final', label: 'Approve and lock' }, { action: 'reject-final', label: 'Send back' }];
+      buttons = [{ action: 'complete-and-lock', label: 'Complete & Lock', primary: true }, { action: 'submit-to-agm', label: 'Submit to AGM' }, { action: 'agm-reject', label: 'Send back' }];
+    } else {
+      // WorkflowStatus is Completed: AGM can complete or reject
+      buttons = [{ action: 'agm-complete', label: 'Complete & Lock', primary: true }, { action: 'agm-reject', label: 'Send back' }];
     }
   } else if (trf.finalApprovalStatus === 'Rejected') {
     tone = 'rejected';
     title = 'Sent back to ARD';
     detail = `${trf.finalDecidedByName ?? 'An administrator'} asked for more work. ARD completes again when ready.`;
+  } else if (trf.workflowStatus === 'Completed' && !finalPending && !locked && trf.remarksStatus === 'Approved') {
+    // Workflow is completed but not yet submitted to AGM
+    tone = 'pending';
+    title = 'ARD is complete: ready to submit';
+    detail = 'Submit the completed work to an AGM for final approval.';
+    buttons = [{ action: 'submit-to-agm', label: 'Submit to AGM', primary: true }];
   }
 
   if (!tone) return null;
@@ -94,7 +111,12 @@ export function ApprovalBar({ trf, employee, onChanged }: { trf: TrfDetail; empl
     setBusy(true);
     setError(null);
     let res;
-    if (action === 'complete-and-lock') {
+    if (action === 'submit-to-agm') {
+      res = await window.trf.request<TrfDetail>({
+        method: 'POST', path: `/api/trfs/${trf.id}/ard-submit`,
+        body: { version: trf.version, note: reason.trim() || null },
+      });
+    } else if (action === 'complete-and-lock') {
       // Step 1: Set workflowStatus to Completed
       const statusRes = await window.trf.request<TrfDetail>({
         method: 'POST', path: `/api/trfs/${trf.id}/ard-status`,
@@ -105,19 +127,39 @@ export function ApprovalBar({ trf, employee, onChanged }: { trf: TrfDetail; empl
         setError(messageOf(statusRes.data, 'Could not complete the TRF.'));
         return;
       }
-      // Step 2: Approve the final approval (lock the TRF)
+      // Step 2: Submit to AGM
+      const submitRes = await window.trf.request<TrfDetail>({
+        method: 'POST', path: `/api/trfs/${trf.id}/ard-submit`,
+        body: { version: statusRes.data.version, note: reason.trim() || null },
+      });
+      if (!submitRes.ok || !submitRes.data) {
+        setBusy(false);
+        setError(messageOf(submitRes.data, 'Could not submit to AGM.'));
+        return;
+      }
+      // Step 3: Approve the final approval (lock the TRF)
       res = await window.trf.request<TrfDetail>({
-        method: 'POST', path: `/api/trfs/${trf.id}/decision`,
-        body: { track: 'ARD', decision: 'Approved', version: statusRes.data.version, reason: reason.trim() || null },
+        method: 'POST', path: `/api/trfs/${trf.id}/agm-complete`,
+        body: { decision: 'Approved', version: submitRes.data.version, reason: null },
       });
     } else if (action === 'unlock') {
       res = await window.trf.request<TrfDetail>({ method: 'POST', path: `/api/trfs/${trf.id}/unlock`, body: { version: trf.version, reason: reason.trim() } });
+    } else if (action === 'agm-complete') {
+      res = await window.trf.request<TrfDetail>({
+        method: 'POST', path: `/api/trfs/${trf.id}/agm-complete`,
+        body: { decision: 'Approved', version: trf.version, reason: null },
+      });
+    } else if (action === 'agm-reject') {
+      res = await window.trf.request<TrfDetail>({
+        method: 'POST', path: `/api/trfs/${trf.id}/agm-complete`,
+        body: { decision: 'Rejected', version: trf.version, reason: reason.trim() || null },
+      });
     } else {
       const act = action as Action;
-      const track = act.endsWith('final') || act === 'complete-and-lock' ? 'ARD' : 'FORMULATION';
+      const track = act.includes('final') ? 'ARD' : 'FORMULATION';
       res = await window.trf.request<TrfDetail>({
         method: 'POST', path: `/api/trfs/${trf.id}/decision`,
-        body: { track, decision: act.startsWith('approve') || act === 'complete-and-lock' ? 'Approved' : 'Rejected', version: trf.version, reason: reason.trim() || null },
+        body: { track, decision: act.startsWith('approve') ? 'Approved' : 'Rejected', version: trf.version, reason: reason.trim() || null },
       });
     }
     setBusy(false);

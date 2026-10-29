@@ -138,6 +138,8 @@ export const TRF_SELECT = `
   t.finalized_at, t.deleted_at,
   t.ard_approval_status, t.ard_decided_at, ard.full_name AS ard_decided_by_name,
    t.test_requested_other,
+   t.ard_submitted_at, t.ard_submitted_by, sab.full_name AS ard_submitted_by_name, t.ard_submit_note,
+   t.completed_by_agm, cba.full_name AS completed_by_agm_name, t.completed_at,
    COALESCE((
      SELECT json_agg(json_build_object('id', tro.id, 'name', tro.name) ORDER BY tro.display_order)
      FROM trf_test_requested ttr
@@ -151,7 +153,7 @@ export const TRF_SELECT = `
      JOIN dosage_form_options dfo ON dfo.id = tdf.dosage_form_option_id
      WHERE tdf.trf_id = t.id
    ), '[]'::json) AS dosage_form_options
- `;
+`;
 
 export const TRF_FROM = `
   FROM trfs t
@@ -165,6 +167,8 @@ export const TRF_FROM = `
   LEFT JOIN employees fnd ON fnd.id = t.final_decided_by
   LEFT JOIN employees lkb ON lkb.id = t.locked_by
   LEFT JOIN employees ard ON ard.id = t.ard_decided_by
+  LEFT JOIN employees sab ON sab.id = t.ard_submitted_by
+  LEFT JOIN employees cba ON cba.id = t.completed_by_agm
 `;
 
 /**
@@ -220,6 +224,8 @@ export interface TrfRow {
     tat: number | null;
     ard_approval_status: string; ard_decided_at: Date | string | null; ard_decided_by_name: string | null;
     test_requested_other: string | null;
+    ard_submitted_at: Date | string | null; ard_submitted_by: number | null; ard_submitted_by_name: string | null; ard_submit_note: string | null;
+    completed_by_agm: number | null; completed_by_agm_name: string | null; completed_at: Date | string | null;
     test_requested_options: { id: number; name: string }[];
     dosage_form_other: string | null;
     dosage_form_options: { id: number; name: string }[];
@@ -304,6 +310,14 @@ export function toListItem(row: TrfRow, overdue: boolean): TrfListItem {
     dosageFormOptionNames: (row.dosage_form_options || []).map((o: any) => o.name),
     dosageFormOther: row.dosage_form_other,
     testAssignments: [],
+    /** ARD Submit-to-AGM workflow */
+    ardSubmittedAt: timestamp(row.ard_submitted_at),
+    ardSubmittedBy: row.ard_submitted_by,
+    ardSubmittedByName: row.ard_submitted_by_name,
+    ardSubmitNote: row.ard_submit_note,
+    completedByAgm: row.completed_by_agm,
+    completedByAgmName: row.completed_by_agm_name,
+    completedAt: timestamp(row.completed_at),
   };
 }
 

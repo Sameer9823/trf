@@ -498,12 +498,31 @@ const load = useCallback(async () => {
                       <span className="muted"> — Approved by {currentTrf.finalDecidedByName}{currentTrf.finalDecidedAt && ` on ${formatDate(currentTrf.finalDecidedAt)}`}</span>
                     )}
                   </dd>
-                  <dt>Locked</dt>
-                  <dd>
-                    {currentTrf.lockedAt && currentTrf.lockedByName && (
-                      <span className="muted">Locked by {currentTrf.lockedByName} on {formatDate(currentTrf.lockedAt)}</span>
-                    )}
-                  </dd>
+                   <dt>Locked</dt>
+                   <dd>
+                     {currentTrf.lockedAt && currentTrf.lockedByName && (
+                       <span className="muted">Locked by {currentTrf.lockedByName} on {formatDate(currentTrf.lockedAt)}</span>
+                     )}
+                     {!currentTrf.lockedAt && (
+                       <span className="muted">—</span>
+                     )}
+                   </dd>
+                   <dt>Submitted to AGM</dt>
+                   <dd>
+                     {currentTrf.ardSubmittedAt && currentTrf.ardSubmittedByName ? (
+                       <span className="muted">Submitted by {currentTrf.ardSubmittedByName} on {formatDate(currentTrf.ardSubmittedAt)}</span>
+                     ) : (
+                       <span className="muted">—</span>
+                     )}
+                   </dd>
+                   <dt>Completed By AGM</dt>
+                   <dd>
+                     {currentTrf.completedByAgmName && currentTrf.completedAt ? (
+                       <span className="muted">{currentTrf.completedByAgmName} on {formatDate(currentTrf.completedAt)}</span>
+                     ) : (
+                       <span className="muted">—</span>
+                     )}
+                   </dd>
                 </dl>
               </section>
             )}

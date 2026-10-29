@@ -13,7 +13,7 @@ export interface TrfBridge {
   printToPDF(trfId: number, fileName: string): Promise<{ ok: boolean; cancelled?: boolean; path?: string; message?: string }>;
   generatePdf(trfId: number): Promise<{ ok: boolean; path?: string; fileName?: string; message?: string }>;
   // Download a file (blob) from the API
-  downloadBlob(path: string, fileName: string): Promise<{ ok: boolean; cancelled?: boolean; path?: string; message?: string }>;
+  downloadBlob(apiPath: string, fileName: string): Promise<{ ok: boolean; cancelled?: boolean; path?: string; message?: string }>;
   // Asks the main process to save the report; the renderer never handles the file.
   exportReport(query: string): Promise<{
     ok: boolean; cancelled?: boolean; message?: string; path?: string; meta?: unknown;

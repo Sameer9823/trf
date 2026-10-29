@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, session, shell } from 'electron';
 import fs from 'node:fs';
-import path from 'node:path';
+const path = require('node:path');
 import { pathToFileURL } from 'node:url';
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
@@ -394,7 +394,7 @@ ipcMain.handle('auth:on-signed-out', (event) => {
  * nothing without the employee choosing where it lands.
  */
 /** Download a file (blob) from the API and save it to disk. */
-ipcMain.handle('api:downloadBlob', async (event, path: string, fileName: string): Promise<{ ok: boolean; cancelled?: boolean; path?: string; message?: string }> => {
+ipcMain.handle('api:downloadBlob', async (event, apiPath: string, fileName: string): Promise<{ ok: boolean; cancelled?: boolean; path?: string; message?: string }> => {
   if (!tokens) {
     return { ok: false, message: 'Not authenticated' };
   }
@@ -409,7 +409,7 @@ ipcMain.handle('api:downloadBlob', async (event, path: string, fileName: string)
     if (choice.canceled || !choice.filePath) return { ok: true, cancelled: true };
 
     const base = readConfig().serverUrl;
-    const res = await net.fetch(base + path, {
+    const res = await net.fetch(base + apiPath, {
       headers: { Authorization: `Bearer ${tokens.accessToken}` },
     });
     if (!res.ok) {
@@ -432,7 +432,7 @@ ipcMain.handle('reports:export', async (event, query: string): Promise<ExportOut
   const stamp = new Date().toISOString().slice(0, 10);
   const suggested = `TRF-Report-${stamp}${suffix ? `-${suffix.replace(/\s+/g, '-')}` : ''}.xlsx`;
 
-  let target: string | undefined;
+  let target = path.join(app.getPath('documents'), suggested);
   try {
     const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined;
     const options = {

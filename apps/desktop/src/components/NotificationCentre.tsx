@@ -143,7 +143,7 @@ export function NotificationCentre({ trfId, unreadOnly = false }: NotificationCe
               {notification.link && (
                 <div className="notification-item__action">
                   <a className="btn btn--tiny btn--primary" href={notification.link}>
-                    {Icons.arrowRight} View Assignment
+                    → View Assignment
                   </a>
                 </div>
               )}

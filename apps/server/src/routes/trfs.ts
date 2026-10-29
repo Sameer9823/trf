@@ -7,7 +7,9 @@ import {
    TERMINAL_ARD_STATUSES, roleHasPermission, canEditTrfPartA, canEditTrfPartB,
    ArdWorkflowStatus, ArdRemarksStatus, ARD_REMARKS_STATUSES,
    FINAL_APPROVAL_STATUSES,
+   isAdminDesignation,
 } from '@trf/shared';
+import { PoolClient } from 'pg';
 import { pool, withTransaction } from '../db';
 import { AppError, badRequest, conflict, forbidden, notFound, versionConflict } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
@@ -111,6 +113,22 @@ function assertNotLocked(row: { locked_at?: Date | string | null }): void {
   if (row.locked_at) {
     throw new AppError(409, 'TRF_LOCKED', 'This TRF is approved and locked. An administrator must unlock it before it can be changed.');
   }
+}
+
+/**
+ * Shared lock check: every write route must call this before making changes.
+ * Returns the TRF row with locked_at for further checks.
+ */
+async function assertTrfNotLocked(client: PoolClient, trfId: number) {
+  const result = await client.query<{ locked_at: Date | string | null; deleted_at: Date | string | null; id: number }>(
+    `SELECT locked_at, deleted_at, id FROM trfs WHERE id = $1`, [trfId]
+  );
+  const row = result.rows[0];
+  if (!row || row.deleted_at) throw notFound();
+  if (row.locked_at) {
+    throw new AppError(409, 'TRF_LOCKED', 'This TRF is locked. Only an administrator can unlock it.');
+  }
+  return row;
 }
 
 interface Scope { employeeId: number; includeApproved?: boolean }
@@ -1459,6 +1477,380 @@ trfsRouter.post('/:id/unlock', requireLockAdmin(), validateBody(unlockSchema), a
 
     const detail = await pool.query<TrfRow & { is_overdue: boolean }>(
       `SELECT ${TRF_DETAIL_SELECT}, (${OVERDUE_SQL}) AS is_overdue ${TRF_DETAIL_FROM} WHERE t.id = $1`, [id]);
+    res.json(toDetail(detail.rows[0], detail.rows[0].is_overdue));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * ARD Submit to AGM: allowed for Admin, ARD manager (assignments.manage), or assigned analysts.
+ * Submits the TRF for final approval when all non-cancelled assignments are Completed with results.
+ */
+const ardSubmitSchema = z.object({
+  version: z.number().int().positive(),
+  note: z.string().trim().max(500).nullable().optional(),
+});
+
+trfsRouter.post('/:id/ard-submit', requirePermission('trf.changeStatus'), validateBody(ardSubmitSchema), async (req, res, next) => {
+  const user = currentEmployee(req);
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) throw notFound();
+    const body = req.body as z.infer<typeof ardSubmitSchema>;
+
+    const actingEmployeeId = req.actingEmployeeId ?? user.id;
+
+    const result = await withTransaction(async (client) => {
+      // Lock the TRF row
+      await assertTrfNotLocked(client, id);
+
+      const locked = await client.query<{
+        version: number;
+        trf_number: string;
+        locked_at: Date | null;
+        remarks_status: string;
+        workflow_status: string;
+        final_approval_status: string;
+        status: string;
+        created_by: number | null;
+        ard_analyst_id: number | null;
+        deleted_at: Date | null;
+      }>(`SELECT version, trf_number, locked_at, remarks_status, workflow_status, final_approval_status, status, created_by, ard_analyst_id, deleted_at FROM trfs WHERE id = $1 FOR UPDATE`, [id]);
+
+      const current = locked.rows[0];
+      if (!current || current.deleted_at) throw notFound();
+      if (current.version !== body.version) throw versionConflict();
+
+      // Check: Formulation must be approved
+      if (current.remarks_status !== 'Approved') {
+        throw new AppError(409, 'FORMULATION_NOT_APPROVED', 'Formulation must be approved before submitting to AGM.');
+      }
+
+      // Check: already submitted and pending
+      if (current.final_approval_status === 'Pending') {
+        throw conflict('This TRF has already been submitted for final approval and is pending AGM decision.');
+      }
+
+      // Check: all non-cancelled assignments are Completed with results
+      const assignmentsResult = await client.query<{
+        id: number;
+        test_name: string;
+        status: string;
+      }>(`
+        SELECT ata.id, ata.test_name, ata.status
+        FROM ard_test_assignments ata
+        WHERE ata.trf_id = $1 AND ata.status <> 'Cancelled'
+      `, [id]);
+
+      const pendingAssignments: string[] = [];
+      const assignmentsWithoutResult: string[] = [];
+
+      for (const assignment of assignmentsResult.rows) {
+        if (assignment.status !== 'Completed') {
+          pendingAssignments.push(assignment.test_name);
+        } else {
+          // Check if result exists
+          const resultCheck = await client.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM ard_assignment_results WHERE assignment_id = $1`,
+            [assignment.id]
+          );
+          if (resultCheck.rows[0].count === 0) {
+            assignmentsWithoutResult.push(assignment.test_name);
+          }
+        }
+      }
+
+      if (pendingAssignments.length > 0) {
+        throw new AppError(409, 'TESTS_NOT_COMPLETED', `The following tests are not yet completed: ${pendingAssignments.join(', ')}`);
+      }
+      if (assignmentsWithoutResult.length > 0) {
+        throw new AppError(409, 'MISSING_RESULTS', `The following completed tests have no result recorded: ${assignmentsWithoutResult.join(', ')}`);
+      }
+      if (assignmentsResult.rows.length === 0) {
+        throw new AppError(409, 'NO_ASSIGNMENTS', 'There are no test assignments on this TRF.');
+      }
+
+      // Submit: update TRF
+      await client.query(
+        `UPDATE trfs SET
+            workflow_status = 'Completed',
+            final_approval_status = 'Pending',
+            ard_submitted_at = now(),
+            ard_submitted_by = $2,
+            ard_submit_note = $3,
+            version = version + 1
+         WHERE id = $1`,
+        [id, actingEmployeeId, body.note ?? null]
+      );
+
+      // trf_approvals row for ARD track
+      await client.query(
+        `INSERT INTO trf_approvals (trf_id, track, status, requested_by_employee_id, requested_by_account_id, decided_by, decided_at, reason, version)
+         VALUES ($1, 'ARD', 'Pending', $2, NULL, NULL, NULL, $3, $4)`,
+        [id, actingEmployeeId, body.note ?? null, current.version + 1]
+      );
+
+      // ard_status_history
+      await client.query(
+        `INSERT INTO ard_status_history (trf_id, old_status, new_status, changed_by, note)
+         VALUES ($1, $2, 'Completed', $3, $4)`,
+        [id, current.workflow_status, actingEmployeeId, body.note ?? 'Submitted for final approval']
+      );
+
+      // Audit
+      await writeAudit(client, {
+        userId: actingEmployeeId, userName: user.fullName, action: 'trf.ard_submitted', module: 'trf',
+        recordType: 'TRF', recordRef: current.trf_number,
+        oldValue: { finalApprovalStatus: current.final_approval_status, workflowStatus: current.workflow_status },
+        newValue: { finalApprovalStatus: 'Pending', workflowStatus: 'Completed', note: body.note ?? null },
+      });
+
+      // Notify AGM/GM admins (designation AGM or GM)
+      const agmRows = await client.query<{ id: number }>(
+        `SELECT id FROM employees WHERE role = 'Admin' AND designation IN ('AGM','GM','COO') AND is_active = TRUE`
+      );
+      for (const agm of agmRows.rows) {
+        await notifyEmployee(client, agm.id, 'final_approval_needed', 'TRF ready for final approval',
+          `TRF ${current.trf_number} has been submitted for final approval.`, id);
+      }
+
+      // Notify the submitter
+      if (current.created_by && current.created_by !== actingEmployeeId) {
+        await notifyEmployee(client, current.created_by, 'trf.ard_submitted', 'TRF submitted for final approval',
+          `TRF ${current.trf_number} has been submitted for final approval.`, id);
+      }
+
+      // Notify assigned analysts
+      const analystRows = await client.query<{ analyst_id: number }>(
+        `SELECT DISTINCT ataa.analyst_id
+         FROM ard_test_assignments ata
+         JOIN ard_test_assignment_analysts ataa ON ataa.assignment_id = ata.id
+         WHERE ata.trf_id = $1 AND ata.status <> 'Cancelled'`, [id]
+      );
+      for (const a of analystRows.rows) {
+        if (a.analyst_id !== actingEmployeeId) {
+          await notifyEmployee(client, a.analyst_id, 'trf.ard_submitted', 'TRF submitted for final approval',
+            `TRF ${current.trf_number} has been submitted for final approval.`, id);
+        }
+      }
+
+      return { trfId: id, version: current.version + 1 };
+    });
+
+    const detail = await pool.query<TrfRow & { is_overdue: boolean }>(
+      `SELECT ${TRF_DETAIL_SELECT}, (${OVERDUE_SQL}) AS is_overdue ${TRF_DETAIL_FROM} WHERE t.id = $1`, [result.trfId]);
+    res.json(toDetail(detail.rows[0], detail.rows[0].is_overdue));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * AGM Complete: only Admin with AGM/GM/COO designation can approve or reject the final approval.
+ * Approved -> locks TRF. Rejected -> sends back to ARD (In Progress).
+ */
+const agmCompleteSchema = z.object({
+  version: z.number().int().positive(),
+  decision: z.enum(['Approved', 'Rejected']),
+  reason: z.string().trim().max(1000).nullable().optional(),
+});
+
+trfsRouter.post('/:id/agm-complete', requireLockAdmin(), validateBody(agmCompleteSchema), async (req, res, next) => {
+  const admin = currentEmployee(req);
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) throw notFound();
+    const body = req.body as z.infer<typeof agmCompleteSchema>;
+
+    // Check designation: must be AGM, GM, or COO
+    if (!isAdminDesignation(admin.designation)) {
+      throw forbidden('Only an Admin with AGM, GM, or COO designation can complete the final approval.');
+    }
+
+    // Shared team login cannot do this
+    if (req.accountId) {
+      throw forbidden('Team accounts cannot perform final approval.');
+    }
+
+    if (body.decision === 'Rejected' && !body.reason?.trim()) {
+      throw badRequest('A rejection requires a reason (minimum 10 characters).', { reason: 'Enter the reason for rejection.' });
+    }
+    if (body.decision === 'Rejected' && body.reason && body.reason.trim().length < 10) {
+      throw badRequest('The rejection reason must be at least 10 characters.', { reason: 'Enter a reason of at least 10 characters.' });
+    }
+
+    const result = await withTransaction(async (client) => {
+      const locked = await client.query<{
+        version: number;
+        trf_number: string;
+        locked_at: Date | null;
+        workflow_status: string;
+        final_approval_status: string;
+        status: string;
+        created_by: number | null;
+        ard_analyst_id: number | null;
+        deleted_at: Date | null;
+        ard_submitted_by: number | null;
+      }>(`SELECT version, trf_number, locked_at, workflow_status, final_approval_status, status, created_by, ard_analyst_id, deleted_at, ard_submitted_by FROM trfs WHERE id = $1 FOR UPDATE`, [id]);
+
+      const current = locked.rows[0];
+      if (!current || current.deleted_at) throw notFound();
+      if (current.version !== body.version) throw versionConflict();
+      if (current.final_approval_status !== 'Pending') {
+        throw conflict('There is no final approval waiting on this TRF.');
+      }
+      if (current.locked_at) {
+        throw conflict('This TRF is already locked.');
+      }
+
+      if (body.decision === 'Approved') {
+        // Approve and lock
+        await client.query(
+          `UPDATE trfs SET
+              final_approval_status = 'Approved',
+              final_decided_by = $2,
+              final_decided_at = now(),
+              locked_at = now(),
+              locked_by = $2,
+              completed_by_agm = $2,
+              completed_at = now(),
+              status = 'Completed',
+              version = version + 1
+           WHERE id = $1`,
+          [id, admin.id]
+        );
+
+        // Record status change to Completed
+        await client.query(
+          `INSERT INTO trf_status_history (trf_id, old_status, new_status, changed_by, note)
+           VALUES ($1, $2, 'Completed', $3, $4)`,
+          [id, current.status, admin.id, `Final approval approved by ${admin.fullName}`]
+        );
+
+        await writeAudit(client, {
+          userId: admin.id, userName: admin.fullName, action: 'trf.status_changed', module: 'trf',
+          recordType: 'TRF', recordRef: current.trf_number,
+          oldValue: { status: current.status }, newValue: { status: 'Completed', reason: 'Final approval approved' },
+        });
+
+        // ard_status_history
+        await client.query(
+          `INSERT INTO ard_status_history (trf_id, old_status, new_status, changed_by, note)
+           VALUES ($1, $2, 'Completed', $3, $4)`,
+          [id, current.workflow_status, admin.id, `Final approval approved by ${admin.fullName}`]
+        );
+      } else {
+        // Rejected: send back to ARD
+        await client.query(
+          `UPDATE trfs SET
+              final_approval_status = 'Rejected',
+              final_decided_by = $2,
+              final_decided_at = now(),
+              workflow_status = 'In Progress',
+              finalized_at = NULL,
+              status = 'In Progress',
+              ard_submitted_at = NULL,
+              ard_submitted_by = NULL,
+              ard_submit_note = NULL,
+              version = version + 1
+           WHERE id = $1`,
+          [id, admin.id]
+        );
+
+        // ard_status_history
+        await client.query(
+          `INSERT INTO ard_status_history (trf_id, old_status, new_status, changed_by, note)
+           VALUES ($1, $2, 'In Progress', $3, $4)`,
+          [id, current.workflow_status, admin.id, `Final approval rejected: ${body.reason}`]
+        );
+
+        // Record status change to In Progress
+        await client.query(
+          `INSERT INTO trf_status_history (trf_id, old_status, new_status, changed_by, note)
+           VALUES ($1, $2, 'In Progress', $3, $4)`,
+          [id, current.status, admin.id, `Final approval rejected: ${body.reason}`]
+        );
+
+        await writeAudit(client, {
+          userId: admin.id, userName: admin.fullName, action: 'trf.status_changed', module: 'trf',
+          recordType: 'TRF', recordRef: current.trf_number,
+          oldValue: { status: current.status }, newValue: { status: 'In Progress', reason: `Final approval rejected: ${body.reason}` },
+        });
+      }
+
+      // trf_approvals
+      await client.query(
+        `INSERT INTO trf_approvals (trf_id, track, status, requested_by_employee_id, decided_by, decided_at, reason, decided_by_account_id)
+         VALUES ($1, 'ARD', $2, $3, $4, now(), $5, NULL)`,
+        [id, body.decision, current.ard_submitted_by ?? admin.id, admin.id, body.reason ?? null]
+      );
+
+      const action = body.decision === 'Approved' ? 'trf.final_approved' : 'trf.final_rejected';
+      await writeAudit(client, {
+        userId: admin.id, userName: admin.fullName, action, module: 'trf',
+        recordType: 'TRF', recordRef: current.trf_number,
+        oldValue: { finalApprovalStatus: current.final_approval_status },
+        newValue: { decision: body.decision, track: 'ARD', reason: body.reason ?? null },
+      });
+
+      if (body.decision === 'Approved') {
+        await writeAudit(client, {
+          userId: admin.id, userName: admin.fullName, action: 'trf.locked', module: 'trf',
+          recordType: 'TRF', recordRef: current.trf_number, newValue: { lockedBy: admin.fullName },
+        });
+      }
+
+      // Notify the TRF creator (ard_submitted_by)
+      const creatorId = current.ard_submitted_by ?? current.created_by;
+      if (creatorId && creatorId !== admin.id) {
+        const verb = body.decision === 'Approved' ? 'approved' : 'rejected';
+        await notifyEmployee(
+          client, creatorId,
+          'final_decision',
+          `Your TRF was ${verb}`,
+          `${admin.fullName} ${verb} TRF ${current.trf_number}.${body.reason ? ` Reason: ${body.reason}` : ''}`,
+          id,
+        );
+      }
+
+      // Notify ARD managers and assigned analysts
+      const ardManagerRows = await client.query<{ id: number }>(
+        `SELECT DISTINCT e.id FROM employees e
+         WHERE e.role = 'Admin' AND e.designation IN ('AGM','GM','COO') AND e.is_active = TRUE`
+      );
+      for (const mgr of ardManagerRows.rows) {
+        if (mgr.id !== admin.id) {
+          const verb = body.decision === 'Approved' ? 'approved' : 'rejected';
+          await notifyEmployee(client, mgr.id, 'final_decision',
+            `TRF final approval ${verb}`,
+            `${admin.fullName} ${verb} TRF ${current.trf_number}.${body.reason ? ` Reason: ${body.reason}` : ''}`,
+            id,
+          );
+        }
+      }
+
+      // Notify assigned analysts
+      const analystRows = await client.query<{ analyst_id: number }>(
+        `SELECT DISTINCT ataa.analyst_id
+         FROM ard_test_assignments ata
+         JOIN ard_test_assignment_analysts ataa ON ataa.assignment_id = ata.id
+         WHERE ata.trf_id = $1 AND ata.status <> 'Cancelled'`, [id]
+      );
+      for (const a of analystRows.rows) {
+        const verb = body.decision === 'Approved' ? 'approved' : 'rejected';
+        await notifyEmployee(client, a.analyst_id, 'final_decision',
+          `TRF final approval ${verb}`,
+          `${admin.fullName} ${verb} TRF ${current.trf_number}.${body.reason ? ` Reason: ${body.reason}` : ''}`,
+          id,
+        );
+      }
+
+      return { trfId: id, version: current.version + 1 };
+    });
+
+    const detail = await pool.query<TrfRow & { is_overdue: boolean }>(
+      `SELECT ${TRF_DETAIL_SELECT}, (${OVERDUE_SQL}) AS is_overdue ${TRF_DETAIL_FROM} WHERE t.id = $1`, [result.trfId]);
     res.json(toDetail(detail.rows[0], detail.rows[0].is_overdue));
   } catch (err) {
     next(err);
