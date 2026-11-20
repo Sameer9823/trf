@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-electron
+release
+.env
+*.log
+
+# Generated PDFs and local scratch files never belong in the repository
+apps/server/storage/
+test_output*.txt
