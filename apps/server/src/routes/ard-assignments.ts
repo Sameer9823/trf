@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import type {
   ArdTestAssignment,
   ArdTestAssignmentAnalyst,
@@ -16,6 +19,8 @@ import { AppError, badRequest, conflict, forbidden, notFound, versionConflict } 
 import { writeAudit } from '../lib/audit.js';
 import { createNotification, notifyEmployee } from '../lib/notifications.js';
 import { authenticate, currentEmployee, requirePermission, requireAssignmentsManage, validateBody } from '../middleware/auth.js';
+import { DOCUMENT_DIR } from '../config.js';
+import { readPdfBody } from '../lib/read-pdf-body.js';
 
 export const ardAssignmentsRouter = Router();
 ardAssignmentsRouter.use(authenticate);
@@ -127,6 +132,9 @@ function mapResult(row: any) {
     reviewedByName: row.reviewed_by_name ?? null,
     reviewedAt: iso(row.reviewed_at),
     reviewReason: row.review_reason ?? null,
+    resultMode: row.result_mode ?? null,
+    fileName: row.file_name ?? null,
+    fileSize: row.file_size ?? null,
     analysisStartDate: day(row.analysis_start_date),
     completionDate: day(row.completion_date),
     completedBy: row.completed_by ?? null,
@@ -139,6 +147,7 @@ const RESULT_COLUMNS = `
         r.result_value, r.result_text, r.unit, r.method_used, r.specification, r.lower_limit, r.upper_limit,
         r.outcome, r.remarks AS result_remarks, r.entered_by, eb.full_name AS entered_by_name, r.entered_at,
         r.review_status, r.submitted_at, r.reviewed_by, rb.full_name AS reviewed_by_name, r.reviewed_at, r.review_reason,
+        r.result_mode, r.file_name, r.file_size,
         ata.analysis_start_date, ata.completion_date, ata.completed_by, cb.full_name AS completed_by_name`;
 const RESULT_JOINS = `
       LEFT JOIN ard_assignment_results r ON r.assignment_id = ata.id
@@ -699,6 +708,7 @@ const optionalText = (max: number) => z.string().trim().max(max).nullable().opti
 
 const submitResultSchema = z.object({
   version: z.number().int().positive(),
+  resultMode: z.enum(['text', 'pdf']).default('text'),
   resultValue: optionalText(200),
   resultText: optionalText(2000),
   unit: optionalText(50),
@@ -710,8 +720,10 @@ const submitResultSchema = z.object({
   remarks: optionalText(2000),
   analysisStartDate: ISO_DATE.nullable().optional(),
   completionDate: ISO_DATE.nullable().optional(),
-}).refine((b) => !!(b.resultValue?.trim() || b.resultText?.trim()), {
-  message: 'Enter the result value or the result text.', path: ['resultValue'],
+}).superRefine((b, ctx) => {
+  if (b.resultMode === 'text' && !(b.resultValue?.trim() || b.resultText?.trim())) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Enter the result value or the result text.', path: ['resultValue'] });
+  }
 });
 
 const reviewResultSchema = z.object({
@@ -768,10 +780,16 @@ ardAssignmentsRouter.post('/:id/result', validateBody(submitResultSchema), async
           : 'This test was cancelled, so no result can be submitted.');
       }
 
-      const existing = (await client.query<{ review_status: string }>(
-        `SELECT review_status FROM ard_assignment_results WHERE assignment_id = $1 FOR UPDATE`, [assignmentId])).rows[0];
+      const existing = (await client.query<{ review_status: string; file_relative_path: string | null; file_name: string | null; file_size: number | null }>(
+        `SELECT review_status, file_relative_path, file_name, file_size FROM ard_assignment_results WHERE assignment_id = $1 FOR UPDATE`, [assignmentId])).rows[0];
       if (existing?.review_status === 'Submitted') {
         throw new AppError(409, 'RESULT_AWAITING_REVIEW', 'A result for this test is already waiting for AGM review.');
+      }
+
+      // In pdf mode a PDF file must already be attached to this assignment.
+      const isPdf = body.resultMode === 'pdf';
+      if (isPdf && !existing?.file_relative_path) {
+        throw badRequest('Upload a PDF file first, then submit the result.', { resultFile: 'Upload a PDF file first.' });
       }
 
       const today = new Date().toISOString().slice(0, 10);
@@ -784,19 +802,31 @@ ardAssignmentsRouter.post('/:id/result', validateBody(submitResultSchema), async
         throw badRequest('The completion date cannot be before the analysis start date.', { completionDate: 'Choose a date on or after the start date.' });
       }
 
+      // Text mode replaces the file with text; pdf mode replaces the text with the file.
+      const resultValue = isPdf ? null : blank(body.resultValue);
+      const resultText = isPdf ? null : blank(body.resultText);
+      const fileRelPath = isPdf ? existing!.file_relative_path : null;
+      const fileName = isPdf ? existing!.file_name : null;
+      const fileSize = isPdf ? existing!.file_size : null;
+
       await client.query(
         `INSERT INTO ard_assignment_results
            (assignment_id, result_value, result_text, unit, method_used, specification, lower_limit, upper_limit,
-            outcome, remarks, entered_by, entered_at, review_status, submitted_at, reviewed_by, reviewed_at, review_reason)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), 'Submitted', now(), NULL, NULL, NULL)
+            outcome, remarks, entered_by, entered_at, review_status, submitted_at, reviewed_by, reviewed_at, review_reason,
+            result_mode, file_relative_path, file_name, file_size)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), 'Submitted', now(), NULL, NULL, NULL,
+                 $12, $13, $14, $15)
          ON CONFLICT (assignment_id) DO UPDATE SET
            result_value = EXCLUDED.result_value, result_text = EXCLUDED.result_text, unit = EXCLUDED.unit,
            method_used = EXCLUDED.method_used, specification = EXCLUDED.specification,
            lower_limit = EXCLUDED.lower_limit, upper_limit = EXCLUDED.upper_limit, outcome = EXCLUDED.outcome,
            remarks = EXCLUDED.remarks, entered_by = EXCLUDED.entered_by, entered_at = now(),
-           review_status = 'Submitted', submitted_at = now(), reviewed_by = NULL, reviewed_at = NULL, review_reason = NULL`,
-        [assignmentId, blank(body.resultValue), blank(body.resultText), blank(body.unit), blank(body.methodUsed),
-         blank(body.specification), blank(body.lowerLimit), blank(body.upperLimit), body.outcome, blank(body.remarks), viewer.id],
+           review_status = 'Submitted', submitted_at = now(), reviewed_by = NULL, reviewed_at = NULL, review_reason = NULL,
+           result_mode = EXCLUDED.result_mode,
+           file_relative_path = EXCLUDED.file_relative_path, file_name = EXCLUDED.file_name, file_size = EXCLUDED.file_size`,
+        [assignmentId, resultValue, resultText, blank(body.unit), blank(body.methodUsed),
+         blank(body.specification), blank(body.lowerLimit), blank(body.upperLimit), body.outcome, blank(body.remarks), viewer.id,
+         body.resultMode, fileRelPath, fileName, fileSize],
       );
 
       await client.query(
@@ -818,7 +848,7 @@ ardAssignmentsRouter.post('/:id/result', validateBody(submitResultSchema), async
         oldValue: { testStatus: assignment.status, resultReview: existing?.review_status ?? null },
         newValue: {
           test: assignment.test_name, outcome: body.outcome, resultValue: blank(body.resultValue), unit: blank(body.unit),
-          resubmission: !!existing,
+          resultMode: body.resultMode, fileName: isPdf ? fileName : null, resubmission: !!existing,
         },
       });
 
@@ -831,6 +861,162 @@ ardAssignmentsRouter.post('/:id/result', validateBody(submitResultSchema), async
     });
 
     res.json(await loadAssignment(assignmentId, trfId));
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/ard-assignments/:id/result-file - the assigned employee uploads a PDF
+ * result file. The server generates the filename and stores it under
+ * DOCUMENT_DIR/ard-results/. Only while the assignment is not Completed/Cancelled
+ * and no result is currently awaiting review.
+ */
+ardAssignmentsRouter.post('/:id/result-file', async (req, res, next) => {
+  const viewer = currentEmployee(req);
+  try {
+    const assignmentId = Number(req.params.id);
+    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound();
+
+    if (viewer.role === 'Viewer') throw forbidden('A Viewer cannot upload test result files.');
+
+    // Quick assignee check before reading the (potentially large) body.
+    const quickCheck = await pool.query(
+      `SELECT 1 FROM ard_test_assignment_analysts WHERE assignment_id = $1 AND analyst_id = $2`, [assignmentId, viewer.id]);
+    if (!quickCheck.rowCount) throw forbidden('Only the employee this test is assigned to can upload its result file.');
+
+    // Read the PDF body (rejects on Content-Length and while reading).
+    const MAX_SIZE = 10 * 1024 * 1024;
+    const pdfBuffer = await readPdfBody(req, MAX_SIZE);
+
+    const trfId = await withTransaction(async (client) => {
+      const found = await client.query<{ id: number; status: ArdTestAssignmentStatus; trf_id: number; test_name: string }>(
+        `SELECT id, status, trf_id, test_name FROM ard_test_assignments WHERE id = $1 FOR UPDATE`, [assignmentId]);
+      const assignment = found.rows[0];
+      if (!assignment) throw notFound();
+
+      // Re-check assignee inside the transaction for consistency.
+      const mine = await client.query(
+        `SELECT 1 FROM ard_test_assignment_analysts WHERE assignment_id = $1 AND analyst_id = $2`, [assignmentId, viewer.id]);
+      if (!mine.rowCount) throw forbidden('Only the employee this test is assigned to can upload its result file.');
+
+      const trf = (await client.query<{ locked_at: Date | null; deleted_at: Date | null; trf_number: string }>(
+        `SELECT locked_at, deleted_at, trf_number FROM trfs WHERE id = $1 FOR UPDATE`, [assignment.trf_id])).rows[0];
+      if (!trf || trf.deleted_at) throw notFound();
+      if (trf.locked_at) throw conflict('This TRF is locked, so its results can no longer change.');
+
+      if (assignment.status === 'Completed' || assignment.status === 'Cancelled') {
+        throw new AppError(409, 'TEST_NOT_OPEN', 'This test is not open for file upload.');
+      }
+
+      // A result waiting for review cannot have its file replaced.
+      const existing = (await client.query<{ review_status: string }>(
+        `SELECT review_status FROM ard_assignment_results WHERE assignment_id = $1 FOR UPDATE`, [assignmentId])).rows[0];
+      if (existing?.review_status === 'Submitted') {
+        throw new AppError(409, 'RESULT_AWAITING_REVIEW', 'A result for this test is already waiting for AGM review.');
+      }
+
+      // Save file under DOCUMENT_DIR/ard-results/ with a server-generated name.
+      const ardResultsDir = path.join(DOCUMENT_DIR, 'ard-results');
+      await fs.promises.mkdir(ardResultsDir, { recursive: true });
+      const randomSuffix = crypto.randomBytes(8).toString('hex');
+      const generatedFileName = `${assignmentId}-${randomSuffix}.pdf`;
+      const relativePath = path.join('ard-results', generatedFileName);
+      const absolutePath = path.join(DOCUMENT_DIR, relativePath);
+      const resolvedPath = path.resolve(absolutePath);
+      const resolvedDir = path.resolve(ardResultsDir);
+      if (!resolvedPath.startsWith(resolvedDir + path.sep) && resolvedPath !== resolvedDir) {
+        throw new AppError(500, 'INTERNAL_ERROR', 'Generated path escapes document directory.');
+      }
+      await fs.promises.writeFile(resolvedPath, pdfBuffer);
+
+      // Store file info in ard_assignment_results (UPSERT).
+      await client.query(
+        `INSERT INTO ard_assignment_results (assignment_id, result_mode, file_relative_path, file_name, file_size)
+         VALUES ($1, 'pdf', $2, $3, $4)
+         ON CONFLICT (assignment_id) DO UPDATE SET
+           result_mode = 'pdf', file_relative_path = $2, file_name = $3, file_size = $4`,
+        [assignmentId, relativePath, generatedFileName, pdfBuffer.length],
+      );
+
+      await client.query(
+        `INSERT INTO ard_test_assignment_history (assignment_id, action, changed_by)
+         VALUES ($1, 'RESULT_FILE_UPLOADED', $2)`,
+        [assignmentId, viewer.id],
+      );
+
+      await writeAudit(client, {
+        userId: viewer.id, userName: viewer.fullName, action: 'ard_assignment.result_file_uploaded', module: 'trf',
+        recordType: 'TRF', recordRef: trf.trf_number,
+        newValue: { test: assignment.test_name, fileName: generatedFileName, fileSize: pdfBuffer.length },
+      });
+
+      return assignment.trf_id;
+    });
+
+    res.status(201).json({ ok: true, assignmentId, trfId });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/ard-assignments/:id/result-file - stream the PDF result file.
+ * Allowed for: the assigned analyst(s), users holding assignments.viewAll, and
+ * AGM-level reviewers (Admin with designation AGM/GM/COO). Everyone else gets 404.
+ */
+ardAssignmentsRouter.get('/:id/result-file', async (req, res, next) => {
+  const viewer = currentEmployee(req);
+  try {
+    const assignmentId = Number(req.params.id);
+    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound();
+
+    const row = (await pool.query<{ trf_id: number; trf_number: string; file_relative_path: string; file_name: string }>(
+      `SELECT ata.trf_id, t.trf_number, r.file_relative_path, r.file_name
+         FROM ard_assignment_results r
+         JOIN ard_test_assignments ata ON ata.id = r.assignment_id
+         JOIN trfs t ON t.id = ata.trf_id
+        WHERE r.assignment_id = $1 AND r.file_relative_path IS NOT NULL`, [assignmentId])).rows[0];
+    if (!row) throw notFound();
+
+    // Check access: assigned analyst, assignments.viewAll, or AGM reviewer.
+    const isAgm = viewer.role === 'Admin' && isAdminDesignation(viewer.designation);
+    const canViewAll = roleHasPermission(viewer.role, 'assignments.viewAll');
+    if (!isAgm && !canViewAll) {
+      const mine = await pool.query(
+        `SELECT 1 FROM ard_test_assignment_analysts WHERE assignment_id = $1 AND analyst_id = $2`, [assignmentId, viewer.id]);
+      if (!mine.rowCount) throw notFound();
+    }
+
+    // Resolve path and verify it stays inside DOCUMENT_DIR/ard-results/.
+    const ardResultsDir = path.join(DOCUMENT_DIR, 'ard-results');
+    const absolutePath = path.join(DOCUMENT_DIR, row.file_relative_path);
+    const resolvedPath = path.resolve(absolutePath);
+    const resolvedDir = path.resolve(ardResultsDir);
+    if (!resolvedPath.startsWith(resolvedDir + path.sep) && resolvedPath !== resolvedDir) {
+      throw notFound();
+    }
+
+    try {
+      await fs.promises.access(resolvedPath, fs.constants.R_OK);
+    } catch {
+      throw notFound();
+    }
+
+    // Sanitize filename for Content-Disposition (RFC 5987).
+    const sanitizedName = row.file_name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const encodedName = encodeURIComponent(sanitizedName).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${sanitizedName}"; filename*=UTF-8''${encodedName}`);
+
+    // Audit the download.
+    await withTransaction(async (client) => {
+      await writeAudit(client, {
+        userId: viewer.id, userName: viewer.fullName, action: 'ard_assignment.result_file_downloaded', module: 'trf',
+        recordType: 'TRF', recordRef: row.trf_number,
+        newValue: { fileName: row.file_name },
+      });
+    });
+
+    const fileStream = fs.createReadStream(resolvedPath);
+    fileStream.on('error', (err) => next(err));
+    fileStream.pipe(res);
   } catch (err) { next(err); }
 });
 
@@ -969,10 +1155,11 @@ ardAssignmentsRouter.get('/result-reviews', async (req, res, next) => {
       assignment_id: number; assignment_version: number; trf_id: number; trf_number: string; product_name: string | null;
       batch_number: string | null; test_name: string; result_value: string | null; result_text: string | null;
       unit: string | null; outcome: 'Pass' | 'Fail' | 'NA' | null; submitted_at: Date | null; submitted_by_name: string | null;
+      result_mode: string | null; file_name: string | null;
     }>(`
       SELECT ata.id AS assignment_id, ata.version AS assignment_version, t.id AS trf_id, t.trf_number,
              p.name AS product_name, t.batch_number, ata.test_name, r.result_value, r.result_text, r.unit, r.outcome,
-             r.submitted_at, eb.full_name AS submitted_by_name
+             r.submitted_at, eb.full_name AS submitted_by_name, r.result_mode, r.file_name
         FROM ard_assignment_results r
         JOIN ard_test_assignments ata ON ata.id = r.assignment_id
         JOIN trfs t ON t.id = ata.trf_id AND t.deleted_at IS NULL AND t.locked_at IS NULL
@@ -985,6 +1172,7 @@ ardAssignmentsRouter.get('/result-reviews', async (req, res, next) => {
       productName: r.product_name, batchNumber: r.batch_number, testName: r.test_name,
       resultValue: r.result_value, resultText: r.result_text, unit: r.unit, outcome: r.outcome,
       submittedAt: r.submitted_at ? new Date(r.submitted_at).toISOString() : null, submittedByName: r.submitted_by_name,
+      resultMode: r.result_mode, fileName: r.file_name,
     })) });
   } catch (err) { next(err); }
 });

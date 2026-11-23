@@ -77,6 +77,11 @@ export interface ArdTestAssignment {
   reviewedByName?: string | null;
   reviewedAt?: string | null;
   reviewReason?: string | null;
+  /** Result input mode: text fields or an uploaded PDF file. */
+  resultMode?: 'text' | 'pdf' | null;
+  /** PDF file info (when resultMode is 'pdf'). fileName is for display; the path stays server-side. */
+  fileName?: string | null;
+  fileSize?: number | null;
   /** Completion fields */
   analysisStartDate?: string | null;
   completionDate?: string | null;
@@ -95,7 +100,7 @@ export interface ArdTestAssignmentAnalyst {
 export interface ArdTestAssignmentHistory {
   id: number;
   assignmentId: number;
-  action: 'ASSIGNED' | 'REASSIGNED' | 'UNASSIGNED' | 'STATUS_CHANGED' | 'RESULT_ENTERED' | 'RESULT_CHANGED';
+  action: 'ASSIGNED' | 'REASSIGNED' | 'UNASSIGNED' | 'STATUS_CHANGED' | 'RESULT_ENTERED' | 'RESULT_CHANGED' | 'RESULT_FILE_UPLOADED';
   oldAnalystIds: number[];
   newAnalystIds: number[];
   oldStatus: string | null;
@@ -178,6 +183,11 @@ export interface AnalystAssignedTest {
   reviewReason?: string | null;
   /** The assignment's version, needed to submit a result */
   assignmentVersion?: number;
+  /** Result input mode: text fields or an uploaded PDF file. */
+  resultMode?: 'text' | 'pdf' | null;
+  /** PDF file info (when resultMode is 'pdf'). */
+  fileName?: string | null;
+  fileSize?: number | null;
   /** Completion fields */
   analysisStartDate?: string | null;
   completionDate?: string | null;
@@ -200,6 +210,10 @@ export interface ResultReviewQueueItem {
   outcome: ArdResultOutcome | null;
   submittedAt: string | null;
   submittedByName: string | null;
+  /** Result input mode: 'text' or 'pdf'. */
+  resultMode?: 'text' | 'pdf' | null;
+  /** PDF file name for display (when resultMode is 'pdf'). */
+  fileName?: string | null;
 }
 
 // ARD overview view
