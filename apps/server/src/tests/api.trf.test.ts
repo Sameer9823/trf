@@ -1220,7 +1220,7 @@ maybe('POST /:id/document uploads a PDF with raw body, validates magic bytes and
   const creatorMeta = await api(`/api/trfs/${trfId}/document`, {}, creatorToken);
   assert.equal(creatorMeta.status, 200);
 
-  // Size limit: 10 MB
+  // Size limit: 10 MB -> 413 (rejected by readPdfBody, nothing written)
   const largePdf = Buffer.alloc(11 * 1024 * 1024, '%PDF-');
   largePdf.write('%PDF-1.4', 0, 5);
   const large = await fetch(`${baseUrl}/api/trfs/${trfId}/document`, {
@@ -1228,7 +1228,35 @@ maybe('POST /:id/document uploads a PDF with raw body, validates magic bytes and
     headers: { 'Content-Type': 'application/pdf', Authorization: `Bearer ${adminToken}` },
     body: largePdf,
   });
-  assert.equal(large.status, 400);
+  assert.equal(large.status, 413);
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
+maybe('oversized PDF upload is rejected with 413 and writes nothing to disk', async () => {
+  const trf = await createTrf({ batchNumber: `PDF-OVERSIZE-${Date.now()}` });
+  assert.equal(trf.status, 201, JSON.stringify(trf.body));
+  const trfId = trf.body.id;
+
+  // No document row yet.
+  const before = await pool.query<{ count: string }>(
+    'SELECT COUNT(*)::text AS count FROM trf_documents WHERE trf_id = $1', [trfId]);
+  assert.equal(before.rows[0].count, '0');
+
+  // An 11 MB body: rejected on Content-Length alone (no buffering).
+  const largePdf = Buffer.alloc(11 * 1024 * 1024, 0x25); // 0x25 = '%'
+  largePdf.write('%PDF-1.4', 0, 5);
+  const res = await fetch(`${baseUrl}/api/trfs/${trfId}/document`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/pdf', Authorization: `Bearer ${adminToken}` },
+    body: largePdf,
+  });
+  assert.equal(res.status, 413);
+
+  // Nothing was written to the database.
+  const after = await pool.query<{ count: string }>(
+    'SELECT COUNT(*)::text AS count FROM trf_documents WHERE trf_id = $1', [trfId]);
+  assert.equal(after.rows[0].count, '0');
 
   await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
 });

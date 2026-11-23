@@ -23,6 +23,7 @@ import {
 } from '../lib/trf-query.js';
 import { authenticate, currentEmployee, requirePermission, requireTrfCreate, requireTrfEdit, requireArdEdit, requireTrfDelete, requireRole, requireAdminApproval, requireAnyApprover, requireLockAdmin, validateBody } from '../middleware/auth.js';
 import { config, DOCUMENT_DIR } from '../config.js';
+import { readPdfBody } from '../lib/read-pdf-body.js';
 
 const trfsRouter = Router();
 trfsRouter.use(authenticate);
@@ -1970,27 +1971,11 @@ trfsRouter.post('/:id/document', requireTrfEdit(), async (req, res, next) => {
       throw badRequest('Expected application/pdf content type with raw PDF bytes.');
     }
 
-    // Read raw body (express.json limit is 1mb, so we need raw body parsing)
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) {
-      chunks.push(chunk);
-    }
-    const pdfBuffer = Buffer.concat(chunks);
-
-    if (pdfBuffer.length === 0) {
-      throw badRequest('Empty PDF body.');
-    }
-
-    // Validate PDF magic bytes
-    if (pdfBuffer.length < 5 || pdfBuffer.subarray(0, 5).toString() !== '%PDF-') {
-      throw badRequest('The uploaded file is not a valid PDF (missing %PDF- magic bytes).');
-    }
-
-    // Size limit: 10 MB
+    // Read raw body (express.json limit is 1mb, so we need raw body parsing).
+    // readPdfBody rejects early on Content-Length and stops as soon as the
+    // running total passes the limit, so a huge upload never fits in memory.
     const MAX_SIZE = 10 * 1024 * 1024;
-    if (pdfBuffer.length > MAX_SIZE) {
-      throw badRequest(`PDF file too large. Maximum size is ${MAX_SIZE / (1024 * 1024)} MB.`);
-    }
+    const pdfBuffer = await readPdfBody(req, MAX_SIZE);
 
     // Generate server-side filename: <trfId>-v<version>-<random>.pdf
     const randomSuffix = crypto.randomBytes(8).toString('hex');
