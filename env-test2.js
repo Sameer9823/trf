@@ -1,1 +1,0 @@
-console.log('ELECTRON_RUN_AS_NODE:', JSON.stringify(process.env.ELECTRON_RUN_AS_NODE));

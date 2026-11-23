@@ -4,7 +4,11 @@ dist-electron
 release
 .env
 *.log
+*.bak
+*.utf8
 
 # Generated PDFs and local scratch files never belong in the repository
 apps/server/storage/
 test_output*.txt
+temp_*.txt
+rest_backup*.txt
