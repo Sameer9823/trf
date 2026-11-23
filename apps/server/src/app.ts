@@ -6,6 +6,7 @@ import type { ApiError, HealthResponse } from '@trf/shared';
 import { MESSAGES } from '@trf/shared';
 import { APP_VERSION } from './config.js';
 import { isDatabaseReachable, pool } from './db.js';
+import { isDbReady } from './readiness.js';
 import { AppError } from './lib/errors.js';
 import { buildLogger } from './lib/logger.js';
 import { authRouter } from './routes/auth.js';
@@ -122,8 +123,6 @@ export function buildApp() {
   });
 
   app.get('/api/health/ready', async (_req, res) => {
-    // Dynamic import to avoid circular dependency with index.ts
-    const { isDbReady } = await import('./index.js');
     const ready = isDbReady();
     const dbOk = ready || await isDatabaseReachable();
 

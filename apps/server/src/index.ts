@@ -2,6 +2,7 @@ import { buildApp, logger } from './app.js';
 import { config } from './config.js';
 import { pool, isDatabaseReachable } from './db.js';
 import { runMigrations } from './migrate.js';
+import { isDbReady, markDbReady } from './readiness.js';
 
 /**
  * Checks that required columns exist on the `trfs` table. Returns the list of
@@ -64,19 +65,16 @@ async function checkSchema(): Promise<void> {
  */
 const SHUTDOWN_GRACE_MS = 20_000;
 
-/** Tracks whether DB is ready (migrations run + schema verified). */
-let dbReady = false;
-
 /** Retries DB connection in background until reachable, then runs migrations + schema check. */
 async function waitForDatabaseAndMigrate(): Promise<void> {
   let attempt = 0;
-  while (!dbReady) {
+  while (!isDbReady()) {
     attempt++;
     if (await isDatabaseReachable()) {
       try {
         await runMigrations();
         await checkSchema();
-        dbReady = true;
+        markDbReady();
         logger.info({ attempt }, 'Database connected, migrations applied, schema verified');
         return;
       } catch (err) {
@@ -154,8 +152,3 @@ main().catch((err) => {
   logger.fatal({ err }, 'The API could not start');
   process.exit(1);
 });
-
-/** Exported for health check endpoint. */
-export function isDbReady(): boolean {
-  return dbReady;
-}

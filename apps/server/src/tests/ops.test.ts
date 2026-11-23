@@ -8,6 +8,7 @@ import type { Server } from 'node:http';
 import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
+import { markDbReady } from '../readiness';
 import { logFileFor, pruneOldLogs } from '../lib/logger';
 import { backupFileName, chooseDumpTool, dumpToolMajor } from '../backup';
 
@@ -25,6 +26,7 @@ function maybe(name: string, fn: (t: TestContext) => Promise<void>) {
 before(async () => {
   if (!(await dbReachable)) return;
   await runMigrations();
+  markDbReady();
   server = buildApp().listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
