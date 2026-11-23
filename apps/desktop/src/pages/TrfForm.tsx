@@ -684,12 +684,8 @@ export function TrfForm() {
         set('sampleSubmittedById', String(employee.id));
         setSampleSubmittedByName(employee.fullName);
       }
-      if (canEditBByRole && !form.ardAnalystId) {
-        set('ardAnalystId', String(employee.id));
-        setArdAnalystName(employee.fullName);
-      }
     }
-  }, [isEdit, employee, canEditAByRole, canEditBByRole]);
+  }, [isEdit, employee, canEditAByRole]);
 
   // Active stages are offered in the dropdown. A row that still holds a legacy
   // (inactive) value keeps it visible, so nothing is lost; "Other (type new)"
