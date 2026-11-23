@@ -26,7 +26,7 @@ export function toAnalysisQuery(filters: {
   if (filters.delayedOnly) params.set('delayedOnly', 'true');
   if (filters.mineOnly) params.set('mineOnly', 'true');
   params.set('sortBy', filters.sortBy ?? 'dueDate');
-  params.set('sortDir', filters.sortDir ?? 'asc');
+  params.set('sortDir', filters.sortDir ?? 'desc');
   return params.toString();
 }
 

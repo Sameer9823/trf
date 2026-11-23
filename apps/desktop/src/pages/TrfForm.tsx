@@ -8,14 +8,14 @@ import type {
   ArdTestAssignment,
 } from '@trf/shared';
 import {
-  REMARKS_STATUSES, ARD_REMARKS_STATUSES, ARD_REPORTING_STATUSES, ARD_COA_STATUSES,
+  REMARKS_STATUSES, ARD_COA_STATUSES,
   DEFAULT_ARD_STAGE, canEditTrfPartA, canEditTrfPartB, FINAL_APPROVAL_STATUSES,
 } from '@trf/shared';
 import { MESSAGES, ANALYTICAL_DEPARTMENTS } from '@trf/shared';
 import { fieldsOf, messageOf } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { Icons } from '../components/Icons';
-import { RemarksStatusBadge, ArdRemarksStatusBadge, ArdFinalStatusBadge } from '../components/Badges';
+import { RemarksStatusBadge, ArdFinalStatusBadge } from '../components/Badges';
 import { EmployeeSelect } from '../components/EmployeeSelect';
 import { MultiSelect } from '../components/MultiSelect';
 import { Field, FieldLock } from '../components/Fields';
@@ -132,6 +132,7 @@ function InlineNew({ kind, open, onOpenChange, onCreated }: {
 }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
+  const [genericName, setGenericName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -143,7 +144,11 @@ function InlineNew({ kind, open, onOpenChange, onCreated }: {
     setBusy(true);
     setError(null);
     const res = await window.trf.request<{ id: number; name: string }>({
-      method: 'POST', path: LOOKUP_PATH[kind], body: { name: name.trim(), code: code.trim() || null },
+      method: 'POST', path: LOOKUP_PATH[kind],
+      body: {
+        name: name.trim(), code: code.trim() || null,
+        ...(kind === 'product' ? { genericName: genericName.trim() || null } : {}),
+      },
     });
     setBusy(false);
     if (!res.ok || !res.data) {
@@ -155,6 +160,7 @@ function InlineNew({ kind, open, onOpenChange, onCreated }: {
     onOpenChange(false);
     setName('');
     setCode('');
+    setGenericName('');
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -177,6 +183,10 @@ function InlineNew({ kind, open, onOpenChange, onCreated }: {
       <div className="inline-new__row">
         <input placeholder={`${LOOKUP_LABEL[kind]} name`} value={name}
           onChange={(e) => setName(e.target.value)} aria-label={`new ${kind} name`} />
+        {kind === 'product' && (
+          <input placeholder="Generic name (optional)" value={genericName}
+            onChange={(e) => setGenericName(e.target.value)} aria-label="new product generic name" />
+        )}
         <input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)}
           aria-label={`new ${kind} code`} />
         <button className="btn btn--primary" type="button" disabled={busy} onClick={() => void submit()}>Add</button>
@@ -395,7 +405,6 @@ export function TrfForm() {
   const [form, setForm] = useState<FormState>(() => blank(today()));
   const [trfNumber, setTrfNumber] = useState('');
   const [ardNumber, setArdNumber] = useState('');
-  const [tat, setTat] = useState<number | null>(null);
   const [sampleSubmittedByName, setSampleSubmittedByName] = useState<string | null>(null);
   const [ardAnalystName, setArdAnalystName] = useState<string | null>(null);
   const [sampleReceivedByName, setSampleReceivedByName] = useState<string | null>(null);
@@ -517,7 +526,6 @@ export function TrfForm() {
       setVersion(trf.version);
       setTrfNumber(trf.trfNumber);
       setArdNumber(trf.ardNumber ?? '');
-      setTat(trf.tat);
       setSampleSubmittedByName(trf.sampleSubmittedByName);
       setSampleReceivedByName(trf.sampleReceivedByName);
       setArdAnalystName(trf.analystName);
@@ -826,10 +834,9 @@ export function TrfForm() {
             <table className="assignment-table" role="grid">
               <thead>
                 <tr>
-                  <th style={{ width: '36%' }}>Test Requested</th>
-                  <th style={{ width: '29%' }}>Assigned ARD Employee</th>
-                  <th style={{ width: '20%' }}>Due Date</th>
-                  <th style={{ width: '15%' }}>Assignment</th>
+                  <th style={{ width: '40%' }}>Test Requested</th>
+                  <th style={{ width: '35%' }}>Assigned ARD Employee</th>
+                  <th style={{ width: '25%' }}>Assignment</th>
                 </tr>
               </thead>
               <tbody>
@@ -845,7 +852,6 @@ export function TrfForm() {
                   const existingAssignment = testAssignments.find(a => a.testRequestedOptionId === testOptionId);
                   const assignedAnalystIds = existingAssignment?.analystIds ?? [];
                   const assignmentStatus = existingAssignment?.status ?? 'Pending Assignment';
-                  const dueDate = existingAssignment?.dueDate ?? form.requiredCompletionDate ?? '';
                   const isAssigned = assignedAnalystIds.length > 0;
                   const assignedAnalystNames = isAssigned 
                     ? assignedAnalystIds.map(id => ardEmployees.find(e => e.id === id)?.fullName).filter(Boolean).join(', ')
@@ -895,27 +901,15 @@ export function TrfForm() {
                           <span>{isAssigned ? assignedAnalystNames : 'Unassigned'}</span>
                         )}
                       </td>
-                      <td className="assignment-due-date">
-                        <div className="due-date">
-                          {dueDate ? (
-                            <>
-                              {new Date(dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                              <small style={{ display: 'block', color: 'var(--muted)', fontSize: '11px' }}>From FRD</small>
-                            </>
-                          ) : (
-                            <span style={{ color: 'var(--muted)' }}>—</span>
-                          )}
-                        </div>
-                      </td>
                       <td className="assignment-status">
-                        <span className={`mini-status ${isAssigned ? 'assigned' : ''}`} style={{ 
-                          display: 'inline-flex', 
-                          alignItems: 'center', 
+                        <span className={`mini-status ${assignmentStatus === 'Completed' ? 'assigned' : isAssigned ? 'assigned' : ''}`} style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
                           gap: '6px',
                           fontSize: '13px',
                           fontWeight: 500
                         }}>
-                          {isAssigned ? '●' : '○'} {isAssigned ? 'Assigned' : 'Unassigned'}
+                          {assignmentStatus === 'Completed' ? '●' : isAssigned ? '●' : '○'} {assignmentStatus === 'Completed' ? 'Completed' : isAssigned ? 'Assigned' : 'Unassigned'}
                         </span>
                       </td>
                     </tr>
@@ -1018,8 +1012,9 @@ export function TrfForm() {
               onCreated={({ id }) => reloadProducts(id)}
             />
 
-            <Field htmlFor="trf-generic-name" label="Generic Name" lockOwner="System">
-              <input id="trf-generic-name" value={form.genericName} readOnly disabled placeholder="Auto-filled from product selection" />
+            <Field htmlFor="trf-generic-name" label="Generic Name" lockOwner={partALock}>
+              <input id="trf-generic-name" disabled={!canEditA} value={form.genericName}
+                onChange={(e) => set('genericName', e.target.value)} placeholder="Auto-filled from product; editable" />
             </Field>
 
             <Field htmlFor="trf-batch" label="Batch Number" lockOwner={partALock}>
@@ -1260,13 +1255,6 @@ export function TrfForm() {
                 onChange={(e) => set('analysisStartDate', e.target.value)} />
             </Field>
 
-            <Field htmlFor="trf-reporting" label="Reporting" lockOwner={ardApprovalLock}>
-              <select id="trf-reporting" disabled={!canEditArdApproval} value={form.reportingStatus}
-                onChange={(e) => set('reportingStatus', e.target.value as ArdReportingStatus)}>
-                {ARD_REPORTING_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </Field>
-
             <Field htmlFor="trf-coa" label="COA" lockOwner={ardApprovalLock}>
               <select id="trf-coa" disabled={!canEditArdApproval} value={form.coaStatus}
                 onChange={(e) => set('coaStatus', e.target.value as ArdCoaStatus)}>
@@ -1274,21 +1262,9 @@ export function TrfForm() {
               </select>
             </Field>
 
-            <Field htmlFor="trf-ard-remarks-status" label="Status" lockOwner={ardApprovalLock}>
-              <select id="trf-ard-remarks-status" disabled={!canEditArdApproval} value={form.ardRemarksStatus}
-                onChange={(e) => set('ardRemarksStatus', e.target.value as ArdRemarksStatus)}>
-                {ARD_REMARKS_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <p className="field-hint">Current state: <ArdRemarksStatusBadge status={form.ardRemarksStatus} /></p>
-            </Field>
-
             <Field htmlFor="trf-ard-remarks" label="ARD Remark" lockOwner={ardAnalystLock} error={fields.ardRemarks}>
               <textarea id="trf-ard-remarks" rows={2} disabled={!canEditArdAnalyst} value={form.ardRemarks}
                 onChange={(e) => set('ardRemarks', e.target.value)} />
-            </Field>
-
-            <Field htmlFor="trf-ard-tat" label="TAT" lockOwner="System">
-              <input id="trf-ard-tat" value={tat === null ? '' : String(tat)} readOnly disabled placeholder="Calculated automatically" />
             </Field>
 
             <Field htmlFor="trf-ard-final-status" label="Final Status" lockOwner={ardApprovalLock}>

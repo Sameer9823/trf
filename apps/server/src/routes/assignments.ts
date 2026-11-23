@@ -90,6 +90,7 @@ assignmentsRouter.get('/', requirePermission('assignments.viewOwn'), async (req,
           group = {
             trfId: row.trf_id,
             trfNumber: row.trf_number,
+            arNumber: row.ard_number,
             trfStatus: row.trf_status,
             productName: row.product_name,
             batchNumber: row.batch_number,
@@ -222,8 +223,8 @@ assignmentsRouter.post('/trfs/:trfId/assignments', requirePermission('assignment
     }
 
     const created = await withTransaction(async (client) => {
-      const trf = await client.query<{ id: number; trf_number: string; status: TrfStatus; version: number }>(
-        `SELECT id, trf_number, status, version FROM trfs WHERE id = $1 FOR UPDATE`, [trfId],
+      const trf = await client.query<{ id: number; trf_number: string; ard_number: string | null; status: TrfStatus; version: number }>(
+        `SELECT id, trf_number, ard_number, status, version FROM trfs WHERE id = $1 FOR UPDATE`, [trfId],
       );
       const record = trf.rows[0];
       if (!record) throw notFound();
@@ -271,7 +272,8 @@ assignmentsRouter.post('/trfs/:trfId/assignments', requirePermission('assignment
           newValue: { testName: normaliseTestName(item.testName), assignedEmployee: employeeName, dueDate: item.dueDate ?? null, status: 'Assigned' },
         });
         inserted.push({
-          id: row.id, trfId, trfNumber: record.trf_number, productName: null, batchNumber: null,
+          id: row.id, trfId, trfNumber: record.trf_number, arNumber: record.ard_number ?? null,
+          productName: null, batchNumber: null,
           customerName: null, trfStatus: record.status, priority: 'Normal',
           testName: normaliseTestName(item.testName), testMethod, specification,
           assignedEmployeeId: item.assignedEmployeeId, assignedEmployeeName: employeeName,

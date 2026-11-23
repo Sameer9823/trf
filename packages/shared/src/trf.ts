@@ -201,6 +201,7 @@ export interface ResultReviewQueueItem {
   assignmentVersion: number;
   trfId: number;
   trfNumber: string;
+  arNumber: string | null;
   productName: string | null;
   batchNumber: string | null;
   testName: string;
@@ -303,6 +304,11 @@ export interface TrfListItem {
    ardAnalystId: number | null;
    stage: ArdStage;
    analystName: string | null;
+   /** Comma-separated names of the analysts assigned to this TRF's tests
+    * (from the test assignments). When a TRF has more than one test, every
+    * assigned analyst is listed, comma-separated. Falls back to the single
+    * ARD analyst when no test assignments exist. */
+   assignedAnalystNames?: string | null;
   analysisStartDate: string | null;
   reportingStatus: ArdReportingStatus;
   coaStatus: ArdCoaStatus;

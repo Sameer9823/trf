@@ -10,8 +10,11 @@ import { ExportButton } from '../components/ExportButton';
 import { Modal } from '../components/Modal';
 import { useServerStatus } from '../lib/server-status';
 import { EmployeeDashboard } from './EmployeeDashboard';
+import { EmptyState, SkeletonRows, StatStrip, initials } from '../components/StatStrip';
+import type { StatTile } from '../components/StatStrip';
 
 type View = 'byTrf' | 'workload' | 'mine';
+type Tone = 'ok' | 'warn' | 'danger' | 'info';
 
 const STATUSES = ['Pending', 'Assigned', 'In Progress', 'Completed', 'Re-test Required', 'Cancelled', 'Delayed'];
 
@@ -37,6 +40,7 @@ function AssignmentsManager() {
   const [pageCount, setPageCount] = useState(1);
   const [page, setPage] = useState(1);
   const [workload, setWorkload] = useState<WorkloadRow[]>([]);
+  const [workloadSearch, setWorkloadSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reassign, setReassign] = useState<Assignment | null>(null);
@@ -101,6 +105,54 @@ function AssignmentsManager() {
     return () => { cancelled = true; };
   }, [view, state, nonce]);
 
+  // At-a-glance totals for the summary strip. Workload rows are already a
+  // server-side aggregate; the TRF and list views summarise the loaded rows.
+  const visibleWorkload = useMemo(() => {
+    const q = workloadSearch.trim().toLowerCase();
+    if (!q) return workload;
+    return workload.filter((r) =>
+      `${r.employeeName ?? ''} ${r.departmentName ?? ''}`.toLowerCase().includes(q),
+    );
+  }, [workload, workloadSearch]);
+
+  const workloadTotals = useMemo(
+    () => visibleWorkload.reduce(
+      (a, r) => ({
+        pending: a.pending + r.pending, inProgress: a.inProgress + r.inProgress,
+        delayed: a.delayed + r.delayed, openTotal: a.openTotal + r.openTotal, completed: a.completed + r.completed,
+      }),
+      { pending: 0, inProgress: 0, delayed: 0, openTotal: 0, completed: 0 },
+    ),
+    [visibleWorkload],
+  );
+
+  const tiles = useMemo<StatTile[]>(() => {
+    if (view === 'workload') {
+      return [
+        { label: 'Pending', value: workloadTotals.pending, tone: 'warn' },
+        { label: 'In Progress', value: workloadTotals.inProgress, tone: 'info' },
+        { label: 'Delayed', value: workloadTotals.delayed, tone: 'danger' },
+        { label: 'Open Total', value: workloadTotals.openTotal },
+        { label: 'Completed', value: workloadTotals.completed, tone: 'ok' },
+      ];
+    }
+    const tests = view === 'byTrf' ? groups.flatMap((g) => g.tests) : data;
+    let pending = 0, inProgress = 0, delayed = 0, completed = 0;
+    for (const a of tests) {
+      if (assignmentStatusLabel(a) === 'Delayed') delayed += 1;
+      else if (a.status === 'Pending') pending += 1;
+      else if (a.status === 'In Progress' || a.status === 'Assigned') inProgress += 1;
+      else if (a.status === 'Completed') completed += 1;
+    }
+    return [
+      { label: 'Tests', value: tests.length },
+      { label: 'Pending', value: pending, tone: 'warn' },
+      { label: 'In Progress', value: inProgress, tone: 'info' },
+      { label: 'Completed', value: completed, tone: 'ok' },
+      { label: 'Delayed', value: delayed, tone: 'danger' },
+    ];
+  }, [view, groups, data, workloadTotals]);
+
   if (state === 'offline') return <div className="page page--wide"><OfflineNotice /></div>;
 
   const views: { key: View; label: string }[] = [
@@ -138,8 +190,10 @@ function AssignmentsManager() {
         </div>
       </div>
 
+      {!loading && <StatStrip tiles={tiles} />}
+
       {view !== 'workload' && (
-        <div className="filters">
+        <div className="filters filters--card">
           <input placeholder="Search TRF, test, batch, customer or employee" value={filters.search}
             onChange={(e) => setFilter('search', e.target.value)} aria-label="Search assignments" />
           <select value={filters.status.join(',')} onChange={(e) => setFilter('status', e.target.value || null)} aria-label="Filter by status">
@@ -159,43 +213,77 @@ function AssignmentsManager() {
       {error && <p className="error-text" role="alert">{error}</p>}
 
       {view === 'workload' && (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Employee</th><th>Department</th><th className="num">Pending</th>
-              <th className="num">In Progress</th><th className="num">Delayed</th>
-              <th className="num">Open total</th><th className="num">Completed</th><th aria-label="Open" />
-            </tr>
-          </thead>
-          <tbody>
-            {loading && <tr><td colSpan={8} className="muted">Loading…</td></tr>}
-            {!loading && workload.length === 0 && (
-              <tr><td colSpan={8} className="muted">No open work is assigned to anyone yet.</td></tr>
-            )}
-            {!loading && workload.map((row) => (
-              <tr key={row.employeeId}>
-                <td>{row.employeeName}</td>
-                <td>{row.departmentName ?? '—'}</td>
-                <td className="num">{row.pending}</td>
-                <td className="num">{row.inProgress}</td>
-                <td className="num">{row.delayed > 0 ? <span className="badge badge--danger">{row.delayed}</span> : 0}</td>
-                <td className="num"><strong>{row.openTotal}</strong></td>
-                <td className="num">{row.completed}</td>
-                <td><a className="link" href={`#/assignments?employeeId=${row.employeeId}`}>View work</a></td>
+        <div className="table-wrap">
+          {workload.length > 0 && (
+            <div className="filters filters--card">
+              <input placeholder="Search employee or department" value={workloadSearch}
+                onChange={(e) => setWorkloadSearch(e.target.value)} aria-label="Search workload" />
+              <span className="filters__count">{visibleWorkload.length} of {workload.length}</span>
+            </div>
+          )}
+          <table className="table table--striped">
+            <thead>
+              <tr>
+                <th>Employee</th><th>Department</th><th className="num">Pending</th>
+                <th className="num">In Progress</th><th className="num">Delayed</th>
+                <th className="num">Open total</th><th className="num">Completed</th><th aria-label="Open" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading && <SkeletonRows cols={8} />}
+              {!loading && workload.length === 0 && (
+                <tr><td colSpan={8} className="table__empty">
+                  <div className="empty__icon" aria-hidden="true">✅</div>
+                  <div className="empty__title">Nothing open right now</div>
+                  <div className="empty__text">No work is assigned to anyone yet. Create a TRF and use “Assign tests” to hand work to your analysts.</div>
+                </td></tr>
+              )}
+              {!loading && workload.length > 0 && visibleWorkload.length === 0 && (
+                <tr><td colSpan={8} className="table__empty">
+                  <div className="empty__icon" aria-hidden="true">🔍</div>
+                  <div className="empty__title">No matches</div>
+                  <div className="empty__text">No employees match “{workloadSearch}”. Try a different name or department.</div>
+                </td></tr>
+              )}
+              {!loading && visibleWorkload.map((row) => (
+                <tr key={row.employeeId}>
+                  <td><span className="avatar-xs" aria-hidden="true">{initials(row.employeeName)}</span>{row.employeeName}</td>
+                  <td>{row.departmentName ?? '—'}</td>
+                  <td className="num">{row.pending}</td>
+                  <td className="num">{row.inProgress}</td>
+                  <td className="num">{row.delayed > 0 ? <span className="badge badge--danger">{row.delayed}</span> : 0}</td>
+                  <td className="num"><strong>{row.openTotal}</strong></td>
+                  <td className="num">{row.completed}</td>
+                  <td><a className="link" href={`#/assignments?employeeId=${row.employeeId}`}>View work</a></td>
+                </tr>
+              ))}
+            </tbody>
+            {!loading && visibleWorkload.length > 0 && (
+              <tfoot>
+                <tr>
+                  <td colSpan={2}>Total</td>
+                  <td className="num">{workloadTotals.pending}</td>
+                  <td className="num">{workloadTotals.inProgress}</td>
+                  <td className="num">{workloadTotals.delayed}</td>
+                  <td className="num">{workloadTotals.openTotal}</td>
+                  <td className="num">{workloadTotals.completed}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
       )}
 
       {view === 'byTrf' && (
         <div className="groups">
-          {loading && <p className="muted">Loading…</p>}
+          {loading && <GroupSkeleton />}
           {!loading && groups.length === 0 && (
-            <div className="notice">
-              <strong>No tests are assigned yet.</strong>
-              <p className="muted">Open a TRF and use “Assign tests” to give work to your analysts.</p>
-            </div>
+            <EmptyState
+              icon="🗂️"
+              title="No tests are assigned yet"
+              text="Open a TRF and use “Assign tests” to give work to your analysts. Assigned tests will be grouped here by TRF."
+            />
           )}
           {!loading && groups.map((group) => (
             <TrfGroup key={group.trfId} group={group} mayManage={mayManage}
@@ -206,24 +294,31 @@ function AssignmentsManager() {
 
       {view === 'mine' && (
         <>
-          <table className="table">
+          <table className="table table--striped">
             <thead>
               <tr>
-                <th>TRF No.</th><th>Test</th><th>Product</th><th>Batch No.</th>
+                <th>TRF No.</th><th>A.R. No.</th><th>Test</th><th>Product</th><th>Batch No.</th>
                 <th>Assigned Date</th><th>Due Date</th><th>Status</th>
                 {mayManage && <th aria-label="Actions" />}
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={mayManage ? 8 : 7} className="muted">Loading…</td></tr>}
+              {loading && <SkeletonRows cols={mayManage ? 9 : 8} />}
               {!loading && data.length === 0 && (
-                <tr><td colSpan={mayManage ? 8 : 7} className="muted">
-                  {view === 'mine' && !mayManage ? 'You have no assigned tests.' : 'No tests match these filters.'}
+                <tr><td colSpan={mayManage ? 9 : 8} className="table__empty">
+                  <div className="empty__icon" aria-hidden="true">📋</div>
+                  <div className="empty__title">{view === 'mine' && !mayManage ? 'No assigned tests' : 'No matching assignments'}</div>
+                  <div className="empty__text">
+                    {view === 'mine' && !mayManage
+                      ? 'You have no assigned tests right now.'
+                      : 'No tests match these filters. Try clearing the search or status filter.'}
+                  </div>
                 </td></tr>
               )}
               {!loading && data.map((a) => (
                 <tr key={a.id}>
                   <td><a className="link" href={`#/trfs/${a.trfId}`}>{a.trfNumber}</a></td>
+                  <td>{a.arNumber ?? '—'}</td>
                   <td>{a.testName}</td>
                   <td>{a.productName ?? '—'}</td>
                   <td>{a.batchNumber ?? '—'}</td>
@@ -245,7 +340,7 @@ function AssignmentsManager() {
             </tbody>
           </table>
 
-          {!loading && (
+          {!loading && data.length > 0 && (
             <div className="pager">
               <span className="muted">{total} assignment(s)</span>
               <span className="row">
@@ -269,23 +364,43 @@ function AssignmentsManager() {
 function TrfGroup({ group, mayManage, onReassign }: {
   group: AssignmentGroup; mayManage: boolean; onReassign: (a: Assignment) => void;
 }) {
+  const tone = groupTone(group);
+  const count = group.tests.length;
   return (
-    <section className="panel">
-      <div className="group__head">
-        <div>
-          <a className="link link--lg" href={`#/trfs/${group.trfId}`}>{group.trfNumber}</a>
-          <StatusBadge status={group.trfStatus} />
-          <span className="muted"> {group.productName ?? 'No product'} · {group.batchNumber ?? 'No batch'}</span>
-          {group.customerName && <span className="muted"> · {group.customerName}</span>}
-        </div>
-        <div className="row">
-          <PriorityBadge priority={group.priority} />
-          <span className="muted">Due {formatDate(group.requiredCompletionDate)}</span>
-          {mayManage && <a className="btn btn--primary" href={`#/trfs/${group.trfId}?assign=1`}>Assign tests</a>}
+    <section className="assign-group">
+      <div className={`assign-group__accent assign-group__accent--${tone}`} />
+      <div className="assign-group__body">
+        <div className="assign-group__head">
+          <div>
+            <div className="assign-group__title">
+              <a className="link link--lg" href={`#/trfs/${group.trfId}`}>{group.trfNumber}</a>
+              <StatusBadge status={group.trfStatus} />
+              <span className="assign-group__count">{count} test{count === 1 ? '' : 's'}</span>
+            </div>
+            <div className="assign-group__meta">
+              <span>A.R. No. {group.arNumber ?? '—'}</span>
+              <span aria-hidden="true">·</span>
+              <span>{group.productName ?? 'No product'}</span>
+              <span aria-hidden="true">·</span>
+              <span>{group.batchNumber ?? 'No batch'}</span>
+              {group.customerName && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{group.customerName}</span>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="assign-group__actions">
+            <PriorityBadge priority={group.priority} />
+            <span className="muted">Due {formatDate(group.requiredCompletionDate)}</span>
+            {mayManage && <a className="btn btn--primary" href={`#/trfs/${group.trfId}?assign=1`}>Assign tests</a>}
+          </div>
         </div>
       </div>
-      <table className="table table--nested">
-        <thead>
+      <div className="table-wrap">
+        <table className="table table--nested">
+          <thead>
           <tr><th>Test</th><th>Method</th><th>Specification</th><th>Assigned Employee</th><th>Due Date</th><th>Status</th>{mayManage && <th aria-label="Actions" />}</tr>
         </thead>
         <tbody>
@@ -305,7 +420,8 @@ function TrfGroup({ group, mayManage, onReassign }: {
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
     </section>
   );
 }
@@ -360,6 +476,32 @@ function ReassignDialog({ assignment, onClose, onSaved, open }: {
       </div>
     </Modal>
   );
+}
+
+function GroupSkeleton() {
+  return (
+    <>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="assign-group">
+          <div className="assign-group__accent" />
+          <div className="assign-group__body">
+            <div className="skel skel--md" style={{ width: '38%' }} />
+            <div className="skel skel--sm" style={{ width: '62%', marginTop: 10 }} />
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** Pick the accent colour for a TRF card from the most attention-needing test. */
+function groupTone(group: AssignmentGroup): Tone {
+  const tests = group.tests;
+  if (tests.some((t) => t.isDelayed && t.status !== 'Completed' && t.status !== 'Cancelled')) return 'danger';
+  if (tests.some((t) => t.status === 'Re-test Required')) return 'warn';
+  if (tests.length > 0 && tests.every((t) => t.status === 'Completed' || t.status === 'Cancelled')) return 'ok';
+  if (group.trfStatus === 'Completed') return 'ok';
+  return 'info';
 }
 
 export { STATUSES as ASSIGNMENT_STATUS_OPTIONS };

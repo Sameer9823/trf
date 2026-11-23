@@ -167,7 +167,7 @@ function computeStatus(currentStatus: ArdTestAssignmentStatus, analystCount: num
 ardAssignmentsRouter.get('/trfs/:trfId', requirePermission('trf.view'), async (req, res, next) => {
   try {
     const trfId = Number(req.params.trfId);
-    if (!Number.isInteger(trfId) || trfId <= 0) throw notFound();
+    if (!Number.isInteger(trfId) || trfId <= 0) throw notFound('The TRF for these test assignments could not be found.');
 
     const viewer = currentEmployee(req);
     const isArdManager = canManageArdAssignments(viewer.role);
@@ -222,7 +222,7 @@ ardAssignmentsRouter.get('/trfs/:trfId', requirePermission('trf.view'), async (r
       LEFT JOIN departments d ON d.id = e.department_id
       WHERE ata.trf_id = $1
       GROUP BY ata.id, r.id, eb.full_name, rb.full_name, cb.full_name
-      ORDER BY ata.created_at ASC
+      ORDER BY ata.created_at DESC
     `, [trfId]);
 
     let items = result.rows.map(row => mapAssignment(row, row.analysts || []));
@@ -249,7 +249,7 @@ ardAssignmentsRouter.post('/', requireAssignmentsManage(), validateBody(createAs
         `SELECT id, workflow_status, final_approval_status, locked_at, required_completion_date, trf_number FROM trfs WHERE id = $1 FOR UPDATE`, [body.trfId],
       );
       const trf = trfResult.rows[0];
-      if (!trf) throw notFound();
+      if (!trf) throw notFound('The TRF you selected no longer exists. It may have been deleted.');
       if (trf.locked_at) throw conflict('This TRF is locked and cannot be edited.');
 
       const optionResult = await client.query<{ id: number }>(
@@ -350,7 +350,7 @@ ardAssignmentsRouter.post('/bulk', requireAssignmentsManage(), validateBody(bulk
         `SELECT id, workflow_status, final_approval_status, locked_at, required_completion_date, trf_number FROM trfs WHERE id = $1 FOR UPDATE`, [body.trfId],
       );
       const trf = trfResult.rows[0];
-      if (!trf) throw notFound();
+      if (!trf) throw notFound('The TRF you selected no longer exists. It may have been deleted.');
       if (trf.locked_at) throw conflict('This TRF is locked and cannot be edited.');
 
       // Get all test requests on this TRF
@@ -464,7 +464,7 @@ ardAssignmentsRouter.patch('/:id', requireAssignmentsManage(), validateBody(upda
   const assigner = currentEmployee(req);
   try {
     const assignmentId = Number(req.params.id);
-    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound();
+    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound('This test assignment could not be found.');
 
     const body = req.body as z.infer<typeof updateAssignmentSchema>;
 
@@ -472,7 +472,7 @@ ardAssignmentsRouter.patch('/:id', requireAssignmentsManage(), validateBody(upda
       const existing = await client.query<{ id: number; version: number; trf_id: number; status: ArdTestAssignmentStatus; due_date: string | null; test_name: string }>(
         `SELECT id, version, trf_id, status, due_date, test_name FROM ard_test_assignments WHERE id = $1 FOR UPDATE`, [assignmentId],
       );
-      if (!existing.rows[0]) throw notFound();
+      if (!existing.rows[0]) throw notFound('This test assignment no longer exists. It may have been deleted or reassigned.');
       const assignment = existing.rows[0];
       if (assignment.version !== body.version) throw versionConflict();
 
@@ -597,7 +597,7 @@ ardAssignmentsRouter.patch('/:id/status', validateBody(statusUpdateSchema), asyn
   const viewer = currentEmployee(req);
   try {
     const assignmentId = Number(req.params.id);
-    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound();
+    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound('This test assignment could not be found.');
 
     const body = req.body as z.infer<typeof statusUpdateSchema>;
 
@@ -605,7 +605,7 @@ ardAssignmentsRouter.patch('/:id/status', validateBody(statusUpdateSchema), asyn
       const existing = await client.query<{ id: number; version: number; status: ArdTestAssignmentStatus; trf_id: number; test_name: string }>(
         `SELECT id, version, status, trf_id, test_name FROM ard_test_assignments WHERE id = $1 FOR UPDATE`, [assignmentId],
       );
-      if (!existing.rows[0]) throw notFound();
+      if (!existing.rows[0]) throw notFound('This test assignment no longer exists. It may have been deleted or reassigned.');
       const assignment = existing.rows[0];
       if (assignment.version !== body.version) throw versionConflict();
 
@@ -895,7 +895,7 @@ ardAssignmentsRouter.post('/:id/result-file', async (req, res, next) => {
       const found = await client.query<{ id: number; status: ArdTestAssignmentStatus; trf_id: number; test_name: string }>(
         `SELECT id, status, trf_id, test_name FROM ard_test_assignments WHERE id = $1 FOR UPDATE`, [assignmentId]);
       const assignment = found.rows[0];
-      if (!assignment) throw notFound();
+      if (!assignment) throw notFound('This test assignment no longer exists. It may have been deleted or reassigned.');
 
       // Re-check assignee inside the transaction for consistency.
       const mine = await client.query(
@@ -904,7 +904,7 @@ ardAssignmentsRouter.post('/:id/result-file', async (req, res, next) => {
 
       const trf = (await client.query<{ locked_at: Date | null; deleted_at: Date | null; trf_number: string }>(
         `SELECT locked_at, deleted_at, trf_number FROM trfs WHERE id = $1 FOR UPDATE`, [assignment.trf_id])).rows[0];
-      if (!trf || trf.deleted_at) throw notFound();
+      if (!trf || trf.deleted_at) throw notFound('The TRF for this test no longer exists. It may have been deleted.');
       if (trf.locked_at) throw conflict('This TRF is locked, so its results can no longer change.');
 
       if (assignment.status === 'Completed' || assignment.status === 'Cancelled') {
@@ -969,7 +969,7 @@ ardAssignmentsRouter.get('/:id/result-file', async (req, res, next) => {
   const viewer = currentEmployee(req);
   try {
     const assignmentId = Number(req.params.id);
-    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound();
+    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound('This test assignment could not be found.');
 
     const row = (await pool.query<{ trf_id: number; trf_number: string; file_relative_path: string; file_name: string }>(
       `SELECT ata.trf_id, t.trf_number, r.file_relative_path, r.file_name
@@ -977,7 +977,7 @@ ardAssignmentsRouter.get('/:id/result-file', async (req, res, next) => {
          JOIN ard_test_assignments ata ON ata.id = r.assignment_id
          JOIN trfs t ON t.id = ata.trf_id
         WHERE r.assignment_id = $1 AND r.file_relative_path IS NOT NULL`, [assignmentId])).rows[0];
-    if (!row) throw notFound();
+    if (!row) throw notFound('No PDF file has been uploaded for this test yet.');
 
     // Check access: assigned analyst, assignments.viewAll, or AGM reviewer.
     const isAgm = viewer.role === 'Admin' && isAdminDesignation(viewer.designation);
@@ -985,7 +985,7 @@ ardAssignmentsRouter.get('/:id/result-file', async (req, res, next) => {
     if (!isAgm && !canViewAll) {
       const mine = await pool.query(
         `SELECT 1 FROM ard_test_assignment_analysts WHERE assignment_id = $1 AND analyst_id = $2`, [assignmentId, viewer.id]);
-      if (!mine.rowCount) throw notFound();
+      if (!mine.rowCount) throw notFound('No PDF file has been uploaded for this test yet.');
     }
 
     // Resolve path and verify it stays inside DOCUMENT_DIR/ard-results/.
@@ -994,13 +994,13 @@ ardAssignmentsRouter.get('/:id/result-file', async (req, res, next) => {
     const resolvedPath = path.resolve(absolutePath);
     const resolvedDir = path.resolve(ardResultsDir);
     if (!resolvedPath.startsWith(resolvedDir + path.sep) && resolvedPath !== resolvedDir) {
-      throw notFound();
+      throw notFound('The PDF file for this test could not be found.');
     }
 
     try {
       await fs.promises.access(resolvedPath, fs.constants.R_OK);
     } catch {
-      throw notFound();
+      throw notFound('The PDF file for this test is no longer on disk.');
     }
 
     // Sanitize filename for Content-Disposition (RFC 5987).
@@ -1029,7 +1029,7 @@ ardAssignmentsRouter.post('/:id/result/review', validateBody(reviewResultSchema)
   const reviewer = currentEmployee(req);
   try {
     const assignmentId = Number(req.params.id);
-    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound();
+    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound('This test assignment could not be found.');
     const body = req.body as z.infer<typeof reviewResultSchema>;
 
     if (req.accountId) throw forbidden('Team accounts cannot review test results.');
@@ -1045,7 +1045,7 @@ ardAssignmentsRouter.post('/:id/result/review', validateBody(reviewResultSchema)
       const found = await client.query<{ id: number; version: number; status: ArdTestAssignmentStatus; trf_id: number; test_name: string }>(
         `SELECT id, version, status, trf_id, test_name FROM ard_test_assignments WHERE id = $1 FOR UPDATE`, [assignmentId]);
       const assignment = found.rows[0];
-      if (!assignment) throw notFound();
+      if (!assignment) throw notFound('This test assignment no longer exists. It may have been deleted or reassigned.');
       if (assignment.version !== body.version) throw versionConflict();
 
       const trf = (await client.query<{
@@ -1053,7 +1053,7 @@ ardAssignmentsRouter.post('/:id/result/review', validateBody(reviewResultSchema)
         workflow_status: string; final_approval_status: string; created_by: number | null;
       }>(`SELECT id, version, trf_number, locked_at, deleted_at, remarks_status, workflow_status, final_approval_status, created_by
             FROM trfs WHERE id = $1 FOR UPDATE`, [assignment.trf_id])).rows[0];
-      if (!trf || trf.deleted_at) throw notFound();
+      if (!trf || trf.deleted_at) throw notFound('The TRF for this test no longer exists. It may have been deleted.');
       if (trf.locked_at) throw conflict('This TRF is locked, so its results can no longer change.');
 
       const result = (await client.query<{ review_status: string; entered_by: number | null }>(
@@ -1156,12 +1156,12 @@ ardAssignmentsRouter.get('/result-reviews', async (req, res, next) => {
       throw forbidden('Only an Admin with AGM, GM, or COO designation can review test results.');
     }
     const rows = await pool.query<{
-      assignment_id: number; assignment_version: number; trf_id: number; trf_number: string; product_name: string | null;
+      assignment_id: number; assignment_version: number; trf_id: number; trf_number: string; ard_number: string | null; product_name: string | null;
       batch_number: string | null; test_name: string; result_value: string | null; result_text: string | null;
       unit: string | null; outcome: 'Pass' | 'Fail' | 'NA' | null; submitted_at: Date | null; submitted_by_name: string | null;
       result_mode: string | null; file_name: string | null;
     }>(`
-      SELECT ata.id AS assignment_id, ata.version AS assignment_version, t.id AS trf_id, t.trf_number,
+      SELECT ata.id AS assignment_id, ata.version AS assignment_version, t.id AS trf_id, t.trf_number, t.ard_number,
              p.name AS product_name, t.batch_number, ata.test_name, r.result_value, r.result_text, r.unit, r.outcome,
              r.submitted_at, eb.full_name AS submitted_by_name, r.result_mode, r.file_name
         FROM ard_assignment_results r
@@ -1170,9 +1170,10 @@ ardAssignmentsRouter.get('/result-reviews', async (req, res, next) => {
         LEFT JOIN products p ON p.id = t.product_id
         LEFT JOIN employees eb ON eb.id = r.entered_by
        WHERE r.review_status = 'Submitted' AND ata.status <> 'Cancelled'
-       ORDER BY r.submitted_at ASC`);
+       ORDER BY r.submitted_at DESC`);
     res.json({ items: rows.rows.map((r) => ({
       assignmentId: Number(r.assignment_id), assignmentVersion: r.assignment_version, trfId: r.trf_id, trfNumber: r.trf_number,
+      arNumber: r.ard_number,
       productName: r.product_name, batchNumber: r.batch_number, testName: r.test_name,
       resultValue: r.result_value, resultText: r.result_text, unit: r.unit, outcome: r.outcome,
       submittedAt: r.submitted_at ? new Date(r.submitted_at).toISOString() : null, submittedByName: r.submitted_by_name,
@@ -1235,7 +1236,7 @@ ardAssignmentsRouter.get('/employee-dashboard', async (req, res, next) => {
       JOIN trfs t ON t.id = ata.trf_id
       JOIN products p ON p.id = t.product_id
       JOIN ard_test_assignment_analysts ataa ON ataa.assignment_id = ata.id AND ataa.analyst_id = $1${RESULT_JOINS}
-      ORDER BY ata.created_at ASC
+      ORDER BY ata.created_at DESC
     `, [viewer.id]);
 
 res.json({ items: result.rows.map(row => ({

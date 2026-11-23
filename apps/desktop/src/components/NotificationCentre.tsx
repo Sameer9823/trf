@@ -88,7 +88,7 @@ export function NotificationCentre({ trfId, unreadOnly = false }: NotificationCe
         <div className="notification-centre__actions">
           {unreadCount > 0 && (
             <button 
-              className="btn btn--tiny btn--primary" 
+              className="btn btn--sm btn--primary" 
               onClick={markAllAsRead} 
               disabled={markingAllRead}
             >
@@ -116,7 +116,7 @@ export function NotificationCentre({ trfId, unreadOnly = false }: NotificationCe
             >
               {(!notification.isRead || !trfId) && (
                 <button
-                  className="btn btn--tiny"
+                  className="btn btn--sm"
                   style={{ float: 'right', marginBottom: '4px' }}
                   onClick={() => markAsRead(notification.id)}
                   disabled={notification.isRead}
@@ -142,7 +142,7 @@ export function NotificationCentre({ trfId, unreadOnly = false }: NotificationCe
               </div>
               {notification.link && (
                 <div className="notification-item__action">
-                  <a className="btn btn--tiny btn--primary" href={notification.link}>
+                  <a className="btn btn--sm btn--primary" href={notification.link}>
                     → View Assignment
                   </a>
                 </div>

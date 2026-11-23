@@ -8,6 +8,7 @@ export interface Assignment {
   id: number;
   trfId: number;
   trfNumber: string;
+  arNumber: string | null;
   productName: string | null;
   batchNumber: string | null;
   customerName: string | null;
@@ -64,7 +65,7 @@ export const ASSIGNMENT_SORT_FIELDS = [
 export type AssignmentSortField = (typeof ASSIGNMENT_SORT_FIELDS)[number];
 
 export const DEFAULT_ASSIGNMENT_FILTERS: Partial<AssignmentFilters> = {
-  search: '', trfNumber: '', delayedOnly: false, sortBy: 'dueDate', sortDir: 'asc',
+  search: '', trfNumber: '', delayedOnly: false, sortBy: 'assignedDate', sortDir: 'desc',
 };
 
 export type AssignmentListPage = Paginated<Assignment>;
@@ -94,6 +95,7 @@ export interface WorkloadRow {
 export interface AssignmentGroup {
   trfId: number;
   trfNumber: string;
+  arNumber: string | null;
   trfStatus: TrfStatus;
   productName: string | null;
   batchNumber: string | null;

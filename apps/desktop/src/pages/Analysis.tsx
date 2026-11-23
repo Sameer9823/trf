@@ -44,7 +44,7 @@ export function Analysis() {
     dueTo: params.get('dueTo') ?? undefined,
     delayedOnly: params.get('delayedOnly') === 'true',
     sortBy: (params.get('sortBy') ?? 'dueDate') as AnalysisSortField,
-    sortDir: (params.get('sortDir') ?? 'asc') as 'asc' | 'desc',
+    sortDir: (params.get('sortDir') ?? 'desc') as 'asc' | 'desc',
   }), [params]);
 
   const page = Number(params.get('page') ?? 1);
@@ -184,6 +184,7 @@ export function Analysis() {
           <thead>
             <tr>
               <SortHeader label="TRF No." field="trfNumber" current={filters.sortBy} dir={filters.sortDir} onSort={toggleSort} />
+              <th>A.R. No.</th>
               <SortHeader label="Test" field="testName" current={filters.sortBy} dir={filters.sortDir} onSort={toggleSort} />
               <th>Product / Batch</th>
               <SortHeader label="Due Date" field="dueDate" current={filters.sortBy} dir={filters.sortDir} onSort={toggleSort} />
@@ -195,9 +196,9 @@ export function Analysis() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={9} className="muted">Loading…</td></tr>}
+            {loading && <tr><td colSpan={10} className="muted">Loading…</td></tr>}
             {!loading && items.length === 0 && (
-              <tr><td colSpan={9} className="muted">
+              <tr><td colSpan={10} className="muted">
                 {mineOnly ? 'You have no open analysis work.' : 'No tests match these filters.'}
               </td></tr>
             )}
@@ -272,6 +273,7 @@ function AnalysisRow({ item, mayRecord, onOpen, onChanged }: {
         <a className="link" href={`#/trfs/${item.trfId}`}>{item.trfNumber}</a>
         <div><PriorityBadge priority={item.priority} /></div>
       </td>
+      <td>{item.arNumber ?? '—'}</td>
       <td>
         <strong>{item.testName}</strong>
         <div className="muted">{item.testMethod ?? '—'}</div>

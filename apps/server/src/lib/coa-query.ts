@@ -6,7 +6,7 @@ export const COA_SELECT = `
   c.id, c.trf_id, c.coa_number, c.status, c.remarks, c.version, c.created_at, c.updated_at,
   c.prepared_by, c.prepared_at, c.reviewed_by, c.reviewed_at,
   c.approved_by, c.approved_at, c.issued_by, c.issued_at,
-  t.trf_number, t.trf_date, t.batch_number, t.status AS trf_status, t.priority,
+  t.trf_number, t.ard_number, t.trf_date, t.batch_number, t.status AS trf_status, t.priority,
   t.required_completion_date, t.sample_quantity, t.requested_analysis,
   p.name AS product_name, cu.name AS customer_name, cu.address AS customer_address,
   prep.full_name AS prepared_by_name, rev.full_name AS reviewed_by_name,
@@ -79,6 +79,7 @@ export function buildCoaWhere(filters: CoaFilters, params: unknown[], scope: { e
     params.push(`%${filters.search.toLowerCase()}%`);
     const p = params.length;
     clauses.push(`(lower(COALESCE(c.coa_number, '')) LIKE $${p} OR lower(t.trf_number) LIKE $${p}
+      OR lower(COALESCE(t.ard_number, '')) LIKE $${p}
       OR lower(COALESCE(t.batch_number, '')) LIKE $${p} OR lower(COALESCE(p.name, '')) LIKE $${p}
       OR lower(COALESCE(cu.name, '')) LIKE $${p})`);
   }
@@ -105,7 +106,7 @@ export interface CoaRow {
   reviewed_by: number | null; reviewed_at: Date | null;
   approved_by: number | null; approved_at: Date | null;
   issued_by: number | null; issued_at: Date | null;
-  trf_number: string; trf_date: Date | string; batch_number: string | null; trf_status: TrfStatus; priority: Priority;
+  trf_number: string; ard_number: string | null; trf_date: Date | string; batch_number: string | null; trf_status: TrfStatus; priority: Priority;
   required_completion_date: Date | string | null; sample_quantity: string | null; requested_analysis: string | null;
   product_name: string | null; customer_name: string | null; customer_address: string | null;
   prepared_by_name: string | null; reviewed_by_name: string | null;
@@ -154,6 +155,7 @@ export function toCoa(row: CoaRow, lines: CoaLineRow[]): Coa {
     id: row.id,
     trfId: row.trf_id,
     trfNumber: row.trf_number,
+    arNumber: row.ard_number,
     coaNumber: row.coa_number,
     status: row.status,
     trfStatus: row.trf_status,

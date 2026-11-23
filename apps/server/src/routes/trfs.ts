@@ -314,7 +314,7 @@ trfsRouter.get('/', requirePermission('trf.view'), async (req, res, next) => {
     // The detail view uses a separate endpoint (/trfs/:id) which loads all columns
     const listSelect = `
       t.id, t.trf_number, t.trf_date, t.customer_id, c.name AS customer_name,
-      t.product_id, p.name AS product_name, t.batch_number, t.priority, t.status,
+      t.product_id, p.name AS product_name, COALESCE(t.generic_name, p.generic_name) AS generic_name, t.batch_number, t.priority, t.status,
       t.required_completion_date, t.assigned_employee_id, e.full_name AS assigned_employee_name,
       t.department_id, d.name AS department_name, t.created_at, t.updated_at, t.version,
       t.sample_quantity, t.sample_received_date, t.requested_analysis, t.special_instructions,
@@ -323,14 +323,34 @@ trfsRouter.get('/', requirePermission('trf.view'), async (req, res, next) => {
       t.pack_size, t.pack_type, t.storage_condition, t.storage_period,
       t.manufacturing_date, t.expiry_date, t.analysis_purpose, t.sample_given_by,
       t.sample_submitted_by_id, ssb.full_name AS sample_submitted_by_name,
+      t.sample_received_by_id, srb.full_name AS sample_received_by_name,
       t.signature_date,
       t.ard_number, t.ard_stage, t.ard_analyst_id, an.full_name AS analyst_name,
+      (SELECT string_agg(DISTINCT ae.full_name, ', ')
+         FROM ard_test_assignments ata
+         JOIN ard_test_assignment_analysts ataa ON ataa.assignment_id = ata.id
+         JOIN employees ae ON ae.id = ataa.analyst_id AND ae.is_active = TRUE
+        WHERE ata.trf_id = t.id) AS assigned_analyst_names,
       t.analysis_start_date, t.reporting_status, t.coa_status, t.workflow_status, t.ard_remarks,
       t.remarks_status, t.ard_remarks_status,
       t.formulation_decided_at, fmd.full_name AS formulation_decided_by_name,
       t.final_approval_status, t.final_decided_at, fnd.full_name AS final_decided_by_name,
       t.locked_at, t.locked_by, lkb.full_name AS locked_by_name,
-      t.finalized_at, t.deleted_at
+      t.finalized_at, t.deleted_at,
+      t.dosage_form_other,
+      COALESCE((
+        SELECT json_agg(json_build_object('id', dfo.id, 'name', dfo.name) ORDER BY dfo.display_order)
+        FROM trf_dosage_forms tdf
+        JOIN dosage_form_options dfo ON dfo.id = tdf.dosage_form_option_id
+        WHERE tdf.trf_id = t.id
+      ), '[]'::json) AS dosage_form_options,
+      t.test_requested_other,
+      COALESCE((
+        SELECT json_agg(json_build_object('id', tro.id, 'name', tro.name) ORDER BY tro.display_order)
+        FROM trf_test_requested ttr
+        JOIN test_requested_options tro ON tro.id = ttr.test_requested_option_id
+        WHERE ttr.trf_id = t.id
+      ), '[]'::json) AS test_requested_options
     `;
 
     const listFrom = `
@@ -342,6 +362,7 @@ trfsRouter.get('/', requirePermission('trf.view'), async (req, res, next) => {
       LEFT JOIN employees cb ON cb.id = t.created_by
       LEFT JOIN employees an ON an.id = t.ard_analyst_id
       LEFT JOIN employees ssb ON ssb.id = t.sample_submitted_by_id
+      LEFT JOIN employees srb ON srb.id = t.sample_received_by_id
       LEFT JOIN employees fmd ON fmd.id = t.formulation_decided_by
       LEFT JOIN employees fnd ON fnd.id = t.final_decided_by
       LEFT JOIN employees lkb ON lkb.id = t.locked_by

@@ -12,7 +12,7 @@ export const DELAYED_SQL = `(a.due_date IS NOT NULL AND a.due_date < CURRENT_DAT
 export const ASSIGNMENT_SELECT = `
   a.id, a.trf_id, a.test_name, a.test_method, a.specification, a.assigned_employee_id,
   a.assigned_date, a.due_date, a.status, a.version, a.created_at, a.updated_at,
-  t.trf_number, t.product_id, t.batch_number, t.status AS trf_status, t.priority,
+  t.trf_number, t.ard_number, t.product_id, t.batch_number, t.status AS trf_status, t.priority,
   t.required_completion_date, t.trf_date, t.version AS trf_version,
   p.name AS product_name, c.name AS customer_name,
   e.full_name AS assigned_employee_name, e.department_id, d.name AS department_name
@@ -50,8 +50,8 @@ export const assignmentListQuerySchema = z.object({
   dueFrom: ISO_DATE.optional(),
   dueTo: ISO_DATE.optional(),
   delayedOnly: z.enum(['true', 'false']).default('false'),
-  sortBy: z.enum(ASSIGNMENT_SORT_FIELDS).default('dueDate'),
-  sortDir: z.enum(['asc', 'desc']).default('asc'),
+  sortBy: z.enum(ASSIGNMENT_SORT_FIELDS).default('assignedDate'),
+  sortDir: z.enum(['asc', 'desc']).default('desc'),
   groupByTrf: z.enum(['true', 'false']).default('false'),
 });
 
@@ -85,6 +85,7 @@ export function buildAssignmentWhere(filters: AssignmentFilters, params: unknown
     params.push(`%${filters.search.toLowerCase()}%`);
     const p = params.length;
     clauses.push(`(lower(a.test_name) LIKE $${p} OR lower(t.trf_number) LIKE $${p}
+      OR lower(COALESCE(t.ard_number, '')) LIKE $${p}
       OR lower(COALESCE(t.batch_number, '')) LIKE $${p} OR lower(COALESCE(p.name, '')) LIKE $${p}
       OR lower(COALESCE(c.name, '')) LIKE $${p} OR lower(COALESCE(e.full_name, '')) LIKE $${p})`);
   }
@@ -117,7 +118,7 @@ export interface AssignmentRow {
   id: number; trf_id: number; test_name: string; test_method: string | null; specification: string | null;
   assigned_employee_id: number | null; assigned_date: string | null; due_date: string | null;
   status: AnalysisStatus; version: number; created_at: Date; updated_at: Date;
-  trf_number: string; product_id: number | null; batch_number: string | null; trf_status: TrfStatus;
+  trf_number: string; ard_number: string | null; product_id: number | null; batch_number: string | null; trf_status: TrfStatus;
   priority: Priority; required_completion_date: string | null; trf_date: string; trf_version: number;
   product_name: string | null; customer_name: string | null;
   assigned_employee_name: string | null; department_id: number | null; department_name: string | null;
@@ -133,6 +134,7 @@ export function toAssignment(row: AssignmentRow & { is_delayed?: boolean }): Ass
     id: row.id,
     trfId: row.trf_id,
     trfNumber: row.trf_number,
+    arNumber: row.ard_number,
     productName: row.product_name,
     batchNumber: row.batch_number,
     customerName: row.customer_name,

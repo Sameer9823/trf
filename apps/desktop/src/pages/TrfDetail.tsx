@@ -449,6 +449,7 @@ const load = useCallback(async () => {
               <dt>TRF No.</dt><dd>{currentTrf.trfNumber}</dd>
               <dt>Date of Request</dt><dd>{formatDate(currentTrf.trfDate)}</dd>
               <dt>Product Name</dt><dd>{currentTrf.productName ?? '—'}</dd>
+              <dt>Generic Name</dt><dd>{currentTrf.genericName ?? '—'}</dd>
               <dt>Batch Number</dt><dd>{currentTrf.batchNumber ?? '—'}</dd>
               <dt>Batch Size</dt><dd>{currentTrf.batchSize ?? '—'}</dd>
               <dt>Market/Customer</dt><dd>{currentTrf.customerName ?? '—'}</dd>
@@ -540,6 +541,7 @@ const load = useCallback(async () => {
               <dt>Stage</dt><dd><ArdStageBadge stage={currentTrf.stage} /></dd>
               <dt>Test Requested</dt><dd className="pre">{currentTrf.requestedAnalysis ?? '—'} <span className="muted">— carried forward from the Formulation request</span></dd>
               <dt>Test Details</dt><dd className="pre">{currentTrf.specialInstructions ?? '—'} <span className="muted">— carried forward from the Formulation request</span></dd>
+              <dt>Analyst Name</dt><dd>{(currentTrf.assignedAnalystNames || currentTrf.analystName) ?? '—'}</dd>
               <dt>Date of Analysis</dt><dd>{formatDate(currentTrf.analysisStartDate)}</dd>
               <dt>Reporting</dt><dd><ArdReportingBadge status={currentTrf.reportingStatus} /></dd>
               <dt>COA</dt><dd><ArdCoaBadge status={currentTrf.coaStatus} /></dd>

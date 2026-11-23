@@ -6,6 +6,7 @@ import { useServerStatus } from '../lib/server-status';
 import { OfflineNotice } from '../components/OfflineNotice';
 import { formatDate } from '../components/Badges';
 import { NotificationCentre } from '../components/NotificationCentre';
+import { EmptyState, StatStrip } from '../components/StatStrip';
 import { ResultReviewBadge, SubmitResultModal, ResultFileButton, type SubmitTarget } from '../components/ResultReview';
 
 interface AssignmentSummary {
@@ -78,6 +79,7 @@ export function EmployeeDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState<SubmitTarget | null>(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -145,6 +147,11 @@ export function EmployeeDashboard() {
   const overdueCount = assignments.filter(
     (a) => a.dueDate && a.dueDate < today && a.testStatus !== 'Completed' && a.testStatus !== 'Cancelled',
   ).length;
+  const query = search.trim().toLowerCase();
+  const visible = query
+    ? assignments.filter((a) => [a.trfNumber, a.arNumber, a.productName, a.genericName, a.testName]
+        .filter(Boolean).join(' ').toLowerCase().includes(query))
+    : assignments;
 
   async function updateStatus(a: AssignmentSummary, status: ArdTestAssignmentStatus) {
     setUpdatingId(a.id);
@@ -177,20 +184,31 @@ export function EmployeeDashboard() {
 
       {error && <p className="error-text" role="alert">{error}</p>}
 
-      <div className="stat-row stat-row--wrap">
-        <div className="stat stat--clickable"><span className="stat__value stat__value--info">{pendingCount}</span><span className="stat__label">Assigned</span></div>
-        <div className="stat stat--clickable"><span className="stat__value stat__value--info">{inProgressCount}</span><span className="stat__label">In progress</span></div>
-        <div className="stat stat--clickable"><span className="stat__value stat__value--warn">{submittedCount}</span><span className="stat__label">Submitted</span></div>
-        <div className="stat stat--clickable"><span className="stat__value stat__value--ok">{approvedCount}</span><span className="stat__label">Approved</span></div>
-        <div className="stat stat--clickable"><span className="stat__value stat__value--danger">{rejectedCount}</span><span className="stat__label">Rejected</span></div>
-        <div className="stat stat--clickable"><span className="stat__value stat__value--danger">{overdueCount}</span><span className="stat__label">Overdue</span></div>
-      </div>
+      <StatStrip tiles={[
+        { label: 'Assigned', value: pendingCount, tone: 'info' },
+        { label: 'In Progress', value: inProgressCount, tone: 'info' },
+        { label: 'Submitted', value: submittedCount, tone: 'warn' },
+        { label: 'Approved', value: approvedCount, tone: 'ok' },
+        { label: 'Rejected', value: rejectedCount, tone: 'danger' },
+        { label: 'Overdue', value: overdueCount, tone: 'danger' },
+      ]} />
 
       {assignments.length === 0 ? (
-        <div className="notice">
-          <strong>No tests assigned to you.</strong> When a GM or AGM assigns a test, it will appear here.
-        </div>
+        <EmptyState
+          icon="🧪"
+          title="No tests assigned to you"
+          text="When a GM or AGM assigns a test, it will appear here."
+        />
       ) : (
+        <>
+          <div className="filters">
+            <input placeholder="Search TRF, A.R. no, product or test" value={search}
+              onChange={(e) => setSearch(e.target.value)} aria-label="Search your tests" />
+          </div>
+          {visible.length === 0 ? (
+            <p className="muted">No tests match “{search}”.</p>
+          ) : (
+        <div className="table-wrap">
         <table className="table table--striped" role="grid">
             <thead>
               <tr>
@@ -198,7 +216,7 @@ export function EmployeeDashboard() {
               </tr>
             </thead>
           <tbody>
-             {assignments.map((a) => (
+             {visible.map((a) => (
                <tr key={a.id}>
                  <td><Link to={`#/trfs/${a.trfId}`} className="link">{a.trfNumber}</Link></td>
                  <td>{a.arNumber ?? '—'}</td>
@@ -222,33 +240,36 @@ export function EmployeeDashboard() {
                     {a.reviewStatus === 'Approved' && a.reviewedByName && <div className="muted">{a.reviewedByName}</div>}
                   </td>
                  <td>
-                   {updatingId === a.id ? <span className="muted">Saving…</span> : (
-                     <>
-                       <button
-                         className="btn btn--tiny"
-                         onClick={() => updateStatus(a, 'In Progress')}
-                         disabled={a.testStatus === 'In Progress' || a.testStatus === 'Completed' || a.testStatus === 'Cancelled' || a.reviewStatus === 'Submitted'}
-                       >Mark In Progress</button>
-                       <button
-                         className="btn btn--tiny btn--primary"
-                         onClick={() => setSubmitting({
-                           assignmentId: a.id, version: a.version, testName: a.testName, trfNumber: a.trfNumber,
-                           analysisStartDate: a.analysisStartDate,
+                    {updatingId === a.id ? <span className="muted">Saving…</span> : (
+                      <div className="table__actions">
+                        <button
+                          className="btn btn--sm"
+                          onClick={() => updateStatus(a, 'In Progress')}
+                          disabled={a.testStatus === 'In Progress' || a.testStatus === 'Completed' || a.testStatus === 'Cancelled' || a.reviewStatus === 'Submitted'}
+                        >Mark In Progress</button>
+                        <button
+                          className="btn btn--sm btn--primary"
+                          onClick={() => setSubmitting({
+                            assignmentId: a.id, version: a.version, testName: a.testName, trfNumber: a.trfNumber,
+                            analysisStartDate: a.analysisStartDate,
 previous: a.reviewStatus === 'Rejected' ? {
                               resultValue: a.resultValue, resultText: a.resultText, unit: a.unit, methodUsed: a.methodUsed,
                               specification: a.specification,
                               outcome: a.outcome, remarks: a.remarks,
                             } : null,
-                         })}
-                         disabled={a.testStatus === 'Completed' || a.testStatus === 'Cancelled' || a.reviewStatus === 'Submitted'}
-                       >{a.reviewStatus === 'Rejected' ? 'Correct & resubmit' : 'Submit result'}</button>
-                     </>
-                   )}
+                          })}
+                          disabled={a.testStatus === 'Completed' || a.testStatus === 'Cancelled' || a.reviewStatus === 'Submitted'}
+                        >{a.reviewStatus === 'Rejected' ? 'Correct & resubmit' : 'Submit result'}</button>
+                      </div>
+                    )}
                  </td>
                </tr>
              ))}
           </tbody>
         </table>
+        </div>
+          )}
+        </>
       )}
 
       <SubmitResultModal target={submitting} onClose={() => setSubmitting(null)} onSubmitted={() => void load()} />

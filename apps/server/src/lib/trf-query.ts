@@ -120,7 +120,7 @@ export const ARD_TAT_SQL = `CASE WHEN t.analysis_start_date IS NULL THEN NULL
 
 export const TRF_SELECT = `
   t.id, t.trf_number, t.trf_date, t.customer_id, c.name AS customer_name,
-  t.product_id, p.name AS product_name, p.generic_name AS generic_name, t.batch_number, t.priority, t.status,
+  t.product_id, p.name AS product_name, COALESCE(t.generic_name, p.generic_name) AS generic_name, t.batch_number, t.priority, t.status,
   t.required_completion_date, t.assigned_employee_id, e.full_name AS assigned_employee_name,
   t.department_id, d.name AS department_name, t.created_at, t.updated_at, t.version,
   t.sample_quantity, t.sample_received_date, t.requested_analysis, t.special_instructions,
@@ -129,6 +129,11 @@ export const TRF_SELECT = `
   t.pack_size, t.pack_type, t.storage_condition, t.storage_period,
   t.manufacturing_date, t.expiry_date, t.analysis_purpose, t.sample_given_by, t.signature_date,
   t.ard_number, t.ard_stage, t.ard_analyst_id, an.full_name AS analyst_name,
+  (SELECT string_agg(DISTINCT ae.full_name, ', ')
+     FROM ard_test_assignments ata
+     JOIN ard_test_assignment_analysts ataa ON ataa.assignment_id = ata.id
+     JOIN employees ae ON ae.id = ataa.analyst_id AND ae.is_active = TRUE
+    WHERE ata.trf_id = t.id) AS assigned_analyst_names,
   t.analysis_start_date, t.reporting_status, t.coa_status, t.workflow_status, t.ard_remarks,
   t.remarks_status, t.ard_remarks_status,
   t.sample_submitted_by_id, ssb.full_name AS sample_submitted_by_name,
@@ -212,6 +217,7 @@ export interface TrfRow {
   manufacturing_date: string | null; expiry_date: string | null; analysis_purpose: string | null;
   sample_given_by: string | null; signature_date: string | null;
   ard_number: string | null; ard_stage: string; ard_analyst_id: number | null; analyst_name: string | null;
+  assigned_analyst_names: string | null;
   analysis_start_date: string | null; reporting_status: string; coa_status: string;
   workflow_status: string; ard_remarks: string | null;
    remarks_status: string; ard_remarks_status: string;
@@ -290,6 +296,7 @@ export function toListItem(row: TrfRow, overdue: boolean): TrfListItem {
     ardAnalystId: row.ard_analyst_id,
      stage: (row.ard_stage ?? DEFAULT_ARD_STAGE) as ArdStage,
     analystName: row.analyst_name,
+    assignedAnalystNames: row.assigned_analyst_names,
     analysisStartDate: dateOnly(row.analysis_start_date),
     reportingStatus: (row.reporting_status ?? 'Pending') as ArdReportingStatus,
     coaStatus: (row.coa_status ?? 'Pending') as ArdCoaStatus,

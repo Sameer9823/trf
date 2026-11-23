@@ -24,8 +24,8 @@ export function toAssignmentQuery(filters: {
   if (filters.dueTo) params.set('dueTo', filters.dueTo);
   if (filters.delayedOnly) params.set('delayedOnly', 'true');
   if (filters.groupByTrf) params.set('groupByTrf', 'true');
-  params.set('sortBy', filters.sortBy ?? 'dueDate');
-  params.set('sortDir', filters.sortDir ?? 'asc');
+  params.set('sortBy', filters.sortBy ?? 'assignedDate');
+  params.set('sortDir', filters.sortDir ?? 'desc');
   return params.toString();
 }
 

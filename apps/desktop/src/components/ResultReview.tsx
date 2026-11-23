@@ -14,7 +14,7 @@ export function ResultFileButton({ assignmentId, fileName }: { assignmentId: num
   return (
     <button
       type="button"
-      className="btn btn--tiny"
+      className="btn btn--sm"
       onClick={() => void window.trf.downloadBlob(`/api/ard-assignments/${assignmentId}/result-file`, fileName)}
     >
       View PDF
@@ -177,7 +177,7 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
                   <strong>{uploadedFile.fileName}</strong>
                   <span className="muted">{(uploadedFile.fileSize / 1024).toFixed(1)} KB</span>
                 </div>
-                <button type="button" className="btn btn--tiny" onClick={() => void uploadFile()} disabled={uploading || busy}>
+                <button type="button" className="btn btn--sm" onClick={() => void uploadFile()} disabled={uploading || busy}>
                   {uploading ? 'Uploading…' : 'Replace'}
                 </button>
               </div>

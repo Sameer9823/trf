@@ -27,7 +27,7 @@ export const ANALYSIS_SELECT = `
   a.id, a.trf_id, a.test_name, a.test_method, a.specification, a.assigned_employee_id,
   a.assigned_date, a.due_date, a.status, a.version, a.updated_at,
   a.start_date, a.completion_date, a.remarks,
-  t.trf_number, t.batch_number, t.status AS trf_status, t.priority,
+  t.trf_number, t.ard_number, t.batch_number, t.status AS trf_status, t.priority,
   t.required_completion_date, t.version AS trf_version,
   p.name AS product_name, c.name AS customer_name,
   e.full_name AS assigned_employee_name,
@@ -78,7 +78,7 @@ export const analysisListQuerySchema = z.object({
   delayedOnly: z.enum(['true', 'false']).default('false'),
   mineOnly: z.enum(['true', 'false']).default('false'),
   sortBy: z.enum(ANALYSIS_SORT_FIELDS).default('dueDate'),
-  sortDir: z.enum(['asc', 'desc']).default('asc'),
+  sortDir: z.enum(['asc', 'desc']).default('desc'),
 });
 
 export function toAnalysisFilters(q: z.infer<typeof analysisListQuerySchema>): AnalysisFilters {
@@ -113,6 +113,7 @@ export function buildAnalysisWhere(filters: AnalysisFilters, params: unknown[], 
     params.push(`%${filters.search.toLowerCase()}%`);
     const p = params.length;
     clauses.push(`(lower(a.test_name) LIKE $${p} OR lower(t.trf_number) LIKE $${p}
+      OR lower(COALESCE(t.ard_number, '')) LIKE $${p}
       OR lower(COALESCE(t.batch_number, '')) LIKE $${p} OR lower(COALESCE(p.name, '')) LIKE $${p}
       OR lower(COALESCE(c.name, '')) LIKE $${p} OR lower(COALESCE(e.full_name, '')) LIKE $${p}
       OR lower(COALESCE(r.result_text, '')) LIKE $${p})`);
@@ -151,7 +152,7 @@ export interface AnalysisRow {
   assigned_employee_id: number | null; assigned_date: string | null; due_date: string | null;
   status: import('@trf/shared').AnalysisStatus; version: number; updated_at: Date;
   start_date: string | null; completion_date: string | null; remarks: string | null;
-  trf_number: string; batch_number: string | null; trf_status: TrfStatus; priority: Priority;
+  trf_number: string; ard_number: string | null; batch_number: string | null; trf_status: TrfStatus; priority: Priority;
   required_completion_date: string | null; trf_version: number;
   product_name: string | null; customer_name: string | null; assigned_employee_name: string | null;
   result_id: number | null; result_value: string | number | null; result_text: string | null;
@@ -196,6 +197,7 @@ export function toAnalysisItem(row: AnalysisRow): AnalysisItem {
     id: row.id,
     trfId: row.trf_id,
     trfNumber: row.trf_number,
+    arNumber: row.ard_number,
     productName: row.product_name,
     batchNumber: row.batch_number,
     customerName: row.customer_name,

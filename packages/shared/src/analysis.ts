@@ -31,6 +31,7 @@ export interface AnalysisItem {
   id: number;
   trfId: number;
   trfNumber: string;
+  arNumber: string | null;
   productName: string | null;
   batchNumber: string | null;
   customerName: string | null;
@@ -92,7 +93,7 @@ export type AnalysisSortField = (typeof ANALYSIS_SORT_FIELDS)[number];
 
 export const DEFAULT_ANALYSIS_FILTERS: Partial<AnalysisFilters> = {
   search: '', trfNumber: '', delayedOnly: false, mineOnly: true,
-  sortBy: 'dueDate', sortDir: 'asc',
+  sortBy: 'dueDate', sortDir: 'desc',
 };
 
 export type AnalysisPage = Paginated<AnalysisItem>;

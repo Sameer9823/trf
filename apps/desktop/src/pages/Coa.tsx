@@ -162,6 +162,7 @@ export function CoaPage() {
           <tr>
             <SortHeader label="COA No." field="coaNumber" current={filters.sortBy} dir={filters.sortDir} onSort={toggleSort} />
             <SortHeader label="TRF No." field="trfNumber" current={filters.sortBy} dir={filters.sortDir} onSort={toggleSort} />
+            <th>A.R. No.</th>
             <SortHeader label="Customer" field="customerName" current={filters.sortBy} dir={filters.sortDir} onSort={toggleSort} />
             <th>Product / Batch</th>
             <th>Results</th>
@@ -171,14 +172,15 @@ export function CoaPage() {
           </tr>
         </thead>
         <tbody>
-          {loading && <tr><td colSpan={8} className="muted">Loading…</td></tr>}
+          {loading && <tr><td colSpan={9} className="muted">Loading…</td></tr>}
           {!loading && items.length === 0 && (
-            <tr><td colSpan={8} className="muted">No certificates match these filters.</td></tr>
+            <tr><td colSpan={9} className="muted">No certificates match these filters.</td></tr>
           )}
           {!loading && items.map((coa) => (
             <tr key={coa.id}>
               <td><strong>{coa.coaNumber ?? '—'}</strong></td>
               <td><a className="link" href={`#/trfs/${coa.trfId}`}>{coa.trfNumber}</a></td>
+              <td>{coa.arNumber ?? '—'}</td>
               <td>{coa.customerName ?? '—'}</td>
               <td>
                 {coa.productName ?? '—'}

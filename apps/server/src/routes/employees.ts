@@ -68,8 +68,8 @@ const listQuerySchema = z.object({
   role: z.enum(ROLES).optional(),
   departmentId: z.coerce.number().int().positive().optional(),
   isActive: z.enum(['true', 'false', 'all']).optional(),
-  sortBy: z.enum(['fullName', 'employeeCode', 'role', 'createdAt']).default('fullName'),
-  sortDir: z.enum(['asc', 'desc']).default('asc'),
+  sortBy: z.enum(['fullName', 'employeeCode', 'role', 'createdAt']).default('createdAt'),
+  sortDir: z.enum(['asc', 'desc']).default('desc'),
 });
 
 const SORT_COLUMNS: Record<string, string> = {

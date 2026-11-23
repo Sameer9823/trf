@@ -25,11 +25,22 @@ interface ColumnDef {
  * sequence. The operational columns at the end are not part of the TRF record
  * itself.
  */
-const RECORD_COLUMNS: ColumnDef[] = LIST_FIELD_ORDER.map((field) => ({
-  field: field.key as TrfSortField,
-  label: listFieldLabel(field),
-  alwaysVisible: field.key === 'trfNumber',
-}));
+/**
+ * The Dosage Form and Test Requested columns each fold their option
+ * multi-select and free-text "Other" into a single column, so the list shows
+ * one "Dosage Form" and one "Test Requested" instead of repeating them. These
+ * keys stay in the shared field spec (used by the form and the detail page)
+ * but are not rendered as their own list columns.
+ */
+const HIDDEN_LIST_KEYS = new Set(['dosageFormOptions', 'dosageFormOther', 'testRequestedOptionIds']);
+
+const RECORD_COLUMNS: ColumnDef[] = LIST_FIELD_ORDER
+  .filter((field) => !HIDDEN_LIST_KEYS.has(field.key))
+  .map((field) => ({
+    field: field.key as TrfSortField,
+    label: listFieldLabel(field),
+    alwaysVisible: field.key === 'trfNumber',
+  }));
 
 const ALL_COLUMNS: ColumnDef[] = [
   ...RECORD_COLUMNS,
@@ -450,14 +461,19 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
         return { node: <span className="nowrap">{formatDate(trf.trfDate)}</span>, text: null };
       case 'Product Name':
         return { node: <span className="muted-cell">{trf.productName ?? '—'}</span>, text: trf.productName };
+      case 'Generic Name':
+        return { node: <span className="muted-cell">{trf.genericName ?? '—'}</span>, text: trf.genericName };
       case 'Batch Number':
         return { node: <span className="muted-cell">{trf.batchNumber ?? '—'}</span>, text: trf.batchNumber };
       case 'Batch Size':
         return { node: <span className="muted-cell">{trf.batchSize ?? '—'}</span>, text: trf.batchSize };
       case 'Market/Customer':
         return { node: <span className="muted-cell">{trf.customerName ?? '—'}</span>, text: trf.customerName };
-      case 'Dosage Form':
-        return { node: <span className="muted-cell">{trf.dosageForm ?? '—'}</span>, text: trf.dosageForm };
+      case 'Dosage Form': {
+        const names = trf.dosageFormOptionNames?.length ? trf.dosageFormOptionNames.join(', ') : trf.dosageForm;
+        const label = names ? `${names}${trf.dosageFormOther ? ` (${trf.dosageFormOther})` : ''}` : '—';
+        return { node: <span className="muted-cell">{label}</span>, text: label === '—' ? null : label };
+      }
       case 'Manufacturing Location':
         return { node: <span className="muted-cell">{trf.manufacturingLocation ?? '—'}</span>, text: trf.manufacturingLocation };
       case 'Label Claim':
@@ -474,8 +490,11 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
         return { node: <span className="nowrap">{formatDate(trf.manufacturingDate)}</span>, text: null };
       case 'Expiry Date':
         return { node: <span className="nowrap">{formatDate(trf.expiryDate)}</span>, text: null };
-      case 'Test Requested':
-        return { node: <span className="muted-cell">{trf.requestedAnalysis ?? '—'}</span>, text: trf.requestedAnalysis };
+      case 'Test Requested': {
+        const names = trf.testRequestedOptionNames?.length ? trf.testRequestedOptionNames.join(', ') : trf.requestedAnalysis;
+        const label = names ? `${names}${trf.testRequestedOther ? ` (Other: ${trf.testRequestedOther})` : ''}` : '—';
+        return { node: <span className="muted-cell">{label}</span>, text: label === '—' ? null : label };
+      }
       case 'Test Details':
         return { node: <span className="muted-cell">{trf.specialInstructions ?? '—'}</span>, text: trf.specialInstructions };
       case 'Analysis Required For / Purpose':
@@ -499,6 +518,10 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
         return { node: <span className="muted-cell">{trf.ardNumber ?? '—'}</span>, text: trf.ardNumber };
       case 'Stage':
         return { node: <ArdStageBadge stage={trf.stage} />, text: null };
+      case 'Analyst Name': {
+        const name = trf.assignedAnalystNames || trf.analystName;
+        return { node: <span className="muted-cell">{name ?? '—'}</span>, text: name ?? null };
+      }
       case 'Date of Analysis':
         return { node: <span className="nowrap">{formatDate(trf.analysisStartDate)}</span>, text: null };
       case 'Reporting':

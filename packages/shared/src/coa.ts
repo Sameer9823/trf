@@ -37,6 +37,7 @@ export interface Coa {
   id: number;
   trfId: number;
   trfNumber: string;
+  arNumber: string | null;
   coaNumber: string | null;
   status: CoaStatus;
   trfStatus: TrfStatus;
