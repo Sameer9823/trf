@@ -851,8 +851,8 @@ export function TrfForm() {
                   const assignmentStatus = existingAssignment?.status ?? 'Pending Assignment';
                   const dueDate = existingAssignment?.dueDate ?? form.requiredCompletionDate ?? '';
                   const isAssigned = assignedAnalystIds.length > 0;
-                  const assignedAnalystName = isAssigned 
-                    ? ardEmployees.find(e => e.id === assignedAnalystIds[0])?.fullName 
+                  const assignedAnalystNames = isAssigned 
+                    ? assignedAnalystIds.map(id => ardEmployees.find(e => e.id === id)?.fullName).filter(Boolean).join(', ')
                     : '';
                   
                   return (
@@ -863,23 +863,40 @@ export function TrfForm() {
                       </td>
                       <td className="assignment-analyst">
                         {canManageAssignments ? (
-                          <select
-                            className="employee-select"
-                            disabled={!canManageAssignments}
-                            value={isAssigned ? assignedAnalystIds[0] : ''}
-                            onChange={(e) => {
-                              const analystId = e.target.value ? Number(e.target.value) : null;
-                              const newAnalystIds = analystId ? [analystId] : [];
-                              updateTestAssignment(testOptionId, { analystIds: newAnalystIds });
-                            }}
-                          >
-                            <option value="">Select employee…</option>
-                            {ardEmployees.map((emp) => (
-                              <option key={emp.id} value={emp.id}>{emp.fullName}</option>
-                            ))}
-                          </select>
+                          <div className="multi-analyst-select">
+                            <select
+                              className="employee-select"
+                              disabled={!canManageAssignments}
+                              value=""
+                              onChange={(e) => {
+                                const analystId = e.target.value ? Number(e.target.value) : null;
+                                if (analystId && !assignedAnalystIds.includes(analystId)) {
+                                  updateTestAssignment(testOptionId, { analystIds: [...assignedAnalystIds, analystId] });
+                                }
+                              }}
+                            >
+                              <option value="">+ Add analyst…</option>
+                              {ardEmployees.filter(emp => !assignedAnalystIds.includes(emp.id)).map((emp) => (
+                                <option key={emp.id} value={emp.id}>{emp.fullName}</option>
+                              ))}
+                            </select>
+                            {assignedAnalystIds.length > 0 && (
+                              <div className="analyst-chips">
+                                {assignedAnalystIds.map(id => {
+                                  const emp = ardEmployees.find(e => e.id === id);
+                                  return emp ? (
+                                    <span key={id} className="chip chip--removable">
+                                      {emp.fullName}
+                                      <button type="button" className="chip__remove" aria-label={`Remove ${emp.fullName}`}
+                                        onClick={() => updateTestAssignment(testOptionId, { analystIds: assignedAnalystIds.filter(aid => aid !== id) })}>✕</button>
+                                    </span>
+                                  ) : null;
+                                })}
+                              </div>
+                            )}
+                          </div>
                         ) : (
-                          <span>{isAssigned ? assignedAnalystName : 'Unassigned'}</span>
+                          <span>{isAssigned ? assignedAnalystNames : 'Unassigned'}</span>
                         )}
                       </td>
                       <td className="assignment-due-date">
@@ -1233,22 +1250,6 @@ export function TrfForm() {
               <textarea id="trf-ard-test-details" rows={2} value={form.specialInstructions} readOnly disabled />
               <p className="field-hint">Carried forward from the Formulation request.</p>
             </Field>
-
-            <EmployeeSelect
-              id="trf-ard-analyst"
-              label="Analyst Name"
-              value={form.ardAnalystId}
-              options={ardEmployees}
-              disabled={!canEditArdAnalyst}
-              lockOwner={ardAnalystLock}
-              fieldError={fields.ardAnalystId}
-              onChange={(v) => set('ardAnalystId', v)}
-              placeholder="Search an ARD analyst…"
-              emptyMessage="No ARD analysts are available to pick."
-              selectedOption={ardAnalystName
-                ? { id: Number(form.ardAnalystId) || -1, employeeCode: '', fullName: ardAnalystName, designation: null, departmentName: null, team: 'ARD' }
-                : null}
-            />
 
             {testAssignmentField}
             

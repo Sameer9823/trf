@@ -719,10 +719,16 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
       // finalized_at so the TAT starts counting from today again.
       const workflowChanged = body.workflowStatus !== undefined && body.workflowStatus !== current.workflow_status;
       if (workflowChanged && body.workflowStatus === 'Completed') {
-        const analystId = body.ardAnalystId ?? current.ard_analyst_id;
-        if (!analystId) {
-          throw badRequest('An analyst must be assigned before the workflow can be completed.', {
-            ardAnalystId: 'Select an analyst first.',
+        // Check that at least one test assignment has an analyst assigned
+        const assignmentCheck = await client.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM ard_test_assignments ata
+           JOIN ard_test_assignment_analysts ataa ON ataa.assignment_id = ata.id
+           WHERE ata.trf_id = $1 AND ata.status <> 'Cancelled'`,
+          [id]
+        );
+        if (assignmentCheck.rows[0].count === 0) {
+          throw badRequest('At least one analyst must be assigned to a test before the workflow can be completed.', {
+            testAssignments: 'Assign at least one analyst to a test first.',
           });
         }
         const startDate = body.analysisStartDate ?? current.analysis_start_date;
@@ -1124,12 +1130,17 @@ trfsRouter.post('/:id/ard-status', requireArdEdit(), validateBody(ardStatusSchem
         throw new AppError(409, 'ARD_LOCKED', 'ARD work opens once the Formulation team approves this TRF.');
       }
 
-      // Completed needs an Analyst Name and a Date of Analysis, and the error
-      // says which field is missing.
+      // Completed needs test assignments with analysts and a Date of Analysis
       if (body.status === 'Completed') {
-        if (!current.ard_analyst_id) {
-          throw badRequest('An analyst must be assigned before the workflow can be completed.', {
-            ardAnalystId: 'Select an analyst first.',
+        const assignmentCheck = await client.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count FROM ard_test_assignments ata
+           JOIN ard_test_assignment_analysts ataa ON ataa.assignment_id = ata.id
+           WHERE ata.trf_id = $1 AND ata.status <> 'Cancelled'`,
+          [id]
+        );
+        if (assignmentCheck.rows[0].count === 0) {
+          throw badRequest('At least one analyst must be assigned to a test before the workflow can be completed.', {
+            testAssignments: 'Assign at least one analyst to a test first.',
           });
         }
         if (!current.analysis_start_date) {

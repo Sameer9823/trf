@@ -214,6 +214,11 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .input-with-suffix input { padding-right: 60px; }
 .input-suffix { position: absolute; right: 10px; color: var(--muted); font-size: 13px; pointer-events: none; }
 
+/* Multi-analyst select in assignment table */
+.multi-analyst-select { display: flex; flex-direction: column; gap: 6px; }
+.multi-analyst-select .employee-select { width: 100%; }
+.analyst-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+
 /* Hide browser native clear button on inputs */
 .field input::-webkit-search-cancel-button,
 .field input::-webkit-clear-button,

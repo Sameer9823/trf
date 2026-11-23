@@ -409,7 +409,7 @@ const TRUNCATE_FIELDS = new Set([
    'Manufacturing Location', 'Label Claim', 'Pack Size', 'Pack Type',
    'Storage Condition', 'Storage Period', 'Test Requested', 'Test Details',
    'Analysis Required For / Purpose', 'Remarks', 'Sample Submitted By',
-   'A.R. No.', 'Analyst Name', 'ARD Remark', 'Reporting', 'COA', 'Remarks / Status',
+   'A.R. No.', 'ARD Remark', 'Reporting', 'COA', 'Remarks / Status',
    'ARD Remarks / Status', 'Signature / Date',
 ]);
 
@@ -499,8 +499,6 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
         return { node: <span className="muted-cell">{trf.ardNumber ?? '—'}</span>, text: trf.ardNumber };
       case 'Stage':
         return { node: <ArdStageBadge stage={trf.stage} />, text: null };
-      case 'Analyst Name':
-        return { node: <span className="muted-cell">{trf.analystName ?? '—'}</span>, text: trf.analystName };
       case 'Date of Analysis':
         return { node: <span className="nowrap">{formatDate(trf.analysisStartDate)}</span>, text: null };
       case 'Reporting':

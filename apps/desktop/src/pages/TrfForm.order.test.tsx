@@ -279,7 +279,6 @@ test('the ARD block fields are in the agreed order', async () => {
     'Stage',
     'Test Requested',
     'Test Details',
-    'Analyst Name',
     'Date of Analysis',
     'Reporting',
     'COA',
@@ -409,19 +408,5 @@ test('creating a new TRF pre-fills "Sample Submitted By" with the current employ
   const combo = screen.getByLabelText('Sample Submitted By') as HTMLInputElement;
   await waitFor(() => {
     expect(combo.value).toBe('Test Formulation');
-  });
-});
-
-test('creating a new TRF as an admin pre-fills "Analyst Name" with the current employee', async () => {
-  renderCreateForm(EMPLOYEES, adminEmployee());
-
-  await waitFor(() => {
-    expect(screen.getByRole('heading', { name: 'ARD — Analysis Details' })).toBeTruthy();
-  });
-
-  const card = screen.getByRole('heading', { name: 'ARD — Analysis Details' }).closest('.card') as HTMLElement;
-  const combo = within(card).getByLabelText('Analyst Name') as HTMLInputElement;
-  await waitFor(() => {
-    expect(combo.value).toBe('Test Admin');
   });
 });
