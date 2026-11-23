@@ -32,7 +32,7 @@ function canPerform(action: Action, employee: EmployeeProfile | null): boolean {
 }
 
 const COPY: Record<Action, { title: string; confirm: string; needsReason: boolean; hint: string }> = {
-  'submit-to-agm': { title: 'Submit to AGM', confirm: 'Submit', needsReason: false, hint: 'Submits the completed ARD work for final approval by an AGM.' },
+  'submit-to-agm': { title: 'Submit to AGM', confirm: 'Submit', needsReason: false, hint: 'Submits the completed ARD work for final approval by an AGM. All test results must be approved first.' },
   'approve-formulation': { title: 'Approve this request', confirm: 'Approve', needsReason: false, hint: 'ARD work opens as soon as you approve.' },
   'reject-formulation': { title: 'Reject this request', confirm: 'Reject', needsReason: true, hint: 'Say why, so the Formulation team knows what to fix.' },
   'agm-complete': { title: 'Complete and lock TRF', confirm: 'Complete & Lock', needsReason: false, hint: 'Approves the final approval and locks the TRF.' },

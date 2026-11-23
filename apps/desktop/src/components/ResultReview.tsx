@@ -349,12 +349,22 @@ export function TestResultsCard({ trfId, trfNumber, canReview, onChanged }: {
   const tests = (items ?? []).filter((a) => a.status !== 'Cancelled');
   if (items && tests.length === 0) return null;
 
+  const approvedCount = tests.filter((a) => a.reviewStatus === 'Approved').length;
+  const blockingCount = tests.filter((a) => a.reviewStatus === 'Submitted').length;
+  const totalTests = tests.length;
+
   return (
     <section className="card card--results">
       <header className="card__head">
         <h2>Test results</h2>
         <span className="badge badge--info">ARD</span>
       </header>
+      {totalTests > 0 && (
+        <p className="muted">
+          {approvedCount} of {totalTests} tests approved
+          {blockingCount > 0 && ` · ${blockingCount} waiting for AGM review`}
+        </p>
+      )}
       {error && <p className="error-text" role="alert">{error}</p>}
       {notice && <p className="notice" role="status">{notice}</p>}
       {items === null && !error && <p className="muted">Loading…</p>}

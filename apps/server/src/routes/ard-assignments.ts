@@ -729,7 +729,11 @@ const submitResultSchema = z.object({
 const reviewResultSchema = z.object({
   version: z.number().int().positive(),
   decision: z.enum(['Approved', 'Rejected']),
-  reason: z.string().trim().max(1000).nullable().optional(),
+  reason: optionalText(2000),
+}).superRefine((b, ctx) => {
+  if (b.decision === 'Rejected' && !b.reason?.trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A written reason is required when rejecting a result.', path: ['reason'] });
+  }
 });
 
 const blank = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
