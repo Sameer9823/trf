@@ -26,4 +26,5 @@ export const Icons = {
   check: <Svg><path d="M20 6L9 17l-5-5" /></Svg>,
   trash: <Svg><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></Svg>,
   plus: <Svg><path d="M12 5v14M5 12h14" /></Svg>,
+  ard: <Svg><path d="M9 3v4M15 3v4M8 7h8v3a4 4 0 0 1-8 0z" /><path d="M12 14v4M8 21h8M9 18h6" /></Svg>,
 };

@@ -141,6 +141,11 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .segmented__btn--active { background: var(--accent); color: #fff; }
 .segmented__btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Tabs (ARD workspace) */
+.tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); margin-bottom: 16px; }
+.tabs__btn { padding: 8px 16px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.tabs__btn--active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
 /* Exports */
 .export { display: inline-flex; align-items: center; gap: 8px; }
 .export__note { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); max-width: 460px; }

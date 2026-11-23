@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useCallback } from 'react';
+import { canAccessAnalytical } from '@trf/shared';
 import { useServerStatus } from '../lib/server-status';
 import { useAuth } from '../lib/auth';
 import { OfflineNotice } from './OfflineNotice';
@@ -12,6 +13,7 @@ export const NAV = [
   { to: '/', label: 'Dashboard', module: 'dashboard', icon: Icons.dashboard, description: 'Overview & metrics' },
   { to: '/trf', label: 'TRF Management', module: 'trf', icon: Icons.trf, description: 'Create & manage TRFs' },
   { to: '/assignments', label: 'Assignments', module: 'assignments', icon: Icons.assignments, description: 'Test assignments' },
+  { to: '/ard', label: 'ARD', module: 'ard', icon: Icons.ard, description: 'My tests & results' },
   { to: '/approvals', label: 'Approvals', module: 'approvals', icon: Icons.approvals, description: 'Review & approve' },
   { to: '/employees', label: 'Employees', module: 'employees', icon: Icons.employees, description: 'Team management' },
   { to: '/reports', label: 'Reports', module: 'reports', icon: Icons.reports, description: 'Analytics & exports' },
@@ -65,7 +67,15 @@ export function Layout() {
     await switchUser();
   }, [switchUser]);
 
-  const accessibleNav = NAV.filter((n) => canAccessModule(n.module));
+  const accessibleNav = NAV.filter((n) => {
+    if (!canAccessModule(n.module)) return false;
+    // The ARD module is visible to Admin/Manager and to ARD-department analysts,
+    // but not to Formulation-only analysts or Viewers.
+    if (n.module === 'ard') {
+      return canAccessAnalytical(employee?.departmentName ?? null, employee?.role ?? 'Viewer');
+    }
+    return true;
+  });
 
   return (
     <div className={`shell${isCollapsed ? ' shell--collapsed' : ''}`}>

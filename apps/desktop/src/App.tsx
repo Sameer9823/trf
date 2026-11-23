@@ -10,6 +10,7 @@ import { Analysis } from './pages/Analysis';
 import { CoaPage } from './pages/Coa';
 import { Dashboard } from './pages/Dashboard';
 import { EmployeeDashboard } from './pages/EmployeeDashboard';
+import { ArdWorkspace } from './pages/ArdWorkspace';
 import { Employees } from './pages/Employees';
 import { ReportsPage } from './pages/Reports';
 import { Login } from './pages/Login';
@@ -88,7 +89,10 @@ function Shell() {
           <RequireModule module="assignments"><Assignments /></RequireModule>
         } />
         <Route path="my-tests" element={
-          <RequireModule module="analysis"><EmployeeDashboard /></RequireModule>
+          <RequireModule module="ard"><ArdWorkspace /></RequireModule>
+        } />
+        <Route path="ard" element={
+          <RequireModule module="ard"><ArdWorkspace /></RequireModule>
         } />
         <Route path="analysis" element={
           <RequireModule module="analysis"><Analysis /></RequireModule>

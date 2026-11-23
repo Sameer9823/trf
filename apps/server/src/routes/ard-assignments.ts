@@ -1258,3 +1258,53 @@ res.json({ items: result.rows.map(row => ({
     })) });
   } catch (err) { next(err); }
 });
+
+/**
+ * GET /api/ard-assignments/team-workload - per-employee assignment counts for
+ * the ARD team. Only users with assignments.manage (Manager/Admin) may call it.
+ */
+ardAssignmentsRouter.get('/team-workload', async (req, res, next) => {
+  try {
+    if (!roleHasPermission(currentEmployee(req).role, 'assignments.manage')) {
+      throw forbidden('Only a Manager or Admin may view team workload.');
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await pool.query<{
+      employee_id: number;
+      full_name: string;
+      employee_code: string;
+      assigned: string;
+      in_progress: string;
+      submitted: string;
+      approved: string;
+      rejected: string;
+      overdue: string;
+    }>(`
+      SELECT e.id AS employee_id, e.full_name, e.employee_code,
+        COUNT(*) FILTER (WHERE ata.status = 'Assigned') AS assigned,
+        COUNT(*) FILTER (WHERE ata.status = 'In Progress' OR ata.status = 'Re-test Required') AS in_progress,
+        COUNT(*) FILTER (WHERE r.review_status = 'Submitted') AS submitted,
+        COUNT(*) FILTER (WHERE r.review_status = 'Approved') AS approved,
+        COUNT(*) FILTER (WHERE r.review_status = 'Rejected') AS rejected,
+        COUNT(*) FILTER (WHERE ata.due_date IS NOT NULL AND ata.due_date < $1 AND ata.status <> 'Completed' AND ata.status <> 'Cancelled') AS overdue
+      FROM ard_test_assignment_analysts ataa
+      JOIN employees e ON e.id = ataa.analyst_id
+      JOIN ard_test_assignments ata ON ata.id = ataa.assignment_id
+      LEFT JOIN ard_assignment_results r ON r.assignment_id = ata.id
+      WHERE ata.status <> 'Cancelled'
+      GROUP BY e.id, e.full_name, e.employee_code
+      ORDER BY e.full_name
+    `, [today]);
+    res.json({ items: result.rows.map((r) => ({
+      employeeId: Number(r.employee_id),
+      fullName: r.full_name,
+      employeeCode: r.employee_code,
+      assigned: Number(r.assigned),
+      inProgress: Number(r.in_progress),
+      submitted: Number(r.submitted),
+      approved: Number(r.approved),
+      rejected: Number(r.rejected),
+      overdue: Number(r.overdue),
+    })) });
+  } catch (err) { next(err); }
+});
