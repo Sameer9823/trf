@@ -45,12 +45,16 @@ export function MultiSelect({
   const [term, setTerm] = useState('');
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [otherInputOpen, setOtherInputOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
 
-  const isOtherSelected = showOther && otherOptionId !== undefined && value.includes(otherOptionId);
+  // "Other" is considered selected if:
+  // - There's an otherOptionId in the database and it's selected, OR
+  // - There's no otherOptionId in the database but the user has opened the Other input
+  const isOtherSelected = showOther && (otherOptionId !== undefined ? value.includes(otherOptionId) : otherInputOpen);
 
   const matches = useMemo(() => {
     const needle = term.trim().toLowerCase();
@@ -94,6 +98,7 @@ export function MultiSelect({
     setOpen(false);
     setTerm('');
     setHighlightedIndex(-1);
+    setOtherInputOpen(false);
   };
 
   const toggleOption = (optionId: number) => {
@@ -107,8 +112,12 @@ export function MultiSelect({
   };
 
   const toggleOther = () => {
-    if (otherOptionId === undefined) return;
-    toggleOption(otherOptionId);
+    if (otherOptionId !== undefined) {
+      toggleOption(otherOptionId);
+    } else {
+      // No "Other" in database - just toggle the input visibility
+      setOtherInputOpen((prev) => !prev);
+    }
   };
 
   const handleSelectAll = (e: React.MouseEvent) => {
@@ -311,7 +320,7 @@ export function MultiSelect({
                     className="combo__option combo__other-btn"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
-                      if (otherOptionId !== undefined) toggleOption(otherOptionId);
+                      toggleOther();
                       setOpen(true);
                     }}
                   >
