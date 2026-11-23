@@ -169,6 +169,24 @@ maybe('refresh rotates the token and the old refresh token no longer works', asy
   assert.equal(replay.status, 401);
 });
 
+maybe('refresh-token reuse revokes the newer token too', async () => {
+  const login = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: 'phase2admin', password: 'Admin-Test-Password-42' }) });
+  const first = login.body.refreshToken as string;
+
+  // Rotate once: the first token is now revoked, the second is live.
+  const rotated = await api('/api/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken: first }) });
+  assert.equal(rotated.status, 200);
+  const second = rotated.body.refreshToken as string;
+
+  // Present the already-used first token again: reuse detected.
+  const replay = await api('/api/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken: first }) });
+  assert.equal(replay.status, 401);
+
+  // The replay revoked every token for this employee, so the newer token is dead too.
+  const afterReuse = await api('/api/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken: second }) });
+  assert.equal(afterReuse.status, 401);
+});
+
 maybe('two simultaneous refreshes with the same token: exactly one succeeds', async () => {
   const login = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: 'phase2admin', password: 'Admin-Test-Password-42' }) });
   const token = login.body.refreshToken as string;

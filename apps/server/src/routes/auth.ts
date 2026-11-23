@@ -259,7 +259,9 @@ authRouter.post('/refresh', async (req, res, next) => {
           throw unauthorized('Your session has expired. Please sign in again.');
         }
         if (found.revoked_at) {
-          // Token reuse detection: revoke every token for this user/team.
+          // Token reuse detection: revoke every token for this user/team. Return a
+          // marker instead of throwing, because throwing inside withTransaction
+          // rolls the transaction back and would undo this revoke-all.
           if (found.employee_id) {
             await client.query(
               `UPDATE refresh_tokens SET revoked_at = now() WHERE employee_id = $1 AND revoked_at IS NULL`,
@@ -271,7 +273,7 @@ authRouter.post('/refresh', async (req, res, next) => {
               [found.team_account_id],
             );
           }
-          throw unauthorized('Token reuse detected. Please sign in again.');
+          return { reused: true } as const;
         }
         // Should not happen (row exists, not expired, not revoked, yet not claimed).
         throw unauthorized('Your session has expired. Please sign in again.');
@@ -298,6 +300,10 @@ authRouter.post('/refresh', async (req, res, next) => {
 
       return issueEmployeeTokens(toProfile(employee), req.headers['user-agent'], client);
     });
+
+    // Reuse detection revokes every token in the transaction above, so the error
+    // is raised only after that commit has landed.
+    if ('reused' in result) throw unauthorized('Token reuse detected. Please sign in again.');
 
     res.json(result);
   } catch (err) {
