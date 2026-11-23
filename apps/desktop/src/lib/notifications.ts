@@ -33,6 +33,18 @@ export function useNotifications() {
     }));
   }, []);
 
+  // Opening a notification clears it from the list for good.
+  const remove = useCallback(async (id: number) => {
+    await window.trf.request({ method: 'DELETE', path: `/api/notifications/${id}` });
+    setNotifications((prev) => {
+      const opened = prev.items.find((n) => n.id === id);
+      return {
+        items: prev.items.filter((n) => n.id !== id),
+        unreadCount: opened && !opened.isRead ? Math.max(prev.unreadCount - 1, 0) : prev.unreadCount,
+      };
+    });
+  }, []);
+
   const markAllRead = useCallback(async () => {
     const unread = notifications.items.filter((n) => !n.isRead);
     await Promise.all(unread.map((n) => markRead(n.id)));
@@ -59,5 +71,5 @@ export function useNotifications() {
     return () => window.clearInterval(interval);
   }, [load]);
 
-  return { notifications: notifications.items, unreadCount: notifications.unreadCount, loading, markRead, markAllRead, refresh: load };
+  return { notifications: notifications.items, unreadCount: notifications.unreadCount, loading, markRead, remove, markAllRead, refresh: load };
 }

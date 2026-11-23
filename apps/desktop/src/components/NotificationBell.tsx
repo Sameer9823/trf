@@ -6,7 +6,7 @@ import { Icons } from './Icons';
 
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
-  const { notifications, unreadCount, loading, markRead, markAllRead } = useNotifications();
+  const { notifications, unreadCount, loading, remove, markAllRead } = useNotifications();
   const navigate = useNavigate();
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -56,9 +56,10 @@ export function NotificationBell() {
             ) : (
               <ul className="notification-bell__list">
                 {notifications.map((n) => (
-                  <NotificationItem key={n.id} notification={n} markRead={markRead} onNavigate={(n) => {
+                  <NotificationItem key={n.id} notification={n} onOpen={(opened) => {
                     setOpen(false);
-                    if (n.relatedTrfId) navigate(`/trfs/${n.relatedTrfId}`);
+                    void remove(opened.id);
+                    if (opened.relatedTrfId) navigate(`/trfs/${opened.relatedTrfId}`);
                   }} />
                 ))}
               </ul>
@@ -72,18 +73,14 @@ export function NotificationBell() {
 
 interface NotificationItemProps {
   notification: Notification;
-  markRead: (id: number) => void;
-  onNavigate: (n: Notification) => void;
+  onOpen: (notification: Notification) => void;
 }
 
-function NotificationItem({ notification, markRead, onNavigate }: NotificationItemProps) {
+function NotificationItem({ notification, onOpen }: NotificationItemProps) {
   return (
     <li
       className={`notification-bell__item ${notification.isRead ? '' : 'notification-bell__item--unread'}`}
-      onClick={() => {
-        if (!notification.isRead) void markRead(notification.id);
-        onNavigate(notification);
-      }}
+      onClick={() => onOpen(notification)}
     >
       <span className="notification-bell__title">{notification.title}</span>
       <span className="notification-bell__body">{notification.body}</span>

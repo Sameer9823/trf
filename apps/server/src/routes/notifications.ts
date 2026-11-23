@@ -74,6 +74,23 @@ notificationsRouter.put('/:id/read', requirePermission('notifications.view'), as
   }
 });
 
+notificationsRouter.delete('/:id', requirePermission('notifications.view'), async (req, res, next) => {
+  try {
+    const employee = currentEmployee(req);
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: { message: 'Invalid notification ID.' } });
+    // Opening a notification clears it. Scoped to the signed-in employee so one
+    // user can never delete another user's row.
+    await pool.query(
+      `DELETE FROM notifications WHERE id = $1 AND recipient_employee_id = $2`,
+      [id, employee.id],
+    );
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
 notificationsRouter.get('/unread-count', requirePermission('notifications.view'), async (req, res, next) => {
   try {
     const employee = currentEmployee(req);
