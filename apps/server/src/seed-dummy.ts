@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { pool, withTransaction } from './db.js';
 import { config } from './config.js';
 import { runMigrations } from './migrate.js';
@@ -6,15 +7,15 @@ import { writeAudit } from './lib/audit.js';
 
 /**
  * Creates dummy department employees for testing.
- * Run manually: npm run seed:dummy -w @trf/server
- * WARNING: This script creates test users with known passwords. DO NOT RUN IN PRODUCTION.
+ * Run manually: npm run seed:dummy -w @trf/server -- --yes-i-am-sure
+ * WARNING: This script creates test users. DO NOT RUN IN PRODUCTION.
  */
 async function seedDummyEmployees() {
-  // Production guard
-  if (process.env.NODE_ENV === 'production' && process.env.CONFIRM_PRODUCTION !== 'yes') {
-    console.error('ERROR: This script creates dummy employees with known passwords.');
+  // Destructive scripts require explicit confirmation, regardless of NODE_ENV.
+  if (!process.argv.includes('--yes-i-am-sure')) {
+    console.error('ERROR: This script creates dummy employees with random passwords.');
     console.error('It is NOT safe to run in production.');
-    console.error('To override, set CONFIRM_PRODUCTION=yes environment variable.');
+    console.error('To proceed, pass the --yes-i-am-sure flag.');
     process.exit(1);
   }
 
@@ -53,19 +54,21 @@ async function seedDummyEmployees() {
   const adminId = adminResult.rows[0]?.id ?? 1;
 
   const dummyEmployees = [
-    { employeeCode: 'FORM-001', fullName: 'Rajesh Kumar', email: 'rajesh.kumar@company.com', username: 'rajesh.kumar', role: 'Analyst' as const, departmentId: formulationDeptId, designation: 'Formulation Scientist', phone: '+91-9876543210', password: 'Formulation@123' },
-    { employeeCode: 'FORM-002', fullName: 'Priya Sharma', email: 'priya.sharma@company.com', username: 'priya.sharma', role: 'Analyst' as const, departmentId: formulationDeptId, designation: 'Senior Formulation Scientist', phone: '+91-9876543211', password: 'Formulation@123' },
-    { employeeCode: 'FORM-003', fullName: 'Amit Patel', email: 'amit.patel@company.com', username: 'amit.patel', role: 'Manager' as const, departmentId: formulationDeptId, designation: 'Formulation Manager', phone: '+91-9876543212', password: 'Formulation@123' },
-    { employeeCode: 'FORM-004', fullName: 'Sneha Reddy', email: 'sneha.reddy@company.com', username: 'sneha.reddy', role: 'Viewer' as const, departmentId: formulationDeptId, designation: 'Formulation Trainee', phone: '+91-9876543213', password: 'Formulation@123' },
-    { employeeCode: 'ARD-001', fullName: 'Vikram Singh', email: 'vikram.singh@company.com', username: 'vikram.singh', role: 'Analyst' as const, departmentId: ardDeptId, designation: 'Analytical Chemist', phone: '+91-9876543220', password: 'Analytical@123' },
-    { employeeCode: 'ARD-002', fullName: 'Anjali Gupta', email: 'anjali.gupta@company.com', username: 'anjali.gupta', role: 'Analyst' as const, departmentId: ardDeptId, designation: 'Senior Analytical Chemist', phone: '+91-9876543221', password: 'Analytical@123' },
-    { employeeCode: 'ARD-003', fullName: 'Rohit Verma', email: 'rohit.verma@company.com', username: 'rohit.verma', role: 'Manager' as const, departmentId: ardDeptId, designation: 'ARD Manager', phone: '+91-9876543222', password: 'Analytical@123' },
-    { employeeCode: 'ARD-004', fullName: 'Kavya Nair', email: 'kavya.nair@company.com', username: 'kavya.nair', role: 'Viewer' as const, departmentId: ardDeptId, designation: 'ARD Trainee', phone: '+91-9876543223', password: 'Analytical@123' },
-    { employeeCode: 'QC-001', fullName: 'Deepak Joshi', email: 'deepak.joshi@company.com', username: 'deepak.joshi', role: 'Analyst' as const, departmentId: qcDeptId, designation: 'QC Analyst', phone: '+91-9876543230', password: 'Quality@123' },
-    { employeeCode: 'QC-002', fullName: 'Meera Iyer', email: 'meera.iyer@company.com', username: 'meera.iyer', role: 'Analyst' as const, departmentId: qcDeptId, designation: 'Senior QC Analyst', phone: '+91-9876543231', password: 'Quality@123' },
-    { employeeCode: 'QC-003', fullName: 'Sanjay Malhotra', email: 'sanjay.malhotra@company.com', username: 'sanjay.malhotra', role: 'Manager' as const, departmentId: qcDeptId, designation: 'QC Manager', phone: '+91-9876543232', password: 'Quality@123' },
-    { employeeCode: 'ADMIN-002', fullName: 'System Admin', email: 'admin@company.com', username: 'admin', role: 'Admin' as const, departmentId: null, designation: 'System Administrator', phone: '+91-9876543200', password: 'Admin@123456' },
+    { employeeCode: 'FORM-001', fullName: 'Rajesh Kumar', email: 'rajesh.kumar@company.com', username: 'rajesh.kumar', role: 'Analyst' as const, departmentId: formulationDeptId, designation: 'Formulation Scientist', phone: '+91-9876543210' },
+    { employeeCode: 'FORM-002', fullName: 'Priya Sharma', email: 'priya.sharma@company.com', username: 'priya.sharma', role: 'Analyst' as const, departmentId: formulationDeptId, designation: 'Senior Formulation Scientist', phone: '+91-9876543211' },
+    { employeeCode: 'FORM-003', fullName: 'Amit Patel', email: 'amit.patel@company.com', username: 'amit.patel', role: 'Manager' as const, departmentId: formulationDeptId, designation: 'Formulation Manager', phone: '+91-9876543212' },
+    { employeeCode: 'FORM-004', fullName: 'Sneha Reddy', email: 'sneha.reddy@company.com', username: 'sneha.reddy', role: 'Viewer' as const, departmentId: formulationDeptId, designation: 'Formulation Trainee', phone: '+91-9876543213' },
+    { employeeCode: 'ARD-001', fullName: 'Vikram Singh', email: 'vikram.singh@company.com', username: 'vikram.singh', role: 'Analyst' as const, departmentId: ardDeptId, designation: 'Analytical Chemist', phone: '+91-9876543220' },
+    { employeeCode: 'ARD-002', fullName: 'Anjali Gupta', email: 'anjali.gupta@company.com', username: 'anjali.gupta', role: 'Analyst' as const, departmentId: ardDeptId, designation: 'Senior Analytical Chemist', phone: '+91-9876543221' },
+    { employeeCode: 'ARD-003', fullName: 'Rohit Verma', email: 'rohit.verma@company.com', username: 'rohit.verma', role: 'Manager' as const, departmentId: ardDeptId, designation: 'ARD Manager', phone: '+91-9876543222' },
+    { employeeCode: 'ARD-004', fullName: 'Kavya Nair', email: 'kavya.nair@company.com', username: 'kavya.nair', role: 'Viewer' as const, departmentId: ardDeptId, designation: 'ARD Trainee', phone: '+91-9876543223' },
+    { employeeCode: 'QC-001', fullName: 'Deepak Joshi', email: 'deepak.joshi@company.com', username: 'deepak.joshi', role: 'Analyst' as const, departmentId: qcDeptId, designation: 'QC Analyst', phone: '+91-9876543230' },
+    { employeeCode: 'QC-002', fullName: 'Meera Iyer', email: 'meera.iyer@company.com', username: 'meera.iyer', role: 'Analyst' as const, departmentId: qcDeptId, designation: 'Senior QC Analyst', phone: '+91-9876543231' },
+    { employeeCode: 'QC-003', fullName: 'Sanjay Malhotra', email: 'sanjay.malhotra@company.com', username: 'sanjay.malhotra', role: 'Manager' as const, departmentId: qcDeptId, designation: 'QC Manager', phone: '+91-9876543232' },
+    { employeeCode: 'ADMIN-002', fullName: 'System Admin', email: 'admin@company.com', username: 'admin', role: 'Admin' as const, departmentId: null, designation: 'System Administrator', phone: '+91-9876543200' },
   ];
+
+  const credentials: { username: string; password: string; role: string; employeeCode: string }[] = [];
 
   for (const emp of dummyEmployees) {
     const existing = await pool.query(
@@ -78,7 +81,9 @@ async function seedDummyEmployees() {
       continue;
     }
 
-    const passwordHash = await hashPassword(emp.password);
+    const password = randomPassword();
+    credentials.push({ username: emp.username, password, role: emp.role, employeeCode: emp.employeeCode });
+    const passwordHash = await hashPassword(password);
     
     await withTransaction(async (client) => {
       const result = await client.query<{ id: number }>(
@@ -103,11 +108,23 @@ async function seedDummyEmployees() {
   console.log('\nDummy employees created successfully!');
   console.log('All employees have must_change_password = TRUE');
   console.log('They will need to change their password on first login.');
-  console.log('\nTest credentials:');
-  console.log('  Formulation: rajesh.kumar / Formulation@123');
-  console.log('  ARD: vikram.singh / Analytical@123');
-  console.log('  QC: deepak.joshi / Quality@123');
-  console.log('  Admin: admin / Admin@123456');
+  if (credentials.length > 0) {
+    console.log('\nGenerated credentials (shown once, not stored in plaintext):');
+    for (const cred of credentials) {
+      console.log(`  ${cred.employeeCode} | ${cred.username} / ${cred.password} (${cred.role})`);
+    }
+  }
+}
+
+/** A random password meeting the server policy: >=10 chars, at least one letter and one number. */
+function randomPassword(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = crypto.randomBytes(16);
+  let pwd = '';
+  for (let i = 0; i < 16; i += 1) pwd += chars[bytes[i] % chars.length];
+  if (!/[A-Za-z]/.test(pwd)) pwd = `A${pwd.slice(1)}`;
+  if (!/[0-9]/.test(pwd)) pwd = `1${pwd.slice(1)}`;
+  return pwd;
 }
 
 seedDummyEmployees()

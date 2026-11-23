@@ -3,15 +3,15 @@ import { config } from './config.js';
 
 /**
  * Cleans TRF and ARD related tables while preserving lookup tables and users.
- * Run manually: npx tsx apps/server/src/clean-trf-data.ts
+ * Run manually: npx tsx apps/server/src/clean-trf-data.ts -- --yes-i-am-sure
  * WARNING: This script DELETES ALL TRF DATA. DO NOT RUN IN PRODUCTION.
  */
 async function cleanTrfData() {
-  // Production guard
-  if (process.env.NODE_ENV === 'production' && process.env.CONFIRM_PRODUCTION !== 'yes') {
+  // Destructive scripts require explicit confirmation, regardless of NODE_ENV.
+  if (!process.argv.includes('--yes-i-am-sure')) {
     console.error('ERROR: This script DELETES ALL TRF AND ARD DATA.');
     console.error('It is NOT safe to run in production.');
-    console.error('To override, set CONFIRM_PRODUCTION=yes environment variable.');
+    console.error('To proceed, pass the --yes-i-am-sure flag.');
     process.exit(1);
   }
 

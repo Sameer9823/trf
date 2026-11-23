@@ -4,15 +4,15 @@ import { runMigrations } from './migrate.js';
 
 /**
  * Deletes dummy department employees created by seed-dummy.ts.
- * Run manually: npm run delete:dummy -w @trf/server
+ * Run manually: npm run delete:dummy -w @trf/server -- --yes-i-am-sure
  * WARNING: This script DELETES EMPLOYEE DATA. DO NOT RUN IN PRODUCTION.
  */
 async function deleteDummyEmployees() {
-  // Production guard
-  if (process.env.NODE_ENV === 'production' && process.env.CONFIRM_PRODUCTION !== 'yes') {
+  // Destructive scripts require explicit confirmation, regardless of NODE_ENV.
+  if (!process.argv.includes('--yes-i-am-sure')) {
     console.error('ERROR: This script DELETES EMPLOYEE DATA.');
     console.error('It is NOT safe to run in production.');
-    console.error('To override, set CONFIRM_PRODUCTION=yes environment variable.');
+    console.error('To proceed, pass the --yes-i-am-sure flag.');
     process.exit(1);
   }
 
