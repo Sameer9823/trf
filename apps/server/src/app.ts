@@ -34,20 +34,48 @@ export function buildApp() {
   app.disable('x-powered-by');
   app.use(pinoHttp({ logger }));
 
+  // Trust proxy: driven by the optional TRUST_PROXY env value (default off).
+  // Must be set before any middleware that reads req.ip (the rate limiters below).
+  const trustProxy = process.env.TRUST_PROXY?.trim();
+  if (trustProxy) {
+    const lower = trustProxy.toLowerCase();
+    if (lower === 'true' || lower === '1') app.set('trust proxy', true);
+    else if (lower === 'false' || lower === '0') app.set('trust proxy', false);
+    else if (/^\d+$/.test(lower)) app.set('trust proxy', Number(lower));
+    else app.set('trust proxy', trustProxy); // IP/subnet list or preset (e.g. 'loopback')
+  }
+
   // Restrictive CORS: only allow configured origin (Electron app)
   const corsOrigin = process.env.CORS_ORIGIN ?? 'app://trf-desktop';
   app.use(cors({ origin: corsOrigin, credentials: false }));
 
-  // Rate limiter for auth endpoints (skip in test environment)
+  // Rate limiters for auth endpoints (skipped in test environment).
+  // Credential endpoints get a strict limit; session endpoints (refresh, me,
+  // logout, …) get a high limit so a lab behind one office IP is not blocked
+  // during normal work. Each request passes through exactly one limiter.
   if (process.env.NODE_ENV !== 'test') {
-    const authLimiter = rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 20, // limit each IP to 20 requests per windowMs
+    const STRICT_AUTH_PATHS = new Set(['/login', '/forgot-password', '/reset-password', '/select-member']);
+
+    const strictAuthLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 20, // strict limit for credential endpoints
+      skip: (req) => !STRICT_AUTH_PATHS.has(req.path),
       message: { error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later.' } },
       standardHeaders: true,
       legacyHeaders: false,
     });
-    app.use('/api/auth', authLimiter);
+
+    const looseAuthLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 300, // high limit for session endpoints
+      skip: (req) => STRICT_AUTH_PATHS.has(req.path),
+      message: { error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later.' } },
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+
+    app.use('/api/auth', strictAuthLimiter);
+    app.use('/api/auth', looseAuthLimiter);
   }
 
   app.use(express.json({ limit: '1mb' }));
