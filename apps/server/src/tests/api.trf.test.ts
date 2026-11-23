@@ -8,6 +8,7 @@ import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
 import { hashPassword } from '../lib/password';
+import { assignAnalystToATest } from './fixtures';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -641,6 +642,7 @@ maybe('ARD workflow status can transition from Received to In Progress to Comple
   // Completed needs an Analyst Name and a Date of Analysis, so they are set
   // first. The rule is checked in detail in api.trf.ard.test.ts.
   const analyst = await createAnalyst();
+  await assignAnalystToATest(id, analyst.id);
   const withAnalyst = await api<TrfDetail>(`/api/trfs/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({
@@ -781,7 +783,7 @@ maybe('a Manager in a non-Formulation department can create a TRF', async () => 
   await pool.query('DELETE FROM trfs WHERE id = $1', [res.body.id]);
 });
 
-maybe('an ARD department user can create a TRF but it is locked', async () => {
+maybe('an ARD department user cannot create a TRF: Part A belongs to Formulation, Admin and Manager', async () => {
   const suffix = Math.random().toString(36).slice(2, 8);
   const password = 'ARD-Test-Pass-42';
   const ardDept = await pool.query<{ id: number }>(`SELECT id FROM departments WHERE name = 'ARD' LIMIT 1`);
@@ -789,15 +791,12 @@ maybe('an ARD department user can create a TRF but it is locked', async () => {
   await pool.query(
     `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, department_id)
      VALUES ($1, $2, $3, $4, $5, 'Analyst', $6)
-     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, department_id = $6`,
+     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, role = 'Analyst', department_id = $6`,
     [`P3-ARD-${suffix}`, `Phase3 ARD ${suffix}`, `p3ard${suffix}@test.local`, `p3ard${suffix}`, await hashPassword(password), deptId],
   );
   const token = await tokenFor(`p3ard${suffix}`, password);
   const res = await createTrf({ batchNumber: `ARD-TEST-${Date.now()}` }, token);
-  assert.equal(res.status, 201);
-  // TRF created by ARD user should be locked
-  assert.ok(res.body?.lockedAt, 'TRF created by ARD user should be locked');
-  assert.equal(res.body?.lockedByName, `Phase3 ARD ${suffix}`);
+  assert.equal(res.status, 403, JSON.stringify(res.body));
 });
 
 /* ------------------------------------------------------------------ *

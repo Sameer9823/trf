@@ -7,6 +7,7 @@ import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
 import { hashPassword } from '../lib/password';
+import { assignAnalystToATest } from './fixtures';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -370,24 +371,19 @@ maybe('Completed needs an Analyst Name and a Date of Analysis', async () => {
   assert.equal(created.status, 201);
   const id = created.body.id;
 
-  // No analyst yet.
+  // No analyst assigned to a test yet.
   const noAnalyst = await api(`/api/trfs/${id}`, {
     method: 'PATCH', body: JSON.stringify({ version: created.body.version, workflowStatus: 'Completed' }),
   }, adminToken);
   assert.equal(noAnalyst.status, 400, JSON.stringify(noAnalyst.body));
-  assert.ok(noAnalyst.body.error?.fields?.ardAnalystId, 'the analyst field must be named');
+  assert.ok(noAnalyst.body.error?.fields?.testAssignments, 'the test assignment field must be named');
 
-  // Analyst, but no Date of Analysis.
+  // An analyst assigned to a test, but no Date of Analysis.
   const analyst = await userInDepartment('Analyst', 'ARD');
-  const withAnalyst = await api<TrfDetail>(`/api/trfs/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ version: created.body.version, ardAnalystId: analyst.id }),
-  }, adminToken);
-  assert.equal(withAnalyst.status, 200, JSON.stringify(withAnalyst.body));
-
+  await assignAnalystToATest(id, analyst.id);
   const noStart = await api(`/api/trfs/${id}`, {
     method: 'PATCH',
-    body: JSON.stringify({ version: withAnalyst.body.version, workflowStatus: 'Completed' }),
+    body: JSON.stringify({ version: created.body.version, workflowStatus: 'Completed' }),
   }, adminToken);
   assert.equal(noStart.status, 400, JSON.stringify(noStart.body));
   assert.ok(noStart.body.error?.fields?.analysisStartDate, 'the analysis start date field must be named');
@@ -396,7 +392,7 @@ maybe('Completed needs an Analyst Name and a Date of Analysis', async () => {
   const done = await api<TrfDetail>(`/api/trfs/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({
-      version: withAnalyst.body.version, analysisStartDate: today, workflowStatus: 'Completed',
+      version: created.body.version, analysisStartDate: today, workflowStatus: 'Completed',
     }),
   }, adminToken);
   assert.equal(done.status, 200, JSON.stringify(done.body));
@@ -410,6 +406,7 @@ maybe('the TAT freezes when the Final Status is reached and counts on again when
   assert.equal(created.status, 201);
   const id = created.body.id;
   const analyst = await userInDepartment('Analyst', 'ARD');
+  await assignAnalystToATest(id, analyst.id);
 
   const start = daysAgo(30);
   const done = await api<TrfDetail>(`/api/trfs/${id}`, {

@@ -7,6 +7,7 @@ import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
 import { hashPassword } from '../lib/password';
+import { assignAnalystToATest } from './fixtures';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -233,6 +234,9 @@ maybe('ARD completes, the administrator approves, and the TRF locks for everyone
   const tooSoon = await post(`/api/trfs/${trf.id}/print-log`, { format: 'print' }, ardSession.token);
   assert.equal(tooSoon.status, 409, JSON.stringify(tooSoon.body));
   assert.equal(tooSoon.body.error.code, 'TRF_NOT_APPROVED');
+
+  // The completion rule requires an analyst assigned to a non-cancelled test.
+  await assignAnalystToATest(trf.id, ard.id);
 
   const completed = await post(`/api/trfs/${trf.id}/ard-status`, { status: 'Completed', version: trf.version }, ardSession.token);
   assert.equal(completed.status, 200, JSON.stringify(completed.body));

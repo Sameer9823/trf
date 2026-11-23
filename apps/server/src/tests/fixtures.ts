@@ -67,3 +67,31 @@ export async function ensureAdmin(): Promise<string> {
   const body = await res.json();
   return body.accessToken as string;
 }
+
+/**
+ * Assigns an analyst to one ARD test assignment on a TRF. The completion rule
+ * (routes/trfs.ts) requires at least one non-cancelled test with an analyst
+ * before the workflow can be completed, so tests that drive a TRF to Completed
+ * need this. Idempotent: the unique (trf_id, test_requested_option_id) and
+ * (assignment_id, analyst_id) pairs make a repeat a no-op.
+ */
+export async function assignAnalystToATest(trfId: number, analystId: number): Promise<void> {
+  const option = await pool.query<{ id: number }>(
+    'SELECT id FROM test_requested_options ORDER BY id LIMIT 1',
+  );
+  if (!option.rowCount) throw new Error('No test_requested_options row is available for the fixture');
+  const assignment = await pool.query<{ id: number }>(
+    `INSERT INTO ard_test_assignments (trf_id, test_requested_option_id, test_name, status)
+     VALUES ($1, $2, 'Fixture test', 'Assigned')
+     ON CONFLICT (trf_id, test_requested_option_id)
+     DO UPDATE SET status = 'Assigned'
+     RETURNING id`,
+    [trfId, option.rows[0].id],
+  );
+  await pool.query(
+    `INSERT INTO ard_test_assignment_analysts (assignment_id, analyst_id)
+     VALUES ($1, $2)
+     ON CONFLICT (assignment_id, analyst_id) DO NOTHING`,
+    [assignment.rows[0].id, analystId],
+  );
+}
