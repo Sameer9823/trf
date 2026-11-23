@@ -158,6 +158,43 @@ async function refreshTokens(): Promise<boolean> {
   return refreshPromise;
 }
 
+/** A 401 that means the session is gone: the renderer shows the sign-in screen. */
+const SESSION_GONE: ApiResult = {
+  ok: false,
+  status: 401,
+  data: { error: { code: 'SESSION_EXPIRED', message: 'Your session has expired. Please sign in again.' } },
+};
+
+/**
+ * Returns a usable access token, refreshing first when it is close to expiry.
+ * null means there is no session, or the refresh failed.
+ */
+async function freshAccessToken(): Promise<string | null> {
+  if (!tokens) return null;
+  if (new Date(tokens.accessTokenExpiresAt).getTime() - REFRESH_LEEWAY_MS < Date.now()) {
+    if (!(await refreshTokens()) || !tokens) return null;
+  }
+  return tokens.accessToken;
+}
+
+/**
+ * Sends an authenticated request, refreshing and retrying once if the token was
+ * rejected. Used by the raw upload/download handlers that bypass api:request.
+ */
+async function authedSend(req: { method: string; path: string; body?: unknown; contentType?: string; timeoutMs?: number }): Promise<ApiResult> {
+  const accessToken = await freshAccessToken();
+  if (!accessToken) return SESSION_GONE;
+  let res = await send({ ...req, accessToken });
+  if (res.status === 401) {
+    if (await refreshTokens()) {
+      res = await send({ ...req, accessToken: tokens!.accessToken });
+    } else {
+      return SESSION_GONE;
+    }
+  }
+  return res;
+}
+
 /**
  * Endpoints the server itself does not protect. They are listed here so the
  * renderer cannot get it wrong: the connection banner has to work *before*
@@ -374,10 +411,9 @@ ipcMain.handle('trf:generate-pdf', async (_event, trfId: number): Promise<{ ok: 
     const pdf = await win.webContents.printToPDF(PDF_OPTIONS);
 
     // Get TRF number for filename - we need to fetch it first
-    const trfRes = await send({
+    const trfRes = await authedSend({
       method: 'GET',
       path: `/api/trfs/${trfId}`,
-      accessToken: tokens.accessToken,
     });
     let fileName = `TRF-${trfId}.pdf`;
     if (trfRes.ok && trfRes.data) {
@@ -388,11 +424,10 @@ ipcMain.handle('trf:generate-pdf', async (_event, trfId: number): Promise<{ ok: 
     }
 
     // Upload PDF to server as raw application/pdf body (max 10 MB)
-    const uploadRes = await send({
+    const uploadRes = await authedSend({
       method: 'POST',
       path: `/api/trfs/${trfId}/document`,
       body: pdf,
-      accessToken: tokens.accessToken,
       contentType: 'application/pdf',
     });
 
@@ -449,11 +484,10 @@ ipcMain.handle('ard:upload-result-file', async (event, assignmentId: number): Pr
       return { ok: false, message: 'The selected file is not a valid PDF (missing %PDF- header).' };
     }
 
-    const uploadRes = await send({
+    const uploadRes = await authedSend({
       method: 'POST',
       path: `/api/ard-assignments/${assignmentId}/result-file`,
       body: buffer,
-      accessToken: tokens.accessToken,
       contentType: 'application/pdf',
       timeoutMs: 60000,
     });
@@ -494,22 +528,22 @@ ipcMain.handle('api:downloadBlob', async (event, apiPath: string, fileName: stri
     const choice = parent ? await dialog.showSaveDialog(parent, dialogOptions) : await dialog.showSaveDialog(dialogOptions);
     if (choice.canceled || !choice.filePath) return { ok: true, cancelled: true };
 
-    const res = await send({
-      method: 'GET',
-      path: apiPath,
-      accessToken: tokens.accessToken,
-      timeoutMs: 60000, // 60s for downloads
-    });
-    if (!res.ok) {
-      const errData = res.data as { error?: { message?: string } } | undefined;
-      return { ok: false, message: errData?.error?.message ?? 'The file could not be downloaded.' };
-    }
-    // Note: send() returns JSON, but for blob downloads we need the raw response
-    // Fall back to direct fetch for binary responses
+    const accessToken = await freshAccessToken();
+    if (!accessToken) return { ok: false, message: 'Not authenticated' };
+
     const base = readConfig().serverUrl;
-    const blobRes = await net.fetch(base + apiPath, {
-      headers: { Authorization: `Bearer ${tokens.accessToken}` },
+    let blobRes = await net.fetch(base + apiPath, {
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
+    // A rejected token gets one retry with a refreshed access token.
+    if (blobRes.status === 401) {
+      if (!(await refreshTokens()) || !tokens) {
+        return { ok: false, message: 'Your session has expired. Please sign in again.' };
+      }
+      blobRes = await net.fetch(base + apiPath, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      });
+    }
     if (!blobRes.ok) {
       const body = await blobRes.json().catch(() => null) as { error?: { message?: string } } | null;
       return { ok: false, message: body?.error?.message ?? 'The file could not be downloaded.' };
@@ -550,10 +584,23 @@ ipcMain.handle('reports:export', async (event, query: string): Promise<ExportOut
 
   const base = readConfig().serverUrl;
   try {
-    const res = await net.fetch(`${base}/api/reports/export.xlsx${query ? `?${query}` : ''}`, {
-      headers: { Authorization: `Bearer ${tokens.accessToken}` },
+    const accessToken = await freshAccessToken();
+    if (!accessToken) return { ok: false, message: 'Sign in to export.' };
+
+    const url = `${base}/api/reports/export.xlsx${query ? `?${query}` : ''}`;
+    let res = await net.fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
       // No timeout limit for exports - they can take a while
     });
+    // A rejected token gets one retry with a refreshed access token.
+    if (res.status === 401) {
+      if (!(await refreshTokens()) || !tokens) {
+        return { ok: false, message: 'Your session has expired. Please sign in again.' };
+      }
+      res = await net.fetch(url, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      });
+    }
     if (!res.ok) {
       const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
       return { ok: false, message: body?.error?.message ?? 'The report could not be created.' };
