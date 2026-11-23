@@ -338,3 +338,150 @@ maybe('the employee dashboard shows each result and its review', async () => {
   assert.equal(row.resultValue, '99.5');
   assert.equal(row.assignmentVersion, submitted.body.version);
 });
+
+// --- B1: PDF result mode tests ---
+
+async function uploadPdf(assignmentId: number, buffer: Buffer, token: string) {
+  const res = await fetch(`${baseUrl}/api/ard-assignments/${assignmentId}/result-file`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/pdf', Authorization: `Bearer ${token}` },
+    body: buffer,
+  });
+  const text = await res.text();
+  return { status: res.status, body: (text ? JSON.parse(text) : null) as any };
+}
+
+function fakePdf(marker = '%PDF-1.4') {
+  return Buffer.concat([Buffer.from(marker), Buffer.alloc(100, 0x20)]);
+}
+
+maybe('pdf mode: upload a file, then submit in pdf mode', async () => {
+  const { assignments } = await approvedTrfWithAssignments(1);
+  const a = assignments[0];
+
+  // Upload the PDF.
+  const up = await uploadPdf(a.id, fakePdf(), analystToken);
+  assert.equal(up.status, 201, JSON.stringify(up.body));
+
+  // Submit in pdf mode (resultValue/resultText optional).
+  const submitted = await post(`/api/ard-assignments/${a.id}/result`, {
+    version: a.version, resultMode: 'pdf', outcome: 'Pass', remarks: 'PDF result attached',
+  }, analystToken);
+  assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
+  assert.equal(submitted.body.resultMode, 'pdf');
+  assert.ok(submitted.body.fileName, 'the file name is returned');
+  assert.equal(submitted.body.resultValue, null, 'pdf mode clears resultValue');
+  assert.equal(submitted.body.resultText, null, 'pdf mode clears resultText');
+});
+
+maybe('pdf mode without a file is refused', async () => {
+  const { assignments } = await approvedTrfWithAssignments(1);
+  const a = assignments[0];
+
+  const res = await post(`/api/ard-assignments/${a.id}/result`, {
+    version: a.version, resultMode: 'pdf', outcome: 'Pass',
+  }, analystToken);
+  assert.equal(res.status, 400, 'pdf mode without a file is refused');
+});
+
+maybe('oversized and non-PDF uploads are refused (413 / 400), nothing written', async () => {
+  const { assignments } = await approvedTrfWithAssignments(1);
+  const a = assignments[0];
+
+  // 11 MB body → 413.
+  const big = Buffer.alloc(11 * 1024 * 1024, 0x25);
+  big.write('%PDF-1.4', 0, 5);
+  const oversize = await uploadPdf(a.id, big, analystToken);
+  assert.equal(oversize.status, 413);
+
+  // Non-PDF body → 400.
+  const notPdf = Buffer.from('This is not a PDF at all.');
+  const bad = await uploadPdf(a.id, notPdf, analystToken);
+  assert.equal(bad.status, 400);
+
+  // Nothing was written to the database.
+  const count = await pool.query<{ count: string }>(
+    'SELECT COUNT(*)::text AS count FROM ard_assignment_results WHERE assignment_id = $1 AND file_relative_path IS NOT NULL', [a.id]);
+  assert.equal(count.rows[0].count, '0');
+});
+
+maybe('a non-assigned analyst cannot upload a PDF', async () => {
+  const { assignments } = await approvedTrfWithAssignments(1);
+  const a = assignments[0];
+
+  const res = await uploadPdf(a.id, fakePdf(), otherToken);
+  assert.equal(res.status, 403);
+});
+
+maybe('analyst A cannot download analyst B PDF; AGM can download and review', async () => {
+  const { trfId, assignments } = await approvedTrfWithAssignments(1);
+  const a = assignments[0];
+
+  // Analyst uploads a PDF and submits.
+  await uploadPdf(a.id, fakePdf(), analystToken);
+  const submitted = await post(`/api/ard-assignments/${a.id}/result`, {
+    version: a.version, resultMode: 'pdf', outcome: 'Pass',
+  }, analystToken);
+  assert.equal(submitted.status, 200);
+
+  // A different analyst cannot download it (404).
+  const otherDl = await fetch(`${baseUrl}/api/ard-assignments/${a.id}/result-file`, {
+    headers: { Authorization: `Bearer ${otherToken}` },
+  });
+  assert.equal(otherDl.status, 404, 'an unassigned analyst cannot download the PDF');
+
+  // The AGM can download it.
+  const agmDl = await fetch(`${baseUrl}/api/ard-assignments/${a.id}/result-file`, {
+    headers: { Authorization: `Bearer ${agmToken}` },
+  });
+  assert.equal(agmDl.status, 200, 'the AGM can download the PDF');
+  assert.match(agmDl.headers.get('content-type') ?? '', /application\/pdf/);
+
+  // The AGM can approve the pdf-mode result.
+  const approved = await post(`/api/ard-assignments/${a.id}/result/review`, {
+    version: submitted.body.version, decision: 'Approved',
+  }, agmToken);
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+  assert.equal(approved.body.assignment.reviewStatus, 'Approved');
+});
+
+maybe('resubmission after rejection replaces the file', async () => {
+  const { assignments } = await approvedTrfWithAssignments(1);
+  const a = assignments[0];
+
+  // Upload and submit in pdf mode.
+  await uploadPdf(a.id, fakePdf(), analystToken);
+  const submitted = await post(`/api/ard-assignments/${a.id}/result`, {
+    version: a.version, resultMode: 'pdf', outcome: 'Pass',
+  }, analystToken);
+  assert.equal(submitted.status, 200);
+  const firstFile = submitted.body.fileName;
+
+  // AGM rejects with a reason.
+  const rejected = await post(`/api/ard-assignments/${a.id}/result/review`, {
+    version: submitted.body.version, decision: 'Rejected', reason: 'The chromatogram is for the wrong batch.',
+  }, agmToken);
+  assert.equal(rejected.status, 200);
+
+  // Analyst uploads a new file and resubmits in pdf mode.
+  const up2 = await uploadPdf(a.id, fakePdf('%PDF-1.7'), analystToken);
+  assert.equal(up2.status, 201);
+  const resubmitted = await post(`/api/ard-assignments/${a.id}/result`, {
+    version: rejected.body.assignment.version, resultMode: 'pdf', outcome: 'Pass', remarks: 'Re-run',
+  }, analystToken);
+  assert.equal(resubmitted.status, 200);
+  assert.notEqual(resubmitted.body.fileName, firstFile, 'a new file replaces the old one');
+});
+
+// --- B2: team-workload endpoint ---
+
+maybe('the team-workload endpoint is refused for plain ARD employees', async () => {
+  const res = await api('/api/ard-assignments/team-workload', {}, analystToken);
+  assert.equal(res.status, 403, 'an Analyst cannot view team workload');
+});
+
+maybe('the team-workload endpoint returns counts for a Manager/Admin', async () => {
+  const res = await api<{ items: any[] }>('/api/ard-assignments/team-workload', {}, agmToken);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.ok(Array.isArray(res.body.items), 'the response has an items array');
+});
