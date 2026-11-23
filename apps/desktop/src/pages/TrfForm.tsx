@@ -1083,14 +1083,17 @@ export function TrfForm() {
                 onChange={(e) => set('packType', e.target.value)} />
             </Field>
 
-            <Field htmlFor="trf-storage-condition" label="Storage Condition" lockOwner={partALock}>
-              <input id="trf-storage-condition" disabled={!canEditA} value={form.storageCondition}
-                onChange={(e) => set('storageCondition', e.target.value)} />
+            <Field htmlFor="trf-storage-condition" label="Storage Condition (°C)" lockOwner={partALock}>
+              <input id="trf-storage-condition" type="number" disabled={!canEditA} value={form.storageCondition}
+                onChange={(e) => set('storageCondition', e.target.value)} placeholder="e.g. 2-8, 15-25" step="0.1" />
             </Field>
 
-            <Field htmlFor="trf-storage-period" label="Storage Period" lockOwner={partALock}>
-              <input id="trf-storage-period" disabled={!canEditA} value={form.storagePeriod}
-                onChange={(e) => set('storagePeriod', e.target.value)} />
+            <Field htmlFor="trf-storage-period" label="Storage Period (months)" lockOwner={partALock}>
+              <div className="input-with-suffix">
+                <input id="trf-storage-period" type="number" disabled={!canEditA} value={form.storagePeriod}
+                  onChange={(e) => set('storagePeriod', e.target.value)} placeholder="e.g. 24" min="1" max="120" />
+                <span className="input-suffix">months</span>
+              </div>
             </Field>
 
             <Field htmlFor="trf-mfg-date" label="Manufacturing Date" lockOwner={partALock} error={fields.manufacturingDate}>

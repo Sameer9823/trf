@@ -209,6 +209,11 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .field input, .field select, .field textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; font: inherit; background: var(--panel); color: var(--text); }
 .field textarea { resize: vertical; }
 
+/* Input with suffix (e.g. "months" after number input) */
+.input-with-suffix { position: relative; display: flex; align-items: center; }
+.input-with-suffix input { padding-right: 60px; }
+.input-suffix { position: absolute; right: 10px; color: var(--muted); font-size: 13px; pointer-events: none; }
+
 /* Hide browser native clear button on inputs */
 .field input::-webkit-search-cancel-button,
 .field input::-webkit-clear-button,
