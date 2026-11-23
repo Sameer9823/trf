@@ -29,6 +29,46 @@ export const logger = buildLogger();
 
 const apiError = (code: string, message: string): ApiError => ({ error: { code, message } });
 
+/** Credential endpoints: a fresh login, a password reset, a forgot-password
+ *  request. These get the hard limit. */
+export const STRICT_AUTH_PATHS = new Set(['/login', '/forgot-password', '/reset-password']);
+/** Team members switch user all day, and the PIN is already locked per person in
+ *  the database, so select-member gets its own higher limit. */
+export const PIN_AUTH_PATHS = new Set(['/select-member']);
+
+export interface AuthLimiterOptions {
+  strictMax: number;
+  pinMax: number;
+  generalMax: number;
+  windowMs: number;
+}
+
+/**
+ * Builds the three auth limiters. Each request passes through exactly one:
+ * credential endpoints are strict, select-member is higher, and everything else
+ * under /api/auth is loose. Exported so a test can build them on a tiny app,
+ * because the real app skips them under NODE_ENV=test.
+ */
+export function createAuthLimiters({ strictMax, pinMax, generalMax, windowMs }: AuthLimiterOptions) {
+  const message = { error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later.' } };
+  const strictAuthLimiter = rateLimit({
+    windowMs, max: strictMax,
+    skip: (req) => !STRICT_AUTH_PATHS.has(req.path),
+    message, standardHeaders: true, legacyHeaders: false,
+  });
+  const pinLimiter = rateLimit({
+    windowMs, max: pinMax,
+    skip: (req) => !PIN_AUTH_PATHS.has(req.path),
+    message, standardHeaders: true, legacyHeaders: false,
+  });
+  const generalAuthLimiter = rateLimit({
+    windowMs, max: generalMax,
+    skip: (req) => STRICT_AUTH_PATHS.has(req.path) || PIN_AUTH_PATHS.has(req.path),
+    message, standardHeaders: true, legacyHeaders: false,
+  });
+  return { strictAuthLimiter, pinLimiter, generalAuthLimiter };
+}
+
 export function buildApp() {
   const app = express();
   app.disable('x-powered-by');
@@ -50,32 +90,19 @@ export function buildApp() {
   app.use(cors({ origin: corsOrigin, credentials: false }));
 
   // Rate limiters for auth endpoints (skipped in test environment).
-  // Credential endpoints get a strict limit; session endpoints (refresh, me,
-  // logout, …) get a high limit so a lab behind one office IP is not blocked
-  // during normal work. Each request passes through exactly one limiter.
+  // Credential endpoints get a strict limit; select-member is higher because
+  // team members switch user all day and the PIN already locks per person in the
+  // database; session endpoints (refresh, me, logout, …) get a high limit so a
+  // lab behind one office IP is not blocked during normal work. Each request
+  // passes through exactly one limiter.
   if (process.env.NODE_ENV !== 'test') {
-    const STRICT_AUTH_PATHS = new Set(['/login', '/forgot-password', '/reset-password', '/select-member']);
-
-    const strictAuthLimiter = rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 20, // strict limit for credential endpoints
-      skip: (req) => !STRICT_AUTH_PATHS.has(req.path),
-      message: { error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later.' } },
-      standardHeaders: true,
-      legacyHeaders: false,
-    });
-
-    const looseAuthLimiter = rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 300, // high limit for session endpoints
-      skip: (req) => STRICT_AUTH_PATHS.has(req.path),
-      message: { error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later.' } },
-      standardHeaders: true,
-      legacyHeaders: false,
+    const { strictAuthLimiter, pinLimiter, generalAuthLimiter } = createAuthLimiters({
+      strictMax: 20, pinMax: 300, generalMax: 300, windowMs: 15 * 60 * 1000,
     });
 
     app.use('/api/auth', strictAuthLimiter);
-    app.use('/api/auth', looseAuthLimiter);
+    app.use('/api/auth', pinLimiter);
+    app.use('/api/auth', generalAuthLimiter);
   }
 
   app.use(express.json({ limit: '1mb' }));

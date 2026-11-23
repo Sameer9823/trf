@@ -6,6 +6,11 @@
  * tests. Without it those tests report as skipped rather than passing quietly.
  * The remaining defaults are throwaway placeholders, never a real credential.
  */
+
+// The whole suite runs as NODE_ENV=test: app.ts skips the auth rate limiter under
+// test, so the suite's own logins are not throttled at 20 per 15 minutes.
+process.env.NODE_ENV = 'test';
+
 process.env.DATABASE_HOST ??= 'localhost';
 process.env.DATABASE_NAME ??= 'trf_test';
 process.env.DATABASE_USER ??= 'trf_test';
