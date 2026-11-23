@@ -182,6 +182,15 @@ maybe('only the assigned employee can submit; invalid results are refused', asyn
   assert.equal(stale.body.error.code, 'VERSION_CONFLICT');
 });
 
+maybe('nobody submits on someone else behalf: a non-assigned Admin/Manager gets 403', async () => {
+  const { assignments } = await approvedTrfWithAssignments(1);
+  const a = assignments[0];
+
+  // The AGM (Admin role) is not on the assignment's analyst list.
+  const asAdmin = await post(`/api/ard-assignments/${a.id}/result`, goodResult(a.version), agmToken);
+  assert.equal(asAdmin.status, 403, 'even an Admin cannot submit on someone else behalf');
+});
+
 maybe('results cannot be submitted before the Formulation request is approved', async () => {
   const created = await post('/api/trfs', {
     trfDate: new Date().toISOString().slice(0, 10), customerId, productId, priority: 'Normal',
