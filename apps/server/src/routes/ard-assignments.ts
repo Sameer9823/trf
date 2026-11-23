@@ -876,6 +876,9 @@ ardAssignmentsRouter.post('/:id/result', validateBody(submitResultSchema), async
  */
 ardAssignmentsRouter.post('/:id/result-file', async (req, res, next) => {
   const viewer = currentEmployee(req);
+  // Bookkeeping for the file this request writes, so a rollback can delete the
+  // orphan and a commit can delete the file it replaced.
+  const files: { replaced: string | null; saved: string | null } = { replaced: null, saved: null };
   try {
     const assignmentId = Number(req.params.id);
     if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound('This test assignment could not be found.');
@@ -912,25 +915,29 @@ ardAssignmentsRouter.post('/:id/result-file', async (req, res, next) => {
       }
 
       // A result waiting for review cannot have its file replaced.
-      const existing = (await client.query<{ review_status: string }>(
-        `SELECT review_status FROM ard_assignment_results WHERE assignment_id = $1 FOR UPDATE`, [assignmentId])).rows[0];
+      const existing = (await client.query<{ review_status: string; file_relative_path: string | null }>(
+        `SELECT review_status, file_relative_path FROM ard_assignment_results WHERE assignment_id = $1 FOR UPDATE`, [assignmentId])).rows[0];
       if (existing?.review_status === 'Submitted') {
         throw new AppError(409, 'RESULT_AWAITING_REVIEW', 'A result for this test is already waiting for AGM review.');
       }
 
-      // Save file under DOCUMENT_DIR/ard-results/ with a server-generated name.
+      // Save under DOCUMENT_DIR/ard-results/ with a server-generated name. Only
+      // the file name goes in the database; the folder is rebuilt in code, so the
+      // stored value has no separator for the CHECK constraint to reject.
       const ardResultsDir = path.join(DOCUMENT_DIR, 'ard-results');
       await fs.promises.mkdir(ardResultsDir, { recursive: true });
       const randomSuffix = crypto.randomBytes(8).toString('hex');
       const generatedFileName = `${assignmentId}-${randomSuffix}.pdf`;
-      const relativePath = path.join('ard-results', generatedFileName);
-      const absolutePath = path.join(DOCUMENT_DIR, relativePath);
-      const resolvedPath = path.resolve(absolutePath);
+      const resolvedPath = path.resolve(path.join(ardResultsDir, generatedFileName));
       const resolvedDir = path.resolve(ardResultsDir);
-      if (!resolvedPath.startsWith(resolvedDir + path.sep) && resolvedPath !== resolvedDir) {
+      if (!resolvedPath.startsWith(resolvedDir + path.sep)) {
         throw new AppError(500, 'INTERNAL_ERROR', 'Generated path escapes document directory.');
       }
       await fs.promises.writeFile(resolvedPath, pdfBuffer);
+      files.saved = resolvedPath;
+      if (existing?.file_relative_path) {
+        files.replaced = path.resolve(path.join(ardResultsDir, path.basename(existing.file_relative_path.replace(/\\/g, '/'))));
+      }
 
       // Store file info in ard_assignment_results (UPSERT).
       await client.query(
@@ -938,7 +945,7 @@ ardAssignmentsRouter.post('/:id/result-file', async (req, res, next) => {
          VALUES ($1, 'pdf', $2, $3, $4)
          ON CONFLICT (assignment_id) DO UPDATE SET
            result_mode = 'pdf', file_relative_path = $2, file_name = $3, file_size = $4`,
-        [assignmentId, relativePath, generatedFileName, pdfBuffer.length],
+        [assignmentId, generatedFileName, generatedFileName, pdfBuffer.length],
       );
 
       await client.query(
@@ -956,8 +963,17 @@ ardAssignmentsRouter.post('/:id/result-file', async (req, res, next) => {
       return assignment.trf_id;
     });
 
+    // Committed: the file this upload replaced is now safe to remove (best effort).
+    if (files.replaced && files.replaced !== files.saved) {
+      await fs.promises.rm(files.replaced, { force: true }).catch(() => undefined);
+    }
+
     res.status(201).json({ ok: true, assignmentId, trfId });
-  } catch (err) { next(err); }
+  } catch (err) {
+    // Rolled back after the new file was written: remove the orphan.
+    if (files.saved) await fs.promises.rm(files.saved, { force: true }).catch(() => undefined);
+    next(err);
+  }
 });
 
 /**
@@ -988,10 +1004,11 @@ ardAssignmentsRouter.get('/:id/result-file', async (req, res, next) => {
       if (!mine.rowCount) throw notFound('No PDF file has been uploaded for this test yet.');
     }
 
-    // Resolve path and verify it stays inside DOCUMENT_DIR/ard-results/.
+    // Resolve the file name against DOCUMENT_DIR/ard-results/. Older rows stored
+    // the folder too (with either separator), so reduce to the base name first.
     const ardResultsDir = path.join(DOCUMENT_DIR, 'ard-results');
-    const absolutePath = path.join(DOCUMENT_DIR, row.file_relative_path);
-    const resolvedPath = path.resolve(absolutePath);
+    const fileName = path.basename(row.file_relative_path.replace(/\\/g, '/'));
+    const resolvedPath = path.resolve(path.join(ardResultsDir, fileName));
     const resolvedDir = path.resolve(ardResultsDir);
     if (!resolvedPath.startsWith(resolvedDir + path.sep) && resolvedPath !== resolvedDir) {
       throw notFound('The PDF file for this test could not be found.');

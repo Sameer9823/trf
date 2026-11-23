@@ -1,9 +1,12 @@
 import { strict as assert } from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
 import { after, before, test, TestContext } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import type { ArdTestAssignment, TrfDetail } from '@trf/shared';
 import { buildApp } from '../app';
+import { DOCUMENT_DIR } from '../config';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
 import { hashPassword } from '../lib/password';
@@ -471,6 +474,10 @@ maybe('resubmission after rejection replaces the file', async () => {
   }, analystToken);
   assert.equal(resubmitted.status, 200);
   assert.notEqual(resubmitted.body.fileName, firstFile, 'a new file replaces the old one');
+
+  // The file this upload replaced is removed from disk.
+  const oldPath = path.join(DOCUMENT_DIR, 'ard-results', firstFile);
+  await assert.rejects(fs.promises.access(oldPath), /ENOENT/, 'the replaced file is deleted');
 });
 
 // --- B2: team-workload endpoint ---
