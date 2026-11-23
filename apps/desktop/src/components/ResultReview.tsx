@@ -53,6 +53,10 @@ export interface SubmitTarget {
   analysisStartDate?: string | null;
   /** Fields of an earlier, rejected submission, so the employee corrects it rather than retyping it. */
   previous?: Partial<ArdTestAssignment> | null;
+  /** A PDF already uploaded for this test, so the form shows it instead of asking again. */
+  fileName?: string | null;
+  fileSize?: number | null;
+  resultMode?: 'text' | 'pdf' | null;
 }
 
 /** The form the assigned employee fills in to submit a test result. */
@@ -74,8 +78,13 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
 
   useEffect(() => {
     if (!target) return;
-    setResultMode('text');
-    setUploadedFile(null);
+    // A PDF uploaded earlier is still on the server; show it so the employee can
+    // submit again without picking the file twice.
+    const attached = target.resultMode === 'pdf' && target.fileName
+      ? { fileName: target.fileName, fileSize: target.fileSize ?? 0 }
+      : null;
+    setResultMode(attached ? 'pdf' : 'text');
+    setUploadedFile(attached);
     setUploading(false);
     const p = target.previous;
     setForm({
@@ -123,8 +132,8 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
       body: {
         version: target.version,
         resultMode,
-        resultValue: resultMode === 'text' ? (form.resultValue || null) : null,
-        resultText: resultMode === 'text' ? (form.resultText || null) : null,
+        resultValue: form.resultValue || null,
+        resultText: form.resultText || null,
         unit: form.unit || null,
         methodUsed: form.methodUsed || null, specification: form.specification || null,
         outcome: form.outcome, remarks: form.remarks || null,
@@ -190,28 +199,26 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
           </div>
         )}
 
-        {resultMode === 'text' && (
-          <>
-            <div className="form-section">
-              <h3 className="form-section__title">Result</h3>
-              <div className="field-pair">
-                <div className="field">
-                  <label htmlFor="rs-value">Result value *</label>
-                  <input id="rs-value" value={form.resultValue} onChange={set('resultValue')} disabled={busy} placeholder="e.g. 99.5" />
-                  {fieldErrors.resultValue && <p className="field-error">{fieldErrors.resultValue}</p>}
-                </div>
-                <div className="field">
-                  <label htmlFor="rs-unit">Unit</label>
-                  <input id="rs-unit" value={form.unit} onChange={set('unit')} disabled={busy} placeholder="e.g. %, mg/g, ppm" />
-                </div>
-              </div>
-              <div className="field">
-                <label htmlFor="rs-text">Result text <span className="label-hint">(for descriptive results)</span></label>
-                <textarea id="rs-text" rows={3} value={form.resultText} onChange={set('resultText')} disabled={busy} placeholder="Paste the report or finding here…" />
-              </div>
+        <div className="form-section">
+          <h3 className="form-section__title">Result</h3>
+          <div className="field-pair">
+            <div className="field">
+              <label htmlFor="rs-value">
+                Result value {resultMode === 'text' ? '*' : <span className="label-hint">(optional with a PDF)</span>}
+              </label>
+              <input id="rs-value" value={form.resultValue} onChange={set('resultValue')} disabled={busy} placeholder="e.g. 99.5" />
+              {fieldErrors.resultValue && <p className="field-error">{fieldErrors.resultValue}</p>}
             </div>
-          </>
-        )}
+            <div className="field">
+              <label htmlFor="rs-unit">Unit</label>
+              <input id="rs-unit" value={form.unit} onChange={set('unit')} disabled={busy} placeholder="e.g. %, mg/g, ppm" />
+            </div>
+          </div>
+          <div className="field">
+            <label htmlFor="rs-text">Result text <span className="label-hint">(for descriptive results)</span></label>
+            <textarea id="rs-text" rows={3} value={form.resultText} onChange={set('resultText')} disabled={busy} placeholder="Paste the report or finding here…" />
+          </div>
+        </div>
 
         <div className="form-section">
           <h3 className="form-section__title">Analysis details</h3>
@@ -274,6 +281,15 @@ export interface ReviewTarget {
   unit: string | null;
   outcome: ArdResultOutcome | null;
   submittedByName: string | null;
+  /** PDF result file (when the analyst attached one). */
+  fileName?: string | null;
+  resultMode?: 'text' | 'pdf' | null;
+  /** Structured fields from the form, shown next to the document. */
+  methodUsed?: string | null;
+  specification?: string | null;
+  remarks?: string | null;
+  analysisStartDate?: string | null;
+  completionDate?: string | null;
 }
 
 /** The AGM's decision on one submitted result: approve it, or reject it with a reason. */
@@ -313,8 +329,22 @@ export function ReviewResultModal({ target, onClose, onDone }: {
       {target && (
         <dl className="facts">
           <dt>Result</dt>
-          <dd>{[target.resultValue, target.unit].filter(Boolean).join(' ') || target.resultText || '—'}</dd>
+          <dd>
+            {[target.resultValue, target.unit].filter(Boolean).join(' ') || target.resultText
+              || (target.resultMode === 'pdf' ? 'See attached PDF' : '—')}
+          </dd>
+          {target.fileName && (
+            <>
+              <dt>Result file</dt>
+              <dd><ResultFileButton assignmentId={target.assignmentId} fileName={target.fileName} /></dd>
+            </>
+          )}
           <dt>Outcome</dt><dd>{target.outcome ?? '—'}</dd>
+          {target.methodUsed && <><dt>Method</dt><dd>{target.methodUsed}</dd></>}
+          {target.specification && <><dt>Specification</dt><dd>{target.specification}</dd></>}
+          {target.analysisStartDate && <><dt>Analysis start</dt><dd>{formatDate(target.analysisStartDate)}</dd></>}
+          {target.completionDate && <><dt>Completion</dt><dd>{formatDate(target.completionDate)}</dd></>}
+          {target.remarks && <><dt>Remarks</dt><dd>{target.remarks}</dd></>}
           <dt>Submitted by</dt><dd>{target.submittedByName ?? '—'}</dd>
         </dl>
       )}
@@ -423,6 +453,9 @@ export function TestResultsCard({ trfId, trfNumber, canReview, onChanged }: {
                         assignmentId: a.id, version: a.version, testName: a.testName, trfNumber,
                         resultValue: a.resultValue ?? null, resultText: a.resultText ?? null, unit: a.unit ?? null,
                         outcome: (a.outcome as ArdResultOutcome | null) ?? null, submittedByName: a.enteredByName ?? null,
+                        fileName: a.fileName ?? null, resultMode: a.resultMode ?? null,
+                        methodUsed: a.methodUsed ?? null, specification: a.specification ?? null, remarks: a.remarks ?? null,
+                        analysisStartDate: a.analysisStartDate ?? null, completionDate: a.completionDate ?? null,
                       })}>Review</button>
                     )}
                   </td>

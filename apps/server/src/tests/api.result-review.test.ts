@@ -366,15 +366,27 @@ maybe('pdf mode: upload a file, then submit in pdf mode', async () => {
   const up = await uploadPdf(a.id, fakePdf(), analystToken);
   assert.equal(up.status, 201, JSON.stringify(up.body));
 
-  // Submit in pdf mode (resultValue/resultText optional).
+  // Submit in pdf mode, with the structured values from the form.
   const submitted = await post(`/api/ard-assignments/${a.id}/result`, {
-    version: a.version, resultMode: 'pdf', outcome: 'Pass', remarks: 'PDF result attached',
+    version: a.version, resultMode: 'pdf', resultValue: '99.5', unit: '%', outcome: 'Pass', remarks: 'PDF result attached',
   }, analystToken);
   assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
   assert.equal(submitted.body.resultMode, 'pdf');
   assert.ok(submitted.body.fileName, 'the file name is returned');
-  assert.equal(submitted.body.resultValue, null, 'pdf mode clears resultValue');
-  assert.equal(submitted.body.resultText, null, 'pdf mode clears resultText');
+  assert.equal(submitted.body.resultValue, '99.5', 'pdf mode keeps the structured result value');
+  assert.equal(submitted.body.unit, '%', 'pdf mode keeps the unit');
+  assert.equal(submitted.body.resultText, null, 'resultText stays empty when none was typed');
+
+  // The AGM's review queue carries the file and the structured fields.
+  const queue = await api<{ items: any[] }>('/api/ard-assignments/result-reviews', {}, agmToken);
+  assert.equal(queue.status, 200, JSON.stringify(queue.body));
+  const queued = queue.body.items.find((i) => i.assignmentId === a.id);
+  assert.ok(queued, 'the AGM sees the submitted result');
+  assert.equal(queued.resultMode, 'pdf');
+  assert.ok(queued.fileName, 'the AGM can see which PDF to open');
+  assert.equal(queued.resultValue, '99.5', 'the AGM sees the structured result');
+  assert.equal(queued.unit, '%');
+  assert.equal(queued.remarks, 'PDF result attached');
 });
 
 maybe('pdf mode without a file is refused', async () => {

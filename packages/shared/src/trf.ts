@@ -215,6 +215,12 @@ export interface ResultReviewQueueItem {
   resultMode?: 'text' | 'pdf' | null;
   /** PDF file name for display (when resultMode is 'pdf'). */
   fileName?: string | null;
+  /** Structured result fields, so the reviewer sees the numbers and the document. */
+  methodUsed?: string | null;
+  specification?: string | null;
+  remarks?: string | null;
+  analysisStartDate?: string | null;
+  completionDate?: string | null;
 }
 
 // ARD overview view

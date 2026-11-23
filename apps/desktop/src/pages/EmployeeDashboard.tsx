@@ -34,6 +34,7 @@ interface AssignmentSummary {
   reviewedByName: string | null;
   resultMode: 'text' | 'pdf' | null;
   fileName: string | null;
+  fileSize: number | null;
   /** Completion fields */
   analysisStartDate: string | null;
   completionDate: string | null;
@@ -115,6 +116,7 @@ export function EmployeeDashboard() {
       reviewedByName: a.reviewedByName ?? null,
       resultMode: a.resultMode ?? null,
       fileName: a.fileName ?? null,
+      fileSize: a.fileSize ?? null,
       analysisStartDate: a.analysisStartDate ?? null,
       completionDate: a.completionDate ?? null,
       completedBy: a.completedBy ?? null,
@@ -252,7 +254,8 @@ export function EmployeeDashboard() {
                           onClick={() => setSubmitting({
                             assignmentId: a.id, version: a.version, testName: a.testName, trfNumber: a.trfNumber,
                             analysisStartDate: a.analysisStartDate,
-previous: a.reviewStatus === 'Rejected' ? {
+                            fileName: a.fileName ?? null, fileSize: a.fileSize ?? null, resultMode: a.resultMode ?? null,
+                            previous: a.reviewStatus === 'Rejected' ? {
                               resultValue: a.resultValue, resultText: a.resultText, unit: a.unit, methodUsed: a.methodUsed,
                               specification: a.specification,
                               outcome: a.outcome, remarks: a.remarks,

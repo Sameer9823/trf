@@ -807,8 +807,10 @@ ardAssignmentsRouter.post('/:id/result', validateBody(submitResultSchema), async
       }
 
       // Text mode replaces the file with text; pdf mode replaces the text with the file.
-      const resultValue = isPdf ? null : blank(body.resultValue);
-      const resultText = isPdf ? null : blank(body.resultText);
+      // A PDF result still keeps the structured values from the form, so the AGM
+      // reviews the numbers and the document together instead of a bare file.
+      const resultValue = blank(body.resultValue);
+      const resultText = blank(body.resultText);
       const fileRelPath = isPdf ? existing!.file_relative_path : null;
       const fileName = isPdf ? existing!.file_name : null;
       const fileSize = isPdf ? existing!.file_size : null;
@@ -1176,11 +1178,13 @@ ardAssignmentsRouter.get('/result-reviews', async (req, res, next) => {
       assignment_id: number; assignment_version: number; trf_id: number; trf_number: string; ard_number: string | null; product_name: string | null;
       batch_number: string | null; test_name: string; result_value: string | null; result_text: string | null;
       unit: string | null; outcome: 'Pass' | 'Fail' | 'NA' | null; submitted_at: Date | null; submitted_by_name: string | null;
-      result_mode: string | null; file_name: string | null;
+      result_mode: string | null; file_name: string | null; method_used: string | null; specification: string | null;
+      remarks: string | null; analysis_start_date: Date | string | null; completion_date: Date | string | null;
     }>(`
       SELECT ata.id AS assignment_id, ata.version AS assignment_version, t.id AS trf_id, t.trf_number, t.ard_number,
              p.name AS product_name, t.batch_number, ata.test_name, r.result_value, r.result_text, r.unit, r.outcome,
-             r.submitted_at, eb.full_name AS submitted_by_name, r.result_mode, r.file_name
+             r.submitted_at, eb.full_name AS submitted_by_name, r.result_mode, r.file_name, r.method_used, r.specification,
+             r.remarks, ata.analysis_start_date, ata.completion_date
         FROM ard_assignment_results r
         JOIN ard_test_assignments ata ON ata.id = r.assignment_id
         JOIN trfs t ON t.id = ata.trf_id AND t.deleted_at IS NULL AND t.locked_at IS NULL
@@ -1195,6 +1199,9 @@ ardAssignmentsRouter.get('/result-reviews', async (req, res, next) => {
       resultValue: r.result_value, resultText: r.result_text, unit: r.unit, outcome: r.outcome,
       submittedAt: r.submitted_at ? new Date(r.submitted_at).toISOString() : null, submittedByName: r.submitted_by_name,
       resultMode: r.result_mode, fileName: r.file_name,
+      methodUsed: r.method_used, specification: r.specification, remarks: r.remarks,
+      analysisStartDate: r.analysis_start_date ? new Date(r.analysis_start_date).toISOString().slice(0, 10) : null,
+      completionDate: r.completion_date ? new Date(r.completion_date).toISOString().slice(0, 10) : null,
     })) });
   } catch (err) { next(err); }
 });

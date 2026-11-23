@@ -62,6 +62,9 @@ export function Approvals() {
                   <td><button className="btn btn--primary" onClick={() => setReviewing({
                     assignmentId: r.assignmentId, version: r.assignmentVersion, testName: r.testName, trfNumber: r.trfNumber,
                     resultValue: r.resultValue, resultText: r.resultText, unit: r.unit, outcome: r.outcome, submittedByName: r.submittedByName,
+                    fileName: r.fileName ?? null, resultMode: r.resultMode ?? null,
+                    methodUsed: r.methodUsed ?? null, specification: r.specification ?? null, remarks: r.remarks ?? null,
+                    analysisStartDate: r.analysisStartDate ?? null, completionDate: r.completionDate ?? null,
                   })}>Review</button></td>
                 </tr>
               ))}
