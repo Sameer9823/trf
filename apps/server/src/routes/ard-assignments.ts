@@ -750,7 +750,7 @@ ardAssignmentsRouter.post('/:id/result', validateBody(submitResultSchema), async
   const viewer = currentEmployee(req);
   try {
     const assignmentId = Number(req.params.id);
-    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound();
+    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound('This test assignment could not be found.');
     const body = req.body as z.infer<typeof submitResultSchema>;
 
     if (viewer.role === 'Viewer') throw forbidden('A Viewer cannot submit test results.');
@@ -761,7 +761,7 @@ ardAssignmentsRouter.post('/:id/result', validateBody(submitResultSchema), async
         analysis_start_date: Date | string | null;
       }>(`SELECT id, version, status, trf_id, test_name, analysis_start_date FROM ard_test_assignments WHERE id = $1 FOR UPDATE`, [assignmentId]);
       const assignment = found.rows[0];
-      if (!assignment) throw notFound();
+      if (!assignment) throw notFound('This test assignment no longer exists. It may have been deleted or reassigned.');
       if (assignment.version !== body.version) throw versionConflict();
 
       // Only the employee the test was assigned to submits its result.
@@ -771,7 +771,7 @@ ardAssignmentsRouter.post('/:id/result', validateBody(submitResultSchema), async
 
       const trf = (await client.query<{ trf_number: string; locked_at: Date | null; deleted_at: Date | null; remarks_status: string }>(
         `SELECT trf_number, locked_at, deleted_at, remarks_status FROM trfs WHERE id = $1 FOR UPDATE`, [assignment.trf_id])).rows[0];
-      if (!trf || trf.deleted_at) throw notFound();
+      if (!trf || trf.deleted_at) throw notFound('The TRF for this test no longer exists. It may have been deleted.');
       if (trf.locked_at) throw conflict('This TRF is locked, so its results can no longer change.');
       if (trf.remarks_status !== 'Approved') {
         throw new AppError(409, 'FORMULATION_NOT_APPROVED', 'Results can be submitted only after the Formulation request is approved.');
@@ -878,7 +878,7 @@ ardAssignmentsRouter.post('/:id/result-file', async (req, res, next) => {
   const viewer = currentEmployee(req);
   try {
     const assignmentId = Number(req.params.id);
-    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound();
+    if (!Number.isInteger(assignmentId) || assignmentId <= 0) throw notFound('This test assignment could not be found.');
 
     if (viewer.role === 'Viewer') throw forbidden('A Viewer cannot upload test result files.');
 

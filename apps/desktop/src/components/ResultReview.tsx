@@ -62,7 +62,7 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
   onSubmitted: () => void;
 }) {
   const [form, setForm] = useState({
-    resultValue: '', unit: '', resultText: '', methodUsed: '', specification: '', lowerLimit: '', upperLimit: '',
+    resultValue: '', unit: '', resultText: '', methodUsed: '', specification: '',
     outcome: 'Pass' as ArdResultOutcome, remarks: '', analysisStartDate: today(), completionDate: today(),
   });
   const [busy, setBusy] = useState(false);
@@ -80,7 +80,7 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
     const p = target.previous;
     setForm({
       resultValue: p?.resultValue ?? '', unit: p?.unit ?? '', resultText: p?.resultText ?? '', methodUsed: p?.methodUsed ?? '',
-      specification: p?.specification ?? '', lowerLimit: p?.lowerLimit ?? '', upperLimit: p?.upperLimit ?? '',
+      specification: p?.specification ?? '',
       outcome: (p?.outcome as ArdResultOutcome | null | undefined) ?? 'Pass', remarks: p?.remarks ?? '',
       analysisStartDate: target.analysisStartDate ?? today(), completionDate: today(),
     });
@@ -127,7 +127,6 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
         resultText: resultMode === 'text' ? (form.resultText || null) : null,
         unit: form.unit || null,
         methodUsed: form.methodUsed || null, specification: form.specification || null,
-        lowerLimit: form.lowerLimit || null, upperLimit: form.upperLimit || null,
         outcome: form.outcome, remarks: form.remarks || null,
         analysisStartDate: form.analysisStartDate || null, completionDate: form.completionDate || null,
       },
@@ -143,101 +142,123 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
   }
 
   return (
-    <Modal open={!!target} onClose={onClose} busy={busy} className="modal--wide"
+    <Modal open={!!target} onClose={onClose} busy={busy} className="modal--wide modal--result"
       title={target ? `Submit result: ${target.testName} (${target.trfNumber})` : undefined}>
-      <p className="muted">
-        An AGM reviews this result. The test is completed once they approve it; if they reject it you will be asked to correct and submit it again.
-      </p>
-      <div className="field">
-        <label>Result input</label>
-        <div className="segmented">
-          <button type="button" className={resultMode === 'text' ? 'segmented__btn segmented__btn--active' : 'segmented__btn'}
-            onClick={() => { setResultMode('text'); setError(null); }} disabled={busy}>Text</button>
-          <button type="button" className={resultMode === 'pdf' ? 'segmented__btn segmented__btn--active' : 'segmented__btn'}
-            onClick={() => { setResultMode('pdf'); setError(null); }} disabled={busy}>Upload PDF</button>
+      <div className="result-modal">
+        <div className="result-modal__intro">
+          <span className="result-modal__icon">{resultMode === 'pdf' ? '📄' : '📝'}</span>
+          <p className="muted">
+            An AGM reviews this result. The test is completed once they approve it; if they reject it you will be asked to correct and submit it again.
+          </p>
         </div>
-      </div>
-      {resultMode === 'pdf' && (
+
+        {/* Result input mode switch */}
         <div className="field">
-          <label>PDF result file</label>
-          {uploadedFile ? (
-            <div className="notice">
-              <strong>{uploadedFile.fileName}</strong>
-              <span className="muted"> ({(uploadedFile.fileSize / 1024).toFixed(1)} KB)</span>
-              <button type="button" className="btn btn--tiny" onClick={() => void uploadFile()} disabled={uploading || busy}>
-                {uploading ? 'Uploading…' : 'Replace'}
-              </button>
-            </div>
-          ) : (
-            <button type="button" className="btn btn--primary" onClick={() => void uploadFile()} disabled={uploading || busy}>
-              {uploading ? 'Uploading…' : 'Choose PDF file…'}
+          <label>Result input</label>
+          <div className="segmented segmented--lg">
+            <button type="button" className={resultMode === 'text' ? 'segmented__btn segmented__btn--active' : 'segmented__btn'}
+              onClick={() => { setResultMode('text'); setError(null); }} disabled={busy}>
+              <span className="segmented__icon">📝</span> Text
             </button>
-          )}
-        </div>
-      )}
-      {resultMode === 'text' && (
-        <div className="field-pair">
-          <div className="field">
-            <label htmlFor="rs-value">Result value *</label>
-            <input id="rs-value" value={form.resultValue} onChange={set('resultValue')} disabled={busy} />
-            {fieldErrors.resultValue && <p className="field-error">{fieldErrors.resultValue}</p>}
-          </div>
-          <div className="field">
-            <label htmlFor="rs-unit">Unit</label>
-            <input id="rs-unit" value={form.unit} onChange={set('unit')} disabled={busy} placeholder="e.g. %, mg/g, ppm" />
+            <button type="button" className={resultMode === 'pdf' ? 'segmented__btn segmented__btn--active' : 'segmented__btn'}
+              onClick={() => { setResultMode('pdf'); setError(null); }} disabled={busy}>
+              <span className="segmented__icon">📄</span> Upload PDF
+            </button>
           </div>
         </div>
-      )}
-      {resultMode === 'text' && (
-        <div className="field">
-          <label htmlFor="rs-text">Result text (for descriptive results)</label>
-          <textarea id="rs-text" rows={2} value={form.resultText} onChange={set('resultText')} disabled={busy} />
+
+        {resultMode === 'pdf' && (
+          <div className="field">
+            <label>PDF result file</label>
+            {uploadedFile ? (
+              <div className="file-upload file-upload--success">
+                <span className="file-upload__icon">📄</span>
+                <div className="file-upload__info">
+                  <strong>{uploadedFile.fileName}</strong>
+                  <span className="muted">{(uploadedFile.fileSize / 1024).toFixed(1)} KB</span>
+                </div>
+                <button type="button" className="btn btn--tiny" onClick={() => void uploadFile()} disabled={uploading || busy}>
+                  {uploading ? 'Uploading…' : 'Replace'}
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="file-upload file-upload--drop" onClick={() => void uploadFile()} disabled={uploading || busy}>
+                <span className="file-upload__icon">📂</span>
+                <span>{uploading ? 'Uploading…' : 'Choose a PDF file (max 10 MB)'}</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {resultMode === 'text' && (
+          <>
+            <div className="form-section">
+              <h3 className="form-section__title">Result</h3>
+              <div className="field-pair">
+                <div className="field">
+                  <label htmlFor="rs-value">Result value *</label>
+                  <input id="rs-value" value={form.resultValue} onChange={set('resultValue')} disabled={busy} placeholder="e.g. 99.5" />
+                  {fieldErrors.resultValue && <p className="field-error">{fieldErrors.resultValue}</p>}
+                </div>
+                <div className="field">
+                  <label htmlFor="rs-unit">Unit</label>
+                  <input id="rs-unit" value={form.unit} onChange={set('unit')} disabled={busy} placeholder="e.g. %, mg/g, ppm" />
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="rs-text">Result text <span className="label-hint">(for descriptive results)</span></label>
+                <textarea id="rs-text" rows={3} value={form.resultText} onChange={set('resultText')} disabled={busy} placeholder="Paste the report or finding here…" />
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="form-section">
+          <h3 className="form-section__title">Analysis details</h3>
+          <div className="field-pair">
+            <div className="field">
+              <label htmlFor="rs-method">Method used</label>
+              <input id="rs-method" value={form.methodUsed} onChange={set('methodUsed')} disabled={busy} placeholder="e.g. HPLC" />
+            </div>
+            <div className="field">
+              <label htmlFor="rs-spec">Specification</label>
+              <input id="rs-spec" value={form.specification} onChange={set('specification')} disabled={busy} placeholder="e.g. 98.0 - 102.0" />
+            </div>
+          </div>
+          <div className="field-pair">
+            <div className="field">
+              <label htmlFor="rs-outcome">Outcome *</label>
+              <select id="rs-outcome" value={form.outcome} onChange={set('outcome')} disabled={busy}>
+                {ARD_RESULT_OUTCOMES.map((o) => <option key={o} value={o}>{o === 'NA' ? 'Not applicable' : o}</option>)}
+              </select>
+            </div>
+            <div className="field" />
+          </div>
+          <div className="field-pair">
+            <div className="field">
+              <label htmlFor="rs-start">Analysis start date</label>
+              <input id="rs-start" type="date" value={form.analysisStartDate} onChange={set('analysisStartDate')} disabled={busy} />
+            </div>
+            <div className="field">
+              <label htmlFor="rs-done">Completion date</label>
+              <input id="rs-done" type="date" value={form.completionDate} onChange={set('completionDate')} disabled={busy} />
+              {fieldErrors.completionDate && <p className="field-error">{fieldErrors.completionDate}</p>}
+            </div>
+          </div>
         </div>
-      )}
-      <div className="field-pair">
+
         <div className="field">
-          <label htmlFor="rs-method">Method used</label>
-          <input id="rs-method" value={form.methodUsed} onChange={set('methodUsed')} disabled={busy} />
+          <label htmlFor="rs-remarks">Remarks <span className="label-hint">(optional notes for the reviewer)</span></label>
+          <textarea id="rs-remarks" rows={2} value={form.remarks} onChange={set('remarks')} disabled={busy} placeholder="Add any notes for the AGM reviewer…" />
         </div>
-        <div className="field">
-          <label htmlFor="rs-spec">Specification</label>
-          <input id="rs-spec" value={form.specification} onChange={set('specification')} disabled={busy} />
+
+        {error && <p className="field-error" role="alert">{error}</p>}
+        <div className="row modal__actions">
+          <button className="btn" type="button" disabled={busy} onClick={onClose}>Cancel</button>
+          <button className="btn btn--primary" type="button" disabled={busy || uploading} onClick={() => void submit()}>
+            {busy ? 'Submitting…' : 'Submit for AGM review'}
+          </button>
         </div>
-        <div className="field">
-          <label htmlFor="rs-lower">Lower limit</label>
-          <input id="rs-lower" value={form.lowerLimit} onChange={set('lowerLimit')} disabled={busy} />
-        </div>
-        <div className="field">
-          <label htmlFor="rs-upper">Upper limit</label>
-          <input id="rs-upper" value={form.upperLimit} onChange={set('upperLimit')} disabled={busy} />
-        </div>
-        <div className="field">
-          <label htmlFor="rs-outcome">Outcome *</label>
-          <select id="rs-outcome" value={form.outcome} onChange={set('outcome')} disabled={busy}>
-            {ARD_RESULT_OUTCOMES.map((o) => <option key={o} value={o}>{o === 'NA' ? 'Not applicable' : o}</option>)}
-          </select>
-        </div>
-        <div className="field" />
-        <div className="field">
-          <label htmlFor="rs-start">Analysis start date</label>
-          <input id="rs-start" type="date" value={form.analysisStartDate} onChange={set('analysisStartDate')} disabled={busy} />
-        </div>
-        <div className="field">
-          <label htmlFor="rs-done">Completion date</label>
-          <input id="rs-done" type="date" value={form.completionDate} onChange={set('completionDate')} disabled={busy} />
-          {fieldErrors.completionDate && <p className="field-error">{fieldErrors.completionDate}</p>}
-        </div>
-      </div>
-      <div className="field">
-        <label htmlFor="rs-remarks">Remarks</label>
-        <textarea id="rs-remarks" rows={2} value={form.remarks} onChange={set('remarks')} disabled={busy} />
-      </div>
-      {error && <p className="field-error" role="alert">{error}</p>}
-      <div className="row modal__actions">
-        <button className="btn" type="button" disabled={busy} onClick={onClose}>Cancel</button>
-        <button className="btn btn--primary" type="button" disabled={busy || uploading} onClick={() => void submit()}>
-          {busy ? 'Submitting…' : 'Submit for AGM review'}
-        </button>
       </div>
     </Modal>
   );

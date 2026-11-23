@@ -136,15 +136,58 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .btn--tiny { padding: 0 4px; font-size: 14px; line-height: 1; }
 
 /* Segmented control (Text / Upload PDF switch) */
-.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
-.segmented__btn { padding: 6px 16px; border: none; background: var(--panel); color: var(--muted); cursor: pointer; font-size: 14px; }
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--panel); }
+.segmented--lg { width: 100%; }
+.segmented--lg .segmented__btn { flex: 1; padding: 10px 16px; font-size: 15px; }
+.segmented__btn { padding: 6px 16px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; transition: background 0.15s, color 0.15s; }
 .segmented__btn--active { background: var(--accent); color: #fff; }
 .segmented__btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.segmented__icon { font-size: 16px; line-height: 1; }
+
+/* Form sections in the result modal */
+.form-section { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; background: var(--panel); }
+.form-section__title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent); margin: 0 0 10px 0; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.label-hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+
+/* Result modal intro */
+.result-modal__intro { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; padding: 10px 14px; background: #fdf5e7; border: 1px solid #e6d3a5; border-radius: 6px; }
+.result-modal__intro p { margin: 0; }
+.result-modal__icon { font-size: 22px; line-height: 1; flex-shrink: 0; }
+
+/* File upload area */
+.file-upload { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border: 2px dashed var(--line); border-radius: 8px; background: var(--panel); width: 100%; text-align: left; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.file-upload--drop:hover { border-color: var(--accent); background: #f9f6f2; }
+.file-upload--success { border: 2px solid #c3e6cb; background: #f0faf2; cursor: default; }
+.file-upload__icon { font-size: 28px; line-height: 1; flex-shrink: 0; }
+.file-upload__info { display: flex; flex-direction: column; flex: 1; }
+.file-upload__info strong { font-size: 14px; }
+.file-upload__info .muted { font-size: 12px; }
 
 /* Tabs (ARD workspace) */
 .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); margin-bottom: 16px; }
-.tabs__btn { padding: 8px 16px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.tabs__btn { padding: 8px 16px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.15s, border-color 0.15s; }
 .tabs__btn--active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* Stat cards (ARD dashboard summary) */
+.stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.stat { flex: 1; min-width: 120px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: transform 0.15s, box-shadow 0.15s; }
+.stat:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.stat__value { font-size: 28px; font-weight: 700; line-height: 1; }
+.stat__value--info { color: var(--accent); }
+.stat__value--ok { color: var(--ok, #28a745); }
+.stat__value--warn { color: var(--warn, #ffc107); }
+.stat__value--danger { color: var(--danger, #dc3545); }
+.stat__label { font-size: 12px; color: var(--muted); text-align: center; }
+
+/* Badge variants */
+.badge--muted { background: #f0f0f0; color: #666; }
+.badge--ok { background: #d4edda; color: #155724; }
+.badge--warn { background: #fff3cd; color: #856404; }
+.badge--danger { background: #f8d7da; color: #721c24; }
+.badge--info { background: #d1ecf1; color: #0c5460; }
+
+/* Rejected reason highlight */
+.reject-reason { margin-top: 4px; padding: 6px 10px; background: #f8d7da; border-left: 3px solid var(--danger, #dc3545); border-radius: 4px; font-size: 12px; color: #721c24; }
 
 /* Exports */
 .export { display: inline-flex; align-items: center; gap: 8px; }

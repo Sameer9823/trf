@@ -26,8 +26,6 @@ interface AssignmentSummary {
   unit: string | null;
   methodUsed: string | null;
   specification: string | null;
-  lowerLimit: string | null;
-  upperLimit: string | null;
   remarks: string | null;
   /** The AGM's review of the submitted result */
   reviewStatus: ArdResultReviewStatus | null;
@@ -61,6 +59,15 @@ const STATUS_COLOR: Record<ArdTestAssignmentStatus, string> = {
   'Completed': 'var(--ok)',
   'Re-test Required': 'var(--warn)',
   'Cancelled': 'var(--danger)',
+};
+
+const STATUS_BADGE: Record<ArdTestAssignmentStatus, string> = {
+  'Pending Assignment': 'badge--muted',
+  'Assigned': 'badge--info',
+  'In Progress': 'badge--info',
+  'Completed': 'badge--ok',
+  'Re-test Required': 'badge--warn',
+  'Cancelled': 'badge--danger',
 };
 
 export function EmployeeDashboard() {
@@ -100,8 +107,6 @@ export function EmployeeDashboard() {
       unit: a.unit ?? null,
       methodUsed: a.methodUsed ?? null,
       specification: a.specification ?? null,
-      lowerLimit: a.lowerLimit ?? null,
-      upperLimit: a.upperLimit ?? null,
       remarks: a.remarks ?? null,
       reviewStatus: a.reviewStatus ?? null,
       reviewReason: a.reviewReason ?? null,
@@ -129,14 +134,17 @@ export function EmployeeDashboard() {
     return <div className="page page--wide"><p className="muted">Loading your test assignments…</p></div>;
   }
 
-  const pendingCount = assignments.filter((a) => a.testStatus === 'Pending Assignment').length;
+  const pendingCount = assignments.filter((a) => a.testStatus === 'Pending Assignment' || a.testStatus === 'Assigned').length;
   const inProgressCount = assignments.filter(
-    (a) => a.testStatus === 'Assigned' || a.testStatus === 'In Progress' || a.testStatus === 'Re-test Required',
+    (a) => a.testStatus === 'In Progress' || a.testStatus === 'Re-test Required',
   ).length;
-  const completedCount = assignments.filter(
-    (a) => a.testStatus === 'Completed' || a.testStatus === 'Cancelled',
+  const submittedCount = assignments.filter((a) => a.reviewStatus === 'Submitted').length;
+  const approvedCount = assignments.filter((a) => a.reviewStatus === 'Approved').length;
+  const rejectedCount = assignments.filter((a) => a.reviewStatus === 'Rejected').length;
+  const today = new Date().toISOString().slice(0, 10);
+  const overdueCount = assignments.filter(
+    (a) => a.dueDate && a.dueDate < today && a.testStatus !== 'Completed' && a.testStatus !== 'Cancelled',
   ).length;
-  const awaitingReviewCount = assignments.filter((a) => a.reviewStatus === 'Submitted').length;
 
   async function updateStatus(a: AssignmentSummary, status: ArdTestAssignmentStatus) {
     setUpdatingId(a.id);
@@ -170,10 +178,12 @@ export function EmployeeDashboard() {
       {error && <p className="error-text" role="alert">{error}</p>}
 
       <div className="stat-row stat-row--wrap">
-        <div className="stat"><span className="stat__value stat__value--info">{pendingCount}</span><span className="stat__label">Pending assignment</span></div>
-        <div className="stat"><span className="stat__value stat__value--info">{inProgressCount}</span><span className="stat__label">In progress</span></div>
-        <div className="stat"><span className="stat__value stat__value--info">{awaitingReviewCount}</span><span className="stat__label">Waiting for AGM review</span></div>
-        <div className="stat"><span className="stat__value stat__value--ok">{completedCount}</span><span className="stat__label">Completed</span></div>
+        <div className="stat stat--clickable"><span className="stat__value stat__value--info">{pendingCount}</span><span className="stat__label">Assigned</span></div>
+        <div className="stat stat--clickable"><span className="stat__value stat__value--info">{inProgressCount}</span><span className="stat__label">In progress</span></div>
+        <div className="stat stat--clickable"><span className="stat__value stat__value--warn">{submittedCount}</span><span className="stat__label">Submitted</span></div>
+        <div className="stat stat--clickable"><span className="stat__value stat__value--ok">{approvedCount}</span><span className="stat__label">Approved</span></div>
+        <div className="stat stat--clickable"><span className="stat__value stat__value--danger">{rejectedCount}</span><span className="stat__label">Rejected</span></div>
+        <div className="stat stat--clickable"><span className="stat__value stat__value--danger">{overdueCount}</span><span className="stat__label">Overdue</span></div>
       </div>
 
       {assignments.length === 0 ? (
@@ -197,18 +207,20 @@ export function EmployeeDashboard() {
                  <td>{a.testName}</td>
                  <td>{a.assignedAt ? formatDate(a.assignedAt) : '—'}</td>
                  <td>{a.dueDate ? formatDate(a.dueDate) : '—'}</td>
-                 <td>
-                   <span className="badge" style={{ color: STATUS_COLOR[a.testStatus] }}>
-                     {STATUS_LABEL[a.testStatus]}
-                   </span>
-                 </td>
+<td>
+                    <span className={`badge ${STATUS_BADGE[a.testStatus] ?? 'badge--info'}`}>
+                      {STATUS_LABEL[a.testStatus]}
+                    </span>
+                  </td>
                  <td>{a.resultMode === 'pdf' && a.fileName ? <ResultFileButton assignmentId={a.id} fileName={a.fileName} /> : (a.resultValue ?? '—')}{a.resultMode !== 'pdf' && a.unit ? ` ${a.unit}` : ''}</td>
                  <td>{a.outcome ?? '—'}</td>
-                 <td>
-                   <ResultReviewBadge status={a.reviewStatus} />
-                   {a.reviewStatus === 'Rejected' && a.reviewReason && <div className="muted">{a.reviewReason}</div>}
-                   {a.reviewStatus === 'Approved' && a.reviewedByName && <div className="muted">{a.reviewedByName}</div>}
-                 </td>
+<td>
+                    <ResultReviewBadge status={a.reviewStatus} />
+                    {a.reviewStatus === 'Rejected' && a.reviewReason && (
+                      <div className="reject-reason">{a.reviewReason}</div>
+                    )}
+                    {a.reviewStatus === 'Approved' && a.reviewedByName && <div className="muted">{a.reviewedByName}</div>}
+                  </td>
                  <td>
                    {updatingId === a.id ? <span className="muted">Saving…</span> : (
                      <>
@@ -222,11 +234,11 @@ export function EmployeeDashboard() {
                          onClick={() => setSubmitting({
                            assignmentId: a.id, version: a.version, testName: a.testName, trfNumber: a.trfNumber,
                            analysisStartDate: a.analysisStartDate,
-                           previous: a.reviewStatus === 'Rejected' ? {
-                             resultValue: a.resultValue, resultText: a.resultText, unit: a.unit, methodUsed: a.methodUsed,
-                             specification: a.specification, lowerLimit: a.lowerLimit, upperLimit: a.upperLimit,
-                             outcome: a.outcome, remarks: a.remarks,
-                           } : null,
+previous: a.reviewStatus === 'Rejected' ? {
+                              resultValue: a.resultValue, resultText: a.resultText, unit: a.unit, methodUsed: a.methodUsed,
+                              specification: a.specification,
+                              outcome: a.outcome, remarks: a.remarks,
+                            } : null,
                          })}
                          disabled={a.testStatus === 'Completed' || a.testStatus === 'Cancelled' || a.reviewStatus === 'Submitted'}
                        >{a.reviewStatus === 'Rejected' ? 'Correct & resubmit' : 'Submit result'}</button>
