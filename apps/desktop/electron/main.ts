@@ -415,6 +415,58 @@ ipcMain.handle('trf:generate-pdf', async (_event, trfId: number): Promise<{ ok: 
   }
 });
 
+/**
+ * Upload a PDF result file for an ARD test assignment. The user picks the file
+ * in a dialog; the main process reads it, validates size and magic bytes, and
+ * uploads it as raw application/pdf. The renderer never touches the token or
+ * the file bytes.
+ */
+ipcMain.handle('ard:upload-result-file', async (event, assignmentId: number): Promise<{ ok: boolean; cancelled?: boolean; fileName?: string; fileSize?: number; message?: string }> => {
+  if (!tokens?.accessToken) {
+    return { ok: false, message: 'Not authenticated' };
+  }
+  try {
+    const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const dialogOptions = {
+      title: 'Select PDF Result File',
+      filters: [{ name: 'PDF document', extensions: ['pdf'] }],
+      properties: ['openFile' as const],
+    };
+    const choice = parent ? await dialog.showOpenDialog(parent, dialogOptions) : await dialog.showOpenDialog(dialogOptions);
+    if (choice.canceled || !choice.filePaths[0]) return { ok: true, cancelled: true };
+
+    const filePath = choice.filePaths[0];
+    const stat = await fs.promises.stat(filePath);
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (stat.size > MAX_SIZE) {
+      return { ok: false, message: `File too large. Maximum size is ${MAX_SIZE / (1024 * 1024)} MB.` };
+    }
+    if (stat.size < 5) {
+      return { ok: false, message: 'The file is not a valid PDF.' };
+    }
+    const buffer = await fs.promises.readFile(filePath);
+    if (buffer.subarray(0, 5).toString() !== '%PDF-') {
+      return { ok: false, message: 'The selected file is not a valid PDF (missing %PDF- header).' };
+    }
+
+    const uploadRes = await send({
+      method: 'POST',
+      path: `/api/ard-assignments/${assignmentId}/result-file`,
+      body: buffer,
+      accessToken: tokens.accessToken,
+      contentType: 'application/pdf',
+      timeoutMs: 60000,
+    });
+    if (!uploadRes.ok) {
+      const errData = uploadRes.data as { error?: { message?: string } } | undefined;
+      return { ok: false, message: errData?.error?.message ?? 'Failed to upload the PDF.' };
+    }
+    return { ok: true, fileName: path.basename(filePath), fileSize: stat.size };
+  } catch (err) {
+    return { ok: false, message: (err as Error).message };
+  }
+});
+
 ipcMain.handle('auth:on-signed-out', (event) => {
   const listener: AuthListener = () => event.sender.send('auth:signed-out');
   authListeners.add(listener);

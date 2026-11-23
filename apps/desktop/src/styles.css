@@ -135,6 +135,12 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .btn--ghost:hover { background: #f3ece6; }
 .btn--tiny { padding: 0 4px; font-size: 14px; line-height: 1; }
 
+/* Segmented control (Text / Upload PDF switch) */
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.segmented__btn { padding: 6px 16px; border: none; background: var(--panel); color: var(--muted); cursor: pointer; font-size: 14px; }
+.segmented__btn--active { background: var(--accent); color: #fff; }
+.segmented__btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* Exports */
 .export { display: inline-flex; align-items: center; gap: 8px; }
 .export__note { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); max-width: 460px; }

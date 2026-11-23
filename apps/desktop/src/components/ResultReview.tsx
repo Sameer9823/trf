@@ -6,6 +6,23 @@ import { formatDate } from './Badges';
 import { Modal } from './Modal';
 
 /**
+ * A "View PDF" button that downloads the result PDF through the main process
+ * (tokens stay there) and lets the user save/open it.
+ */
+export function ResultFileButton({ assignmentId, fileName }: { assignmentId: number; fileName: string | null }) {
+  if (!fileName) return null;
+  return (
+    <button
+      type="button"
+      className="btn btn--tiny"
+      onClick={() => void window.trf.downloadBlob(`/api/ard-assignments/${assignmentId}/result-file`, fileName)}
+    >
+      View PDF
+    </button>
+  );
+}
+
+/**
  * Test results: the assigned employee submits a result, an AGM approves or rejects it. Once every test on a TRF is
  * approved, the AGM completes the TRF from the approval bar.
  */
@@ -51,9 +68,15 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [resultMode, setResultMode] = useState<'text' | 'pdf'>('text');
+  const [uploadedFile, setUploadedFile] = useState<{ fileName: string; fileSize: number } | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!target) return;
+    setResultMode('text');
+    setUploadedFile(null);
+    setUploading(false);
     const p = target.previous;
     setForm({
       resultValue: p?.resultValue ?? '', unit: p?.unit ?? '', resultText: p?.resultText ?? '', methodUsed: p?.methodUsed ?? '',
@@ -67,10 +90,29 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
 
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  async function uploadFile() {
+    if (!target) return;
+    setUploading(true);
+    setError(null);
+    const res = await window.trf.uploadResultFile(target.assignmentId);
+    setUploading(false);
+    if (!res.ok) {
+      if (!res.cancelled) setError(res.message ?? 'Could not upload the PDF.');
+      return;
+    }
+    if (res.fileName && res.fileSize != null) {
+      setUploadedFile({ fileName: res.fileName, fileSize: res.fileSize });
+    }
+  }
+
   async function submit() {
     if (!target) return;
-    if (!form.resultValue.trim() && !form.resultText.trim()) {
+    if (resultMode === 'text' && !form.resultValue.trim() && !form.resultText.trim()) {
       setFieldErrors({ resultValue: 'Enter the result value or the result text.' });
+      return;
+    }
+    if (resultMode === 'pdf' && !uploadedFile) {
+      setError('Upload a PDF file first, then submit.');
       return;
     }
     setBusy(true);
@@ -80,7 +122,10 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
       method: 'POST', path: `/api/ard-assignments/${target.assignmentId}/result`,
       body: {
         version: target.version,
-        resultValue: form.resultValue || null, resultText: form.resultText || null, unit: form.unit || null,
+        resultMode,
+        resultValue: resultMode === 'text' ? (form.resultValue || null) : null,
+        resultText: resultMode === 'text' ? (form.resultText || null) : null,
+        unit: form.unit || null,
         methodUsed: form.methodUsed || null, specification: form.specification || null,
         lowerLimit: form.lowerLimit || null, upperLimit: form.upperLimit || null,
         outcome: form.outcome, remarks: form.remarks || null,
@@ -103,21 +148,52 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
       <p className="muted">
         An AGM reviews this result. The test is completed once they approve it; if they reject it you will be asked to correct and submit it again.
       </p>
-      <div className="field-pair">
-        <div className="field">
-          <label htmlFor="rs-value">Result value *</label>
-          <input id="rs-value" value={form.resultValue} onChange={set('resultValue')} disabled={busy} />
-          {fieldErrors.resultValue && <p className="field-error">{fieldErrors.resultValue}</p>}
-        </div>
-        <div className="field">
-          <label htmlFor="rs-unit">Unit</label>
-          <input id="rs-unit" value={form.unit} onChange={set('unit')} disabled={busy} placeholder="e.g. %, mg/g, ppm" />
-        </div>
-      </div>
       <div className="field">
-        <label htmlFor="rs-text">Result text (for descriptive results)</label>
-        <textarea id="rs-text" rows={2} value={form.resultText} onChange={set('resultText')} disabled={busy} />
+        <label>Result input</label>
+        <div className="segmented">
+          <button type="button" className={resultMode === 'text' ? 'segmented__btn segmented__btn--active' : 'segmented__btn'}
+            onClick={() => { setResultMode('text'); setError(null); }} disabled={busy}>Text</button>
+          <button type="button" className={resultMode === 'pdf' ? 'segmented__btn segmented__btn--active' : 'segmented__btn'}
+            onClick={() => { setResultMode('pdf'); setError(null); }} disabled={busy}>Upload PDF</button>
+        </div>
       </div>
+      {resultMode === 'pdf' && (
+        <div className="field">
+          <label>PDF result file</label>
+          {uploadedFile ? (
+            <div className="notice">
+              <strong>{uploadedFile.fileName}</strong>
+              <span className="muted"> ({(uploadedFile.fileSize / 1024).toFixed(1)} KB)</span>
+              <button type="button" className="btn btn--tiny" onClick={() => void uploadFile()} disabled={uploading || busy}>
+                {uploading ? 'Uploading…' : 'Replace'}
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="btn btn--primary" onClick={() => void uploadFile()} disabled={uploading || busy}>
+              {uploading ? 'Uploading…' : 'Choose PDF file…'}
+            </button>
+          )}
+        </div>
+      )}
+      {resultMode === 'text' && (
+        <div className="field-pair">
+          <div className="field">
+            <label htmlFor="rs-value">Result value *</label>
+            <input id="rs-value" value={form.resultValue} onChange={set('resultValue')} disabled={busy} />
+            {fieldErrors.resultValue && <p className="field-error">{fieldErrors.resultValue}</p>}
+          </div>
+          <div className="field">
+            <label htmlFor="rs-unit">Unit</label>
+            <input id="rs-unit" value={form.unit} onChange={set('unit')} disabled={busy} placeholder="e.g. %, mg/g, ppm" />
+          </div>
+        </div>
+      )}
+      {resultMode === 'text' && (
+        <div className="field">
+          <label htmlFor="rs-text">Result text (for descriptive results)</label>
+          <textarea id="rs-text" rows={2} value={form.resultText} onChange={set('resultText')} disabled={busy} />
+        </div>
+      )}
       <div className="field-pair">
         <div className="field">
           <label htmlFor="rs-method">Method used</label>
@@ -159,7 +235,7 @@ export function SubmitResultModal({ target, onClose, onSubmitted }: {
       {error && <p className="field-error" role="alert">{error}</p>}
       <div className="row modal__actions">
         <button className="btn" type="button" disabled={busy} onClick={onClose}>Cancel</button>
-        <button className="btn btn--primary" type="button" disabled={busy} onClick={() => void submit()}>
+        <button className="btn btn--primary" type="button" disabled={busy || uploading} onClick={() => void submit()}>
           {busy ? 'Submitting…' : 'Submit for AGM review'}
         </button>
       </div>
@@ -295,8 +371,12 @@ export function TestResultsCard({ trfId, trfNumber, canReview, onChanged }: {
                   <td>{a.testName}</td>
                   <td>{a.analysts?.map((x) => x.fullName).join(', ') || '—'}</td>
                   <td>
-                    {value || <span className="muted">—</span>}
-                    {a.enteredByName && value && <div className="muted">by {a.enteredByName}{a.submittedAt ? `, ${formatDate(a.submittedAt)}` : ''}</div>}
+                    {a.resultMode === 'pdf' && a.fileName ? (
+                      <ResultFileButton assignmentId={a.id} fileName={a.fileName} />
+                    ) : (
+                      value || <span className="muted">—</span>
+                    )}
+                    {a.enteredByName && (value || a.resultMode === 'pdf') && <div className="muted">by {a.enteredByName}{a.submittedAt ? `, ${formatDate(a.submittedAt)}` : ''}</div>}
                   </td>
                   <td>{a.outcome ?? '—'}</td>
                   <td>

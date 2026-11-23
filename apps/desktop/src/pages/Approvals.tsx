@@ -4,7 +4,7 @@ import type { TrfListItem, Paginated, ResultReviewQueueItem } from '@trf/shared'
 import { MESSAGES, isAdminDesignation } from '@trf/shared';
 import { formatDate } from '../components/Badges';
 import { useAuth } from '../lib/auth';
-import { ReviewResultModal, type ReviewTarget } from '../components/ResultReview';
+import { ReviewResultModal, ResultFileButton, type ReviewTarget } from '../components/ResultReview';
 
 /** The administrator's queue: every TRF waiting on a decision. */
 export function Approvals() {
@@ -44,7 +44,7 @@ export function Approvals() {
                   <td><Link to={`/trfs/${r.trfId}`}>{r.trfNumber}</Link></td>
                   <td>{r.productName ?? '—'}</td>
                   <td>{r.testName}</td>
-                  <td>{[r.resultValue, r.unit].filter(Boolean).join(' ') || r.resultText || '—'}</td>
+                  <td>{r.resultMode === 'pdf' && r.fileName ? <ResultFileButton assignmentId={r.assignmentId} fileName={r.fileName} /> : ([r.resultValue, r.unit].filter(Boolean).join(' ') || r.resultText || '—')}</td>
                   <td>{r.outcome ?? '—'}</td>
                   <td>{r.submittedByName ?? '—'}{r.submittedAt ? `, ${formatDate(r.submittedAt)}` : ''}</td>
                   <td><button className="btn btn--primary" onClick={() => setReviewing({

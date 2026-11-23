@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('trf', {
   printTrf: (trfId: number) => ipcRenderer.invoke('trf:print', trfId) as Promise<{ ok: boolean; message?: string }>,
   printToPDF: (trfId: number, fileName: string) => ipcRenderer.invoke('trf:printToPDF', trfId, fileName) as Promise<{ ok: boolean; cancelled?: boolean; path?: string; message?: string }>,
   generatePdf: (trfId: number) => ipcRenderer.invoke('trf:generate-pdf', trfId) as Promise<{ ok: boolean; path?: string; fileName?: string; message?: string }>,
+  // Upload a PDF result file for an ARD assignment (file picked in a dialog)
+  uploadResultFile: (assignmentId: number) => ipcRenderer.invoke('ard:upload-result-file', assignmentId) as Promise<{ ok: boolean; cancelled?: boolean; fileName?: string; fileSize?: number; message?: string }>,
   // Download a file (blob) from the API
   downloadBlob: (apiPath: string, fileName: string) => ipcRenderer.invoke('api:downloadBlob', apiPath, fileName) as Promise<{ ok: boolean; cancelled?: boolean; path?: string; message?: string }>,
   // Asks the main process to save the report; the renderer never handles the file.

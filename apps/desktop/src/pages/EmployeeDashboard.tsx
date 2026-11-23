@@ -6,7 +6,7 @@ import { useServerStatus } from '../lib/server-status';
 import { OfflineNotice } from '../components/OfflineNotice';
 import { formatDate } from '../components/Badges';
 import { NotificationCentre } from '../components/NotificationCentre';
-import { ResultReviewBadge, SubmitResultModal, type SubmitTarget } from '../components/ResultReview';
+import { ResultReviewBadge, SubmitResultModal, ResultFileButton, type SubmitTarget } from '../components/ResultReview';
 
 interface AssignmentSummary {
   id: number;
@@ -33,6 +33,8 @@ interface AssignmentSummary {
   reviewStatus: ArdResultReviewStatus | null;
   reviewReason: string | null;
   reviewedByName: string | null;
+  resultMode: 'text' | 'pdf' | null;
+  fileName: string | null;
   /** Completion fields */
   analysisStartDate: string | null;
   completionDate: string | null;
@@ -104,6 +106,8 @@ export function EmployeeDashboard() {
       reviewStatus: a.reviewStatus ?? null,
       reviewReason: a.reviewReason ?? null,
       reviewedByName: a.reviewedByName ?? null,
+      resultMode: a.resultMode ?? null,
+      fileName: a.fileName ?? null,
       analysisStartDate: a.analysisStartDate ?? null,
       completionDate: a.completionDate ?? null,
       completedBy: a.completedBy ?? null,
@@ -198,7 +202,7 @@ export function EmployeeDashboard() {
                      {STATUS_LABEL[a.testStatus]}
                    </span>
                  </td>
-                 <td>{a.resultValue ?? '—'}{a.unit ? ` ${a.unit}` : ''}</td>
+                 <td>{a.resultMode === 'pdf' && a.fileName ? <ResultFileButton assignmentId={a.id} fileName={a.fileName} /> : (a.resultValue ?? '—')}{a.resultMode !== 'pdf' && a.unit ? ` ${a.unit}` : ''}</td>
                  <td>{a.outcome ?? '—'}</td>
                  <td>
                    <ResultReviewBadge status={a.reviewStatus} />
