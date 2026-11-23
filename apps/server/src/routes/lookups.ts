@@ -271,6 +271,48 @@ lookupsRouter.get('/dosage-forms', requirePermission('trf.view'), async (_req, r
 });
 
 /**
+ * Create a new dosage form option. Requires trf.lookup edit permission (same as creating customers/products).
+ */
+lookupsRouter.post('/dosage-forms', requireTrfLookupEdit(), async (req, res, next) => {
+  try {
+    const { name } = req.body as { name: string };
+    if (!name || typeof name !== 'string' || name.trim().length < 2) {
+      throw badRequest('Enter a dosage form name (at least 2 characters).');
+    }
+    const trimmedName = name.trim();
+
+    // Check for duplicate name (case-insensitive)
+    const existing = await pool.query(
+      `SELECT id FROM dosage_form_options WHERE lower(name) = lower($1)`,
+      [trimmedName]
+    );
+    if (existing.rowCount && existing.rowCount > 0) {
+      throw conflict('A dosage form with this name already exists.');
+    }
+
+    // Get max display_order
+    const maxOrder = await pool.query<{ max: number }>(
+      `SELECT COALESCE(MAX(display_order), 0) as max FROM dosage_form_options`
+    );
+
+    const result = await pool.query<{ id: number; name: string; display_order: number; is_active: boolean }>(
+      `INSERT INTO dosage_form_options (name, display_order) VALUES ($1, $2) RETURNING id, name, display_order, is_active`,
+      [trimmedName, (maxOrder.rows[0]?.max ?? 0) + 1]
+    );
+
+    const row = result.rows[0];
+    const item: DosageFormOption = {
+      id: row.id,
+      name: row.name,
+      displayOrder: row.display_order,
+      isActive: row.is_active,
+    };
+
+    res.status(201).json(item);
+  } catch (err) { next(err); }
+});
+
+/**
  * Active test requested options for multi-select dropdown. Anyone who can view a TRF may read them.
  */
 lookupsRouter.get('/test-requested-options', requirePermission('trf.view'), async (_req, res, next) => {

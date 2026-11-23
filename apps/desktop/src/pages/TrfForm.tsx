@@ -445,6 +445,16 @@ export function TrfForm() {
         if (selectId !== undefined) set('productId', String(selectId));
       });
   };
+  const reloadDosageFormOptions = (selectId?: number) => {
+    void window.trf.request<{ items: DosageFormOption[] }>({ method: 'GET', path: '/api/lookups/dosage-forms' })
+      .then((r) => {
+        if (!r.ok || !r.data) return;
+        setDosageFormOptions(r.data.items);
+        if (selectId !== undefined) {
+          setForm((f) => ({ ...f, dosageFormOptionIds: [...f.dosageFormOptionIds, selectId] }));
+        }
+      });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -1027,6 +1037,18 @@ export function TrfForm() {
               value={form.dosageFormOptionIds}
               onChange={(ids) => set('dosageFormOptionIds', ids)}
               onOtherChange={(text) => set('dosageFormOther', text)}
+              onOtherSubmit={async (text) => {
+                const res = await window.trf.request<DosageFormOption>({
+                  method: 'POST', path: '/api/lookups/dosage-forms', body: { name: text },
+                });
+                if (!res.ok || !res.data) {
+                  setLookupErrors((e) => ({ ...e, dosage: messageOf(res.data, 'Could not create dosage form') }));
+                  return null;
+                }
+                // Add the new option to the list and return its ID
+                setDosageFormOptions((prev) => [...prev, res.data!]);
+                return res.data.id;
+              }}
               otherValue={form.dosageFormOther}
               showOther={true}
               otherOptionId={dosageFormOptions.find((o) => o.name.toLowerCase() === 'other')?.id}

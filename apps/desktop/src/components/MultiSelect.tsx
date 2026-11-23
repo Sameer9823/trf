@@ -18,6 +18,8 @@ export interface MultiSelectProps {
   onChange: (value: number[]) => void;
   /** Called with the "Other" text field value when the Other option is used. */
   onOtherChange?: (text: string) => void;
+  /** Called when the user submits a new "Other" value (e.g., presses Enter). Returns the new option ID or null on error. */
+  onOtherSubmit?: (text: string) => Promise<number | null>;
   /** Current Other text. */
   otherValue?: string;
   disabled?: boolean;
@@ -36,7 +38,7 @@ export interface MultiSelectProps {
  * and an inline "Other" text field when the Other option is selected.
  */
 export function MultiSelect({
-  id, label, value, options, onChange, onOtherChange, otherValue,
+  id, label, value, options, onChange, onOtherChange, onOtherSubmit, otherValue,
   disabled, fieldError, placeholder = 'Search…', emptyMessage = 'No options are available.',
   showOther = false, otherOptionId, lockOwner,
 }: MultiSelectProps) {
@@ -191,6 +193,22 @@ export function MultiSelect({
     onOtherChange?.(e.target.value);
   };
 
+  const handleOtherSubmit = async (e: React.KeyboardEvent | React.MouseEvent) => {
+    if (e.type === 'keydown' && (e as React.KeyboardEvent).key !== 'Enter') return;
+    e.preventDefault();
+    if (!otherValue?.trim()) return;
+    if (onOtherSubmit) {
+      const newOptionId = await onOtherSubmit(otherValue.trim());
+      if (newOptionId !== null) {
+        // Select the new option
+        onChange([...value, newOptionId]);
+        // Clear the other value
+        onOtherChange?.('');
+        closePanel();
+      }
+    }
+  };
+
   return (
     <div className={`field ${lockOwner ? 'field--locked' : ''}`}>
       <div className="field__head">
@@ -301,13 +319,24 @@ export function MultiSelect({
                     Other
                   </button>
                   {isOtherSelected && (
-                    <input
-                      type="text"
-                      className="field field--inline"
-                      placeholder="Enter Other value…"
-                      value={otherValue ?? ''}
-                      onChange={handleOtherChange}
-                    />
+                    <div className="combo__other-input-row">
+                      <input
+                        type="text"
+                        className="field field--inline"
+                        placeholder="Enter Other value…"
+                        value={otherValue ?? ''}
+                        onChange={handleOtherChange}
+                        onKeyDown={handleOtherSubmit}
+                      />
+                      {onOtherSubmit && (
+                        <button
+                          type="button"
+                          className="btn btn--primary"
+                          onClick={handleOtherSubmit}
+                          disabled={!otherValue?.trim()}
+                        >Add</button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -315,13 +344,24 @@ export function MultiSelect({
           )}
           {showOther && isOtherSelected && (
             <div className="field field--inline multi-select__other-input">
-              <input
-                type="text"
-                placeholder="Enter Other…"
-                value={otherValue ?? ''}
-                onChange={handleOtherChange}
-                disabled={disabled}
-              />
+              <div className="combo__other-input-row">
+                <input
+                  type="text"
+                  placeholder="Enter Other…"
+                  value={otherValue ?? ''}
+                  onChange={handleOtherChange}
+                  onKeyDown={handleOtherSubmit}
+                  disabled={disabled}
+                />
+                {onOtherSubmit && (
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={handleOtherSubmit}
+                    disabled={disabled || !otherValue?.trim()}
+                  >Add</button>
+                )}
+              </div>
             </div>
           )}
         </div>
