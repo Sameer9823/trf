@@ -485,6 +485,16 @@ export function TrfForm() {
     return () => { cancelled = true; };
   }, [lookupNonce, employees]);
 
+  // Auto-populate generic name when productId changes or products load
+  useEffect(() => {
+    if (form.productId) {
+      const selectedProduct = products.find(p => String(p.id) === form.productId);
+      if (selectedProduct && selectedProduct.genericName && form.genericName !== selectedProduct.genericName) {
+        set('genericName', selectedProduct.genericName);
+      }
+    }
+  }, [form.productId, products]);
+
   useEffect(() => {
     if (!isEdit) return;
     let cancelled = false;
