@@ -169,6 +169,21 @@ maybe('refresh rotates the token and the old refresh token no longer works', asy
   assert.equal(replay.status, 401);
 });
 
+maybe('two simultaneous refreshes with the same token: exactly one succeeds', async () => {
+  const login = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: 'phase2admin', password: 'Admin-Test-Password-42' }) });
+  const token = login.body.refreshToken as string;
+
+  // Fire both at once. The atomic UPDATE ... RETURNING lets exactly one claim
+  // the row; the other sees it already revoked and gets a 401.
+  const results = await Promise.all([
+    api('/api/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken: token }) }),
+    api('/api/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken: token }) }),
+  ]);
+
+  const statuses = results.map((r) => r.status).sort((a, b) => a - b);
+  assert.deepEqual(statuses, [200, 401], `expected one 200 and one 401, got ${JSON.stringify(statuses)}`);
+});
+
 maybe('logout revokes the refresh token', async () => {
   const login = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: 'phase2admin', password: 'Admin-Test-Password-42' }) });
   const refreshToken = login.body.refreshToken as string;

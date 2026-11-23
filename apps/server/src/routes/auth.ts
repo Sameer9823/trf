@@ -228,42 +228,56 @@ authRouter.post('/refresh', async (req, res, next) => {
 
     const tokenHash = hashToken(presented);
 
-    // Atomically revoke the presented token and get its details in one transaction.
-    // If the token was already revoked, this is a reuse detection event: revoke
-    // the entire token family (all tokens for that employee/team account).
+    // Atomically revoke the presented token and get its details in one
+    // UPDATE ... RETURNING. Only one concurrent request can win this statement
+    // (the row is locked until the transaction commits), so two simultaneous
+    // refreshes with the same token cannot both succeed. The loser sees the row
+    // as already revoked and triggers reuse detection below.
     const result = await withTransaction(async (client) => {
-      const stored = await client.query<{
+      const claimed = await client.query<{
         id: number; employee_id: number | null; team_account_id: number | null; acting_employee_id: number | null;
-        expires_at: Date; revoked_at: Date | null;
+        expires_at: Date;
       }>(
-        `SELECT id, employee_id, team_account_id, acting_employee_id, expires_at, revoked_at
-           FROM refresh_tokens WHERE token_hash = $1`,
+        `UPDATE refresh_tokens SET revoked_at = now()
+           WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+         RETURNING id, employee_id, team_account_id, acting_employee_id, expires_at`,
         [tokenHash],
       );
-      const row = stored.rows[0];
-      if (!row || new Date(row.expires_at) < new Date()) {
+      const row = claimed.rows[0];
+      if (!row) {
+        // No row claimed: the token is unknown, expired, or already revoked.
+        // Look it up to tell a reuse (revoked) apart from an unknown/expired one.
+        const existing = await client.query<{
+          id: number; employee_id: number | null; team_account_id: number | null; revoked_at: Date | null; expires_at: Date;
+        }>(
+          `SELECT id, employee_id, team_account_id, revoked_at, expires_at
+             FROM refresh_tokens WHERE token_hash = $1`,
+          [tokenHash],
+        );
+        const found = existing.rows[0];
+        if (!found || new Date(found.expires_at) < new Date()) {
+          throw unauthorized('Your session has expired. Please sign in again.');
+        }
+        if (found.revoked_at) {
+          // Token reuse detection: revoke every token for this user/team.
+          if (found.employee_id) {
+            await client.query(
+              `UPDATE refresh_tokens SET revoked_at = now() WHERE employee_id = $1 AND revoked_at IS NULL`,
+              [found.employee_id],
+            );
+          } else if (found.team_account_id) {
+            await client.query(
+              `UPDATE refresh_tokens SET revoked_at = now() WHERE team_account_id = $1 AND revoked_at IS NULL`,
+              [found.team_account_id],
+            );
+          }
+          throw unauthorized('Token reuse detected. Please sign in again.');
+        }
+        // Should not happen (row exists, not expired, not revoked, yet not claimed).
         throw unauthorized('Your session has expired. Please sign in again.');
       }
 
-      // Token reuse detection: if already revoked, revoke all tokens for this user/team
-      if (row.revoked_at) {
-        if (row.employee_id) {
-          await client.query(
-            `UPDATE refresh_tokens SET revoked_at = now() WHERE employee_id = $1 AND revoked_at IS NULL`,
-            [row.employee_id],
-          );
-        } else if (row.team_account_id) {
-          await client.query(
-            `UPDATE refresh_tokens SET revoked_at = now() WHERE team_account_id = $1 AND revoked_at IS NULL`,
-            [row.team_account_id],
-          );
-        }
-        throw unauthorized('Token reuse detected. Please sign in again.');
-      }
-
-      // Revoke the presented token and get new pair in same transaction
-      await client.query('UPDATE refresh_tokens SET revoked_at = now() WHERE id = $1', [row.id]);
-
+      // The presented token is now revoked; issue a fresh pair.
       if (row.team_account_id) {
         const account = await loadTeamAccount(row.team_account_id);
         if (!account || !account.is_active) throw unauthorized(MESSAGES.INVALID_CREDENTIALS);
