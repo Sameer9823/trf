@@ -9,18 +9,28 @@ import { PriorityBadge, StatusBadge, formatDate } from '../components/Badges';
 import { ExportButton } from '../components/ExportButton';
 import { Modal } from '../components/Modal';
 import { useServerStatus } from '../lib/server-status';
+import { EmployeeDashboard } from './EmployeeDashboard';
 
 type View = 'byTrf' | 'workload' | 'mine';
 
 const STATUSES = ['Pending', 'Assigned', 'In Progress', 'Completed', 'Re-test Required', 'Cancelled', 'Delayed'];
 
 export function Assignments() {
+  const { can } = useAuth();
+  const mayManage = can('assignments.manage');
+  // ARD employees without assignments.manage see their own tests through the
+  // same shared component as the ARD "My tests" tab.
+  if (!mayManage) return <EmployeeDashboard />;
+  return <AssignmentsManager />;
+}
+
+function AssignmentsManager() {
   const { state } = useServerStatus();
   const { can, employee } = useAuth();
   const [params, setParams] = useSearchParams();
 
   const mayManage = can('assignments.manage');
-  const [view, setView] = useState<View>(mayManage ? 'byTrf' : 'mine');
+  const [view, setView] = useState<View>('byTrf');
   const [data, setData] = useState<Assignment[]>([]);
   const [groups, setGroups] = useState<AssignmentGroup[]>([]);
   const [total, setTotal] = useState(0);
