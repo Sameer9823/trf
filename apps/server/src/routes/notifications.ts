@@ -6,6 +6,12 @@ import { pool } from '../db.js';
 export const notificationsRouter = Router();
 notificationsRouter.use(authenticate);
 
+// A notification whose TRF has been deleted is dead: the foreign key clears
+// related_trf_id (ON DELETE SET NULL), so the row can no longer be opened and
+// only inflates the unread badge. Team broadcasts have no TRF and stay visible.
+const VISIBLE_RECIPIENT_SQL = `recipient_employee_id = $1
+   AND (recipient_type = 'TEAM' OR related_trf_id IS NOT NULL)`;
+
 notificationsRouter.get('/', requirePermission('notifications.view'), async (req, res, next) => {
   try {
     const employee = currentEmployee(req);
@@ -25,7 +31,7 @@ notificationsRouter.get('/', requirePermission('notifications.view'), async (req
               created_at AS "createdAt",
               read_at AS "readAt"
          FROM notifications
-         WHERE recipient_employee_id = $1
+         WHERE ${VISIBLE_RECIPIENT_SQL}
            AND ($4 = FALSE OR is_read = FALSE)
          ORDER BY created_at DESC
          LIMIT $2 OFFSET $3`,
@@ -34,7 +40,7 @@ notificationsRouter.get('/', requirePermission('notifications.view'), async (req
 
     const unreadCount = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM notifications
-        WHERE recipient_employee_id = $1 AND is_read = FALSE`,
+        WHERE ${VISIBLE_RECIPIENT_SQL} AND is_read = FALSE`,
       [employee.id],
     );
 
@@ -73,7 +79,7 @@ notificationsRouter.get('/unread-count', requirePermission('notifications.view')
     const employee = currentEmployee(req);
     const result = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM notifications
-        WHERE recipient_employee_id = $1 AND is_read = FALSE`,
+        WHERE ${VISIBLE_RECIPIENT_SQL} AND is_read = FALSE`,
       [employee.id],
     );
     res.json({ count: Number(result.rows[0]?.count ?? 0) });
