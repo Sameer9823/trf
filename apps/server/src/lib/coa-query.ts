@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Coa, CoaFilters, CoaLine, CoaSignOff, CoaSortField, CoaStatus, Outcome, Priority, TrfStatus } from '@trf/shared';
 import { COA_SORT_FIELDS, COA_STATUSES } from '@trf/shared';
+import { dateOnly } from './dates.js';
 
 export const COA_SELECT = `
   c.id, c.trf_id, c.coa_number, c.status, c.remarks, c.version, c.created_at, c.updated_at,
@@ -125,12 +126,6 @@ const decimal = (value: string | number | null): string | null =>
   value === null || value === undefined ? null : String(value);
 
 /** A DATE column arrives as a Date object or a string, depending on the driver build. */
-const dateOnly = (value: Date | string | null): string | null => {
-  if (!value) return null;
-  if (typeof value === 'string') return value.slice(0, 10);
-  return value.toISOString().slice(0, 10);
-};
-
 export function toCoaLine(row: CoaLineRow): CoaLine {
   return {
     id: row.id,

@@ -4,6 +4,7 @@ import { Writable } from 'node:stream';
 import type { Logger } from 'pino';
 import pino from 'pino';
 import { config } from '../config.js';
+import { localDay } from './dates.js';
 
 /**
  * A small rotating file for the API log.
@@ -27,7 +28,7 @@ export interface RotatingFileOptions {
 }
 
 function stamp(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return localDay(date);
 }
 
 /** The dated file a given day's lines belong in. */

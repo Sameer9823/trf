@@ -6,6 +6,7 @@ import type {
 import {
   ANALYSIS_SORT_FIELDS, ANALYSIS_STATUSES, OUTCOMES,
 } from '@trf/shared';
+import { dateOnly } from './dates.js';
 
 export { DELAYED_SQL } from './assignment-query.js';
 
@@ -162,11 +163,6 @@ export interface AnalysisRow {
   result_updated_at: Date | null; entered_by_name: string | null;
   outcome: Outcome; is_delayed: boolean;
 }
-
-export const dateOnly = (value: Date | string | null): string | null => {
-  if (!value) return null;
-  return (typeof value === 'string' ? value : value.toISOString()).slice(0, 10);
-};
 
 /** NUMERIC arrives as a string by default, which is exactly what keeps 14 digits intact. */
 const decimal = (value: string | number | null): string | null =>

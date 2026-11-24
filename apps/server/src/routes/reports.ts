@@ -5,6 +5,7 @@ import type { ExportMeta, ExportScope, ExportSheetName } from '@trf/shared';
 import { EXPORT_ROW_LIMIT, EXPORT_SHEETS, roleHasPermission, sheetsFor } from '@trf/shared';
 import { badRequest } from '../lib/errors.js';
 import { auditExport, buildExportWorkbook } from '../lib/excel-export.js';
+import { today } from '../lib/dates.js';
 import { authenticate, currentEmployee, requirePermission } from '../middleware/auth.js';
 
 export const reportsRouter = Router();
@@ -106,7 +107,7 @@ reportsRouter.get('/export.xlsx', requirePermission('reports.export'), async (re
     const buffer = await book.xlsx.writeBuffer();
     await auditExport(employee, results.map((r) => r.name), described, rowCounts);
 
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = today();
     const suffix = q.sheet ? `-${q.sheet.replace(/\s+/g, '-').toLowerCase()}` : '';
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="TRF-Report-${stamp}${suffix}.xlsx"`);

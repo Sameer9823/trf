@@ -4,6 +4,7 @@ import {
    ArdWorkflowStatus, ArdStage, ArdReportingStatus, ArdCoaStatus, RemarksStatus, ArdRemarksStatus,
    DEFAULT_ARD_STAGE, FinalApprovalStatus,
   } from '@trf/shared';
+import { dateOnly } from './dates.js';
 
 /** One parser for the list endpoint's query string, so the client cannot inject SQL fragments. */
 export const trfListQuerySchema = z.object({
@@ -185,20 +186,10 @@ export const TRF_DETAIL_FROM = `${TRF_FROM}
   LEFT JOIN employees an ON an.id = t.ard_analyst_id`;
 
 /**
- * A DATE column arrives as a Date at local midnight. Reading it back through
- * toISOString() would move it to the previous day for anyone east of
- * Greenwich, so the local calendar day is taken instead. The Excel export
- * writes the same local day, so the two agree.
+ * A DATE column arrives as plain `YYYY-MM-DD` text (see db.ts), or as a legacy
+ * local-midnight Date. Either way the local calendar day is taken, never
+ * toISOString(), which would move it to the previous day east of Greenwich.
  */
-const dateOnly = (value: Date | string | null): string | null => {
-  if (!value) return null;
-  if (typeof value === 'string') return value.slice(0, 10);
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, '0');
-  const day = String(value.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
 const timestamp = (value: Date | string | null): string | null =>
   value ? new Date(value).toISOString() : null;
 

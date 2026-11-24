@@ -21,6 +21,7 @@ import { createNotification, notifyEmployee } from '../lib/notifications.js';
 import { authenticate, currentEmployee, requirePermission, requireAssignmentsManage, validateBody } from '../middleware/auth.js';
 import { DOCUMENT_DIR } from '../config.js';
 import { readPdfBody } from '../lib/read-pdf-body.js';
+import { dateOnly, today as todayLocal } from '../lib/dates.js';
 
 export const ardAssignmentsRouter = Router();
 ardAssignmentsRouter.use(authenticate);
@@ -93,7 +94,7 @@ function mapAssignment(row: any, analysts: any[] = []): ArdTestAssignment {
     status: row.status,
     assignedBy: row.assigned_by,
     assignedAt: row.assigned_at ? new Date(row.assigned_at).toISOString() : null,
-    dueDate: row.due_date ? row.due_date.toISOString().slice(0, 10) : null,
+    dueDate: dateOnly(row.due_date),
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
     version: row.version,
@@ -112,7 +113,7 @@ function mapAssignment(row: any, analysts: any[] = []): ArdTestAssignment {
 /** The result columns joined onto an assignment row (all null when no result has been submitted). */
 function mapResult(row: any) {
   const iso = (v: any) => (v ? new Date(v).toISOString() : null);
-  const day = (v: any) => (v ? (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10)) : null);
+  const day = (v: any) => dateOnly(v);
   return {
     resultValue: row.result_value ?? null,
     resultText: row.result_text ?? null,
@@ -796,10 +797,8 @@ ardAssignmentsRouter.post('/:id/result', validateBody(submitResultSchema), async
         throw badRequest('Upload a PDF file first, then submit the result.', { resultFile: 'Upload a PDF file first.' });
       }
 
-      const today = new Date().toISOString().slice(0, 10);
-      const existingStart = assignment.analysis_start_date
-        ? (assignment.analysis_start_date instanceof Date ? assignment.analysis_start_date.toISOString().slice(0, 10) : String(assignment.analysis_start_date).slice(0, 10))
-        : null;
+      const today = todayLocal();
+      const existingStart = dateOnly(assignment.analysis_start_date);
       const start = body.analysisStartDate ?? existingStart ?? today;
       const completion = body.completionDate ?? today;
       if (completion < start) {
@@ -1200,8 +1199,8 @@ ardAssignmentsRouter.get('/result-reviews', async (req, res, next) => {
       submittedAt: r.submitted_at ? new Date(r.submitted_at).toISOString() : null, submittedByName: r.submitted_by_name,
       resultMode: r.result_mode, fileName: r.file_name,
       methodUsed: r.method_used, specification: r.specification, remarks: r.remarks,
-      analysisStartDate: r.analysis_start_date ? new Date(r.analysis_start_date).toISOString().slice(0, 10) : null,
-      completionDate: r.completion_date ? new Date(r.completion_date).toISOString().slice(0, 10) : null,
+      analysisStartDate: dateOnly(r.analysis_start_date),
+      completionDate: dateOnly(r.completion_date),
     })) });
   } catch (err) { next(err); }
 });
@@ -1297,7 +1296,7 @@ ardAssignmentsRouter.get('/team-workload', async (req, res, next) => {
     if (!roleHasPermission(currentEmployee(req).role, 'assignments.manage')) {
       throw forbidden('Only a Manager or Admin may view team workload.');
     }
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocal();
     const result = await pool.query<{
       employee_id: number;
       full_name: string;

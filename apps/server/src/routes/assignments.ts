@@ -8,6 +8,7 @@ import { canTransitionAnalysis, canTransitionTrf, roleHasPermission } from '@trf
 import { pool, withTransaction } from '../db.js';
 import { badRequest, conflict, duplicateError, forbidden, notFound, versionConflict } from '../lib/errors.js';
 import { writeAudit } from '../lib/audit.js';
+import { dateOnly } from '../lib/dates.js';
 import {
   ASSIGNMENT_FROM, ASSIGNMENT_SELECT, ASSIGNMENT_SORT_SQL, DELAYED_SQL, AssignmentRow,
   assignmentListQuerySchema, buildAssignmentWhere, toAssignment, toAssignmentFilters,
@@ -133,11 +134,6 @@ const body: AssignmentGroupPage = {
     next(err);
   }
 });
-
-const dateOnly = (value: Date | string | null): string | null => {
-  if (!value) return null;
-  return (typeof value === 'string' ? value : value.toISOString()).slice(0, 10);
-};
 
 assignmentsRouter.get('/workload', requirePermission('assignments.viewAll'), async (_req, res, next) => {
   try {

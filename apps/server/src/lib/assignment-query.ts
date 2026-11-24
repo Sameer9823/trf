@@ -4,6 +4,7 @@ import {
   ASSIGNMENT_SORT_FIELDS, ASSIGNMENT_STATUS_VIEWS, Assignment,
   AssignmentFilters, AnalysisStatusView, Priority as PriorityType,
 } from '@trf/shared';
+import { dateOnly } from './dates.js';
 
 /** "Delayed" is a filter value; when present it filters on the due-date expression, not a column. */
 export const DELAYED_SQL = `(a.due_date IS NOT NULL AND a.due_date < CURRENT_DATE
@@ -123,11 +124,6 @@ export interface AssignmentRow {
   product_name: string | null; customer_name: string | null;
   assigned_employee_name: string | null; department_id: number | null; department_name: string | null;
 }
-
-const dateOnly = (value: Date | string | null): string | null => {
-  if (!value) return null;
-  return (typeof value === 'string' ? value : value.toISOString()).slice(0, 10);
-};
 
 export function toAssignment(row: AssignmentRow & { is_delayed?: boolean }): Assignment {
   return {

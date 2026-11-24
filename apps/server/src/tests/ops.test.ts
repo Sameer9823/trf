@@ -47,16 +47,16 @@ test('a temp directory is available for the file tests', () => {
 test('each day of the log goes to its own file', () => {
   const options = { filePath: path.join(tmp, 'api.log'), keep: 3 };
   assert.equal(
-    logFileFor(options, new Date('2026-10-01T09:00:00Z')),
+    logFileFor(options, new Date(2026, 9, 1, 9, 0, 0)),
     path.join(tmp, 'api-2026-10-01.log'),
   );
   assert.equal(
-    logFileFor(options, new Date('2026-10-02T23:59:00Z')),
+    logFileFor(options, new Date(2026, 9, 2, 23, 59, 0)),
     path.join(tmp, 'api-2026-10-02.log'),
   );
-  // Two hours either side of midnight are still the same file name, because the
-  // date is the UTC day the line belongs to.
-  assert.equal(logFileFor(options, new Date('2026-10-01T23:00:00Z')), logFileFor(options, new Date('2026-10-01T00:00:00Z')));
+  // Two hours either side of local midnight are still the same file name, because
+  // the date is the local day the line belongs to.
+  assert.equal(logFileFor(options, new Date(2026, 9, 1, 23, 0, 0)), logFileFor(options, new Date(2026, 9, 1, 0, 0, 0)));
 });
 
 test('old log files are pruned and the newest ones are kept', () => {

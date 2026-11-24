@@ -1,5 +1,11 @@
-import { Pool, PoolClient } from 'pg';
+import { Pool, PoolClient, types } from 'pg';
 import { config } from './config.js';
+
+// A PostgreSQL DATE is a calendar day with no time and no zone. node-pg would
+// hand it back as a local-midnight Date, and any toISOString() call would then
+// move it one day earlier east of Greenwich (for example in India). Keep the
+// plain YYYY-MM-DD text so every consumer formats the day it was given.
+types.setTypeParser(1082, (value: string) => value);
 
 export const pool = new Pool({
   host: config.DATABASE_HOST,

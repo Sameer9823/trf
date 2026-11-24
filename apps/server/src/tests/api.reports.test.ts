@@ -213,10 +213,11 @@ maybe('dates are written as dates, not as text', async () => {
   assert.ok(mine, 'the seeded TRF is in its own export');
   const trfDate = mine?.['Date of Request'];
   assert.ok(trfDate instanceof Date, `Date of Request is a date cell, got ${typeof trfDate}`);
-  // Read in local parts: the cell holds a calendar day, and Excel has no timezone.
+  // Excel stores a calendar day and ExcelJS reads it back as UTC midnight, so the
+  // UTC parts are the day itself on any machine, whatever its timezone.
   const d = trfDate as Date;
-  const localDay = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  assert.equal(localDay, TODAY, 'the calendar day survives the round trip');
+  const day = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  assert.equal(day, TODAY, 'the calendar day survives the round trip');
   assert.equal(res.book.getWorksheet('TRF Master')!.getRow(2).getCell(2).numFmt, 'dd-mm-yyyy');
 });
 

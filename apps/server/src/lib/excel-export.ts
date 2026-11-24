@@ -7,6 +7,7 @@ import { OUTCOME_SQL } from './analysis-query.js';
 import { OVERDUE_SQL } from './trf-query.js';
 import { ARD_TAT_SQL } from './trf-query.js';
 import { DELAYED_SQL } from './assignment-query.js';
+import { today } from './dates.js';
 
 /**
  * Every sheet here is a report for a human reader: readable column headings, real
@@ -213,12 +214,21 @@ function addSheet(
   return rows.length;
 }
 
-/** A DATE column arrives as a Date or an ISO string depending on driver settings. */
+/**
+ * A DATE column as a real date cell. ExcelJS turns a Date into an Excel serial
+ * from its UTC clock (25569 + getTime()/86400000), so a local-midnight Date would
+ * land on the previous day east of Greenwich. Rebuild the value as UTC midnight
+ * of the same calendar day so the cell holds exactly that day.
+ */
 function asDate(value: unknown): Date | null {
   if (!value) return null;
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-  const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
+  }
+  const [year, month, day] = String(value).slice(0, 10).split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(Date.UTC(year, month - 1, day));
 }
 
 const text = (value: unknown): string | null => (value === null || value === undefined ? null : String(value));
@@ -752,7 +762,7 @@ export async function auditExport(
     await writeAudit(client, {
       userId: employee.id, userName: employee.fullName,
       action: 'report.exported', module: 'reports',
-      recordType: 'Export', recordRef: `TRF-EXPORT-${new Date().toISOString().slice(0, 10)}`,
+      recordType: 'Export', recordRef: `TRF-EXPORT-${today()}`,
       newValue: { sheets, filters, rowCounts },
     });
   } finally {

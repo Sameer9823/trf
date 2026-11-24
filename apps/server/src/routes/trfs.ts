@@ -17,6 +17,7 @@ import { AppError, badRequest, conflict, forbidden, notFound, versionConflict } 
 import { writeAudit } from '../lib/audit.js';
 import { notifyEmployee, createNotification } from '../lib/notifications.js';
 import { nextNumber, trfDuplicateError } from '../lib/numbers.js';
+import { dateOnly } from '../lib/dates.js';
 import {
   OVERDUE_SQL, ARD_TAT_SQL, TRF_DETAIL_FROM, TRF_DETAIL_SELECT, TRF_FROM, TRF_SELECT, TRF_SORT_SQL,
   TrfRow, toDetail, toListItem, trfListQuerySchema, toFilters,
@@ -725,10 +726,7 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
       // The sample cannot have been received before the request was made.
       if (body.sampleReceivedDate !== undefined && body.sampleReceivedDate !== null) {
         const storedDate: unknown = current.trf_date;
-        const trfDate = body.trfDate
-          ?? (typeof storedDate === 'string'
-            ? storedDate.slice(0, 10)
-            : storedDate instanceof Date ? storedDate.toISOString().slice(0, 10) : '');
+        const trfDate = body.trfDate ?? dateOnly(storedDate as Date | string | null) ?? '';
         if (trfDate && body.sampleReceivedDate < trfDate) {
           throw badRequest('The sample received date cannot be earlier than the TRF date.', {
             sampleReceivedDate: 'The sample received date cannot be earlier than the TRF date.',
@@ -867,7 +865,7 @@ if (workflowChanged) {
       for (const key of auditFields) {
         const col = COLUMN[key];
         const oldRaw = (current as unknown as Record<string, unknown>)[col];
-        const oldValue = oldRaw instanceof Date ? oldRaw.toISOString().slice(0, 10) : oldRaw ?? null;
+        const oldValue = oldRaw instanceof Date ? dateOnly(oldRaw) : oldRaw ?? null;
         const newValue = body[key] ?? null;
         if (String(oldValue ?? '') === String(newValue ?? '')) continue;
         await writeAudit(client, {
