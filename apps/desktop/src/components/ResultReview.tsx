@@ -3,22 +3,38 @@ import type { ArdResultOutcome, ArdResultReviewStatus, ArdTestAssignment } from 
 import { ARD_RESULT_OUTCOMES, bulletList } from '@trf/shared';
 import { fieldsOf, messageOf } from '../lib/api';
 import { formatDate } from './Badges';
+import { Icons } from './Icons';
 import { Modal } from './Modal';
 
 /**
- * A "View PDF" button that downloads the result PDF through the main process
- * (tokens stay there) and lets the user save/open it.
+ * A split "View PDF" control: the primary action opens the result PDF in the
+ * system viewer, the secondary action downloads a copy. Both go through the
+ * main process so the token never reaches the renderer.
  */
 export function ResultFileButton({ assignmentId, fileName }: { assignmentId: number; fileName: string | null }) {
   if (!fileName) return null;
+  const apiPath = `/api/ard-assignments/${assignmentId}/result-file`;
   return (
-    <button
-      type="button"
-      className="btn btn--sm"
-      onClick={() => void window.trf.downloadBlob(`/api/ard-assignments/${assignmentId}/result-file`, fileName)}
-    >
-      View PDF
-    </button>
+    <span className="pdf-actions">
+      <button
+        type="button"
+        className="btn btn--sm btn--primary pdf-actions__view"
+        onClick={() => void window.trf.viewPdf(apiPath, fileName)}
+        title="Open this PDF in your PDF viewer"
+      >
+        {Icons.eye}
+        <span>View PDF</span>
+      </button>
+      <button
+        type="button"
+        className="btn btn--sm pdf-actions__download"
+        onClick={() => void window.trf.downloadBlob(apiPath, fileName)}
+        title="Download a copy of this PDF"
+        aria-label="Download PDF"
+      >
+        {Icons.download}
+      </button>
+    </span>
   );
 }
 

@@ -17,6 +17,7 @@ interface Window {
     generatePdf: (trfId: number) => Promise<{ ok: boolean; path?: string; fileName?: string; message?: string }>;
     uploadResultFile: (assignmentId: number) => Promise<{ ok: boolean; cancelled?: boolean; fileName?: string; fileSize?: number; message?: string }>;
     downloadBlob: (apiPath: string, fileName: string) => Promise<{ ok: boolean; cancelled?: boolean; path?: string; message?: string }>;
+    viewPdf: (apiPath: string, fileName: string) => Promise<{ ok: boolean; message?: string }>;
     exportReport: (query: string) => Promise<{ ok: boolean; cancelled?: boolean; message?: string; path?: string; meta?: unknown }>;
     onSignedOut: (handler: () => void) => () => void;
   };

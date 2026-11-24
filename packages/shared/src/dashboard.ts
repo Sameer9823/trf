@@ -54,6 +54,18 @@ export interface AnalystResultRow {
   delayed: number;
 }
 
+/**
+ * One employee's TRF completion, for the "completed by employee" breakdown.
+ * `completed` counts the TRFs assigned to them that reached Completed; `total`
+ * is every non-deleted TRF assigned to them.
+ */
+export interface TrfEmployeeRow {
+  employeeId: number;
+  employeeName: string;
+  completed: number;
+  total: number;
+}
+
 export interface DashboardPayload {
   /** What the numbers actually mean for this role, so the UI can label them honestly. */
   scope: 'all' | 'own';
@@ -63,6 +75,7 @@ export interface DashboardPayload {
   coaStatus: StatusSlice<CoaStatus>[];
   monthlyTrfs: MonthlyPoint[];
   workload: AnalystResultRow[];
+  trfByEmployee: TrfEmployeeRow[];
   generatedAt: string;
 }
 

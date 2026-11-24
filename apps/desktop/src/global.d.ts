@@ -16,6 +16,8 @@ export interface TrfBridge {
   uploadResultFile(assignmentId: number): Promise<{ ok: boolean; cancelled?: boolean; fileName?: string; fileSize?: number; message?: string }>;
   // Download a file (blob) from the API
   downloadBlob(apiPath: string, fileName: string): Promise<{ ok: boolean; cancelled?: boolean; path?: string; message?: string }>;
+  // Open a file (blob) from the API in the system's default viewer
+  viewPdf(apiPath: string, fileName: string): Promise<{ ok: boolean; message?: string }>;
   // Asks the main process to save the report; the renderer never handles the file.
   exportReport(query: string): Promise<{
     ok: boolean; cancelled?: boolean; message?: string; path?: string; meta?: unknown;

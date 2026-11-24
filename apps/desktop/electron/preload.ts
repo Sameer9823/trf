@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('trf', {
   uploadResultFile: (assignmentId: number) => ipcRenderer.invoke('ard:upload-result-file', assignmentId) as Promise<{ ok: boolean; cancelled?: boolean; fileName?: string; fileSize?: number; message?: string }>,
   // Download a file (blob) from the API
   downloadBlob: (apiPath: string, fileName: string) => ipcRenderer.invoke('api:downloadBlob', apiPath, fileName) as Promise<{ ok: boolean; cancelled?: boolean; path?: string; message?: string }>,
+  // Open a file (blob) from the API in the system's default viewer
+  viewPdf: (apiPath: string, fileName: string) => ipcRenderer.invoke('api:viewPdf', apiPath, fileName) as Promise<{ ok: boolean; message?: string }>,
   // Asks the main process to save the report; the renderer never handles the file.
   exportReport: (query: string) => ipcRenderer.invoke('reports:export', query) as Promise<{
     ok: boolean; cancelled?: boolean; message?: string; path?: string; meta?: unknown;

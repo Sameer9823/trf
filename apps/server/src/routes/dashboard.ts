@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type {
-  AnalysisStatus, AnalystResultRow, CoaStatus, DashboardPayload, EmployeeProfile, StatusSlice, TrfStatus,
+  AnalysisStatus, AnalystResultRow, CoaStatus, DashboardPayload, EmployeeProfile, StatusSlice, TrfEmployeeRow, TrfStatus,
 } from '@trf/shared';
 import { ANALYSIS_STATUSES, COA_STATUSES, TRF_STATUSES, roleHasPermission } from '@trf/shared';
 import { pool } from '../db.js';
@@ -141,6 +141,19 @@ dashboardRouter.get('/', requirePermission('dashboard.view'), async (req, res, n
        GROUP BY e.id, e.full_name
        ORDER BY count(*) FILTER (WHERE ${TEST_OPEN}) DESC, e.full_name ASC`, testScope.params);
 
+    // Per-employee TRF completion. A scoped viewer sees only their own row, and
+    // only TRFs assigned to them (not merely created by them), so a colleague's
+    // counts never leak.
+    const trfByEmployee = await pool.query<TrfEmployeeRow>(
+      `SELECT e.id AS "employeeId", e.full_name AS "employeeName",
+         count(*) FILTER (WHERE t.status = 'Completed')::int AS completed,
+         count(*)::int AS total
+       FROM trfs t
+       JOIN employees e ON e.id = t.assigned_employee_id
+       WHERE t.deleted_at IS NULL${scope ? ' AND t.assigned_employee_id = $1' : ''}
+       GROUP BY e.id, e.full_name
+       ORDER BY completed DESC, e.full_name ASC`, scope ? [scope.employeeId] : []);
+
     const trf = totalsResult.rows[0];
     const tests = testResult.rows[0];
     const coas = coaResult.rows[0];
@@ -171,6 +184,7 @@ dashboardRouter.get('/', requirePermission('dashboard.view'), async (req, res, n
         count: Number(r.count),
       })),
       workload: workload.rows,
+      trfByEmployee: trfByEmployee.rows,
       generatedAt: new Date().toISOString(),
     };
 

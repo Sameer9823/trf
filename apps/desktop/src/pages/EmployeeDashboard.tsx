@@ -146,10 +146,14 @@ export function EmployeeDashboard() {
   const submittedCount = assignments.filter((a) => a.reviewStatus === 'Submitted').length;
   const approvedCount = assignments.filter((a) => a.reviewStatus === 'Approved').length;
   const rejectedCount = assignments.filter((a) => a.reviewStatus === 'Rejected').length;
+  const completedCount = assignments.filter((a) => a.testStatus === 'Completed').length;
   const today = new Date().toISOString().slice(0, 10);
   const overdueCount = assignments.filter(
     (a) => a.dueDate && a.dueDate < today && a.testStatus !== 'Completed' && a.testStatus !== 'Cancelled',
   ).length;
+  // Progress is measured against every non-cancelled assignment.
+  const activeTotal = assignments.filter((a) => a.testStatus !== 'Cancelled').length;
+  const completionPct = activeTotal > 0 ? Math.round((completedCount / activeTotal) * 100) : 0;
   const query = search.trim().toLowerCase();
   const visible = query
     ? assignments.filter((a) => [a.trfNumber, a.arNumber, a.productName, a.genericName, a.testName]
@@ -187,9 +191,34 @@ export function EmployeeDashboard() {
 
       {error && <p className="error-text" role="alert">{error}</p>}
 
+      {assignments.length > 0 && (
+        <div className="progress-card">
+          <div className="progress-card__head">
+            <div className="progress-card__lead">
+              <span className="progress-card__title">Your progress</span>
+              <span className="muted">
+                {completedCount} of {activeTotal} {activeTotal === 1 ? 'test' : 'tests'} completed
+              </span>
+            </div>
+            <span className="progress-card__pct">{completionPct}%</span>
+          </div>
+          <div
+            className="progress-bar"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={completionPct}
+            aria-label="Tests completed"
+          >
+            <div className="progress-bar__fill" style={{ width: `${completionPct}%` }} />
+          </div>
+        </div>
+      )}
+
       <StatStrip tiles={[
         { label: 'Assigned', value: pendingCount, tone: 'info' },
         { label: 'In Progress', value: inProgressCount, tone: 'info' },
+        { label: 'Completed', value: completedCount, tone: 'ok' },
         { label: 'Submitted', value: submittedCount, tone: 'warn' },
         { label: 'Approved', value: approvedCount, tone: 'ok' },
         { label: 'Rejected', value: rejectedCount, tone: 'danger' },

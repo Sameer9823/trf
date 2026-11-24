@@ -54,6 +54,7 @@ export function Dashboard() {
   }
 
   const t = data.totals;
+  const completionPct = t.trfTotal > 0 ? Math.round((t.trfCompleted / t.trfTotal) * 100) : 0;
 
   const primary: DashCard[] = [
     { label: 'TRFs', total: t.trfTotal, tone: 'info', to: '#/trf', hint: 'All requests' },
@@ -121,6 +122,30 @@ export function Dashboard() {
         </header>
 
         {error && <p className="error-text" role="alert">{error}</p>}
+
+        {t.trfTotal > 0 && (
+          <div className="progress-card">
+            <div className="progress-card__head">
+              <div className="progress-card__lead">
+                <span className="progress-card__title">Overall progress</span>
+                <span className="muted">
+                  {t.trfCompleted.toLocaleString()} of {t.trfTotal.toLocaleString()} TRFs completed
+                </span>
+              </div>
+              <span className="progress-card__pct">{completionPct}%</span>
+            </div>
+            <div
+              className="progress-bar"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={completionPct}
+              aria-label="TRFs completed"
+            >
+              <div className="progress-bar__fill" style={{ width: `${completionPct}%` }} />
+            </div>
+          </div>
+        )}
 
         {attention.length > 0 && (
           <section className="attention" aria-label="Needs attention">
@@ -229,6 +254,32 @@ export function Dashboard() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </Panel>
+        )}
+
+        {data.trfByEmployee.length > 0 && (
+          <Panel title={data.scope === 'own' ? 'Your TRFs' : 'TRFs completed by employee'}>
+            <ul className="emp-progress">
+              {data.trfByEmployee.map((row) => {
+                const pct = row.total > 0 ? Math.round((row.completed / row.total) * 100) : 0;
+                return (
+                  <li key={row.employeeId} className="emp-progress__row">
+                    <span className="emp-progress__name" title={row.employeeName}>{row.employeeName}</span>
+                    <span
+                      className="emp-progress__bar"
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={row.total}
+                      aria-valuenow={row.completed}
+                      aria-label={`${row.employeeName}: ${row.completed} of ${row.total} TRFs completed`}
+                    >
+                      <span className="emp-progress__fill" style={{ width: `${pct}%` }} />
+                    </span>
+                    <span className="emp-progress__count"><strong>{row.completed}</strong> / {row.total}</span>
+                  </li>
+                );
+              })}
+            </ul>
           </Panel>
         )}
 

@@ -556,6 +556,54 @@ ipcMain.handle('api:downloadBlob', async (event, apiPath: string, fileName: stri
   }
 });
 
+/**
+ * Open a file (blob) from the API in the system's default viewer instead of
+ * prompting for a save location. The bytes are written to a temp file and
+ * handed to the OS; tokens stay in the main process.
+ */
+ipcMain.handle('api:viewPdf', async (event, apiPath: string, fileName: string): Promise<{ ok: boolean; message?: string }> => {
+  if (!tokens) {
+    return { ok: false, message: 'Not authenticated' };
+  }
+  try {
+    const accessToken = await freshAccessToken();
+    if (!accessToken) return { ok: false, message: 'Not authenticated' };
+
+    const base = readConfig().serverUrl;
+    let res = await net.fetch(base + apiPath, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    // A rejected token gets one retry with a refreshed access token.
+    if (res.status === 401) {
+      if (!(await refreshTokens()) || !tokens) {
+        return { ok: false, message: 'Your session has expired. Please sign in again.' };
+      }
+      res = await net.fetch(base + apiPath, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      });
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
+      return { ok: false, message: body?.error?.message ?? 'The file could not be opened.' };
+    }
+    const buffer = Buffer.from(await res.arrayBuffer());
+    // Write to a unique temp file so repeat opens never collide with a viewer
+    // that still holds the previous file open.
+    const tempDir = path.join(app.getPath('temp'), 'kawman-exact');
+    await fs.promises.mkdir(tempDir, { recursive: true });
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safePdfName(fileName)}`;
+    const target = path.join(tempDir, unique);
+    await fs.promises.writeFile(target, buffer);
+    const failure = await shell.openPath(target);
+    if (failure) {
+      return { ok: false, message: `The file was saved but could not be opened: ${failure}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: (err as Error).message };
+  }
+});
+
 ipcMain.handle('reports:export', async (event, query: string): Promise<ExportOutcome> => {
   if (!tokens) {
     return { ok: false, message: 'Sign in to export.' };
