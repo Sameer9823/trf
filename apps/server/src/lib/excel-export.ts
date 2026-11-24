@@ -24,6 +24,17 @@ const BODY_FONT: Partial<ExcelJS.Font> = { size: 10 };
 const DATE_FORMAT = 'dd-mm-yyyy';
 const MOMENT_FORMAT = 'dd-mm-yyyy hh:mm:ss';
 
+/**
+ * The analysts actually assigned to the TRF's tests, matching the TRF list and
+ * detail page. `trfs.ard_analyst_id` is often empty because analysts are chosen
+ * per test, so reading only that column leaves "Analyst Name" blank.
+ */
+const ASSIGNED_ANALYST_NAMES_SQL = `(SELECT string_agg(DISTINCT ae.full_name, ', ')
+   FROM ard_test_assignments ata
+   JOIN ard_test_assignment_analysts ataa ON ataa.assignment_id = ata.id
+   JOIN employees ae ON ae.id = ataa.analyst_id AND ae.is_active = TRUE
+  WHERE ata.trf_id = t.id)`;
+
 /** Status colours mirror the application's badges so a sheet reads like a screen. */
 const STATUS_FILL: Record<string, string> = {
   New: 'FFEFF2F4', Assigned: 'FFE4EEF4', 'In Progress': 'FFD6E8F0',
@@ -309,6 +320,7 @@ export async function buildExportWorkbook(
               t.remarks, t.remarks_status, t.sample_given_by, ssb.full_name AS sample_submitted_by_name, srb.full_name AS sample_received_by_name,
               t.signature_date,
               t.ard_number, t.ard_stage, an.full_name AS analyst_name, t.analysis_start_date,
+              ${ASSIGNED_ANALYST_NAMES_SQL} AS assigned_analyst_names,
               t.reporting_status, t.coa_status, t.ard_remarks_status, t.ard_remarks,
               (${ARD_TAT_SQL}) AS tat, t.workflow_status,
               t.sample_received_date,
@@ -365,7 +377,7 @@ export async function buildExportWorkbook(
       signature_date: asDate(r.signature_date),
       ard_number: text(r.ard_number),
       ard_stage: text(r.ard_stage),
-      analyst_name: text(r.analyst_name),
+      analyst_name: text(r.assigned_analyst_names) ?? text(r.analyst_name),
       analysis_start_date: asDate(r.analysis_start_date),
       reporting_status: text(r.reporting_status),
       coa_status: text(r.coa_status),
@@ -393,6 +405,7 @@ export async function buildExportWorkbook(
       `SELECT t.ard_number, t.trf_number, t.trf_date, cu.name AS customer_name, p.name AS product_name,
               t.batch_number, t.ard_stage, t.requested_analysis, t.test_requested_other, t.special_instructions,
               an.full_name AS analyst_name,
+              ${ASSIGNED_ANALYST_NAMES_SQL} AS assigned_analyst_names,
               t.analysis_start_date, t.reporting_status, t.coa_status, t.ard_remarks,
               t.ard_remarks_status, (${ARD_TAT_SQL}) AS tat, t.workflow_status,
               t.sample_received_date,
@@ -433,7 +446,7 @@ export async function buildExportWorkbook(
       ard_stage: text(r.ard_stage),
       requested_analysis: withOther(joinNames(r.test_requested_options) ?? text(r.requested_analysis), r.test_requested_other),
       special_instructions: text(r.special_instructions),
-      analyst_name: text(r.analyst_name),
+      analyst_name: text(r.assigned_analyst_names) ?? text(r.analyst_name),
       analysis_start_date: asDate(r.analysis_start_date),
       coa_status: text(r.coa_status),
       ard_remarks: text(r.ard_remarks),

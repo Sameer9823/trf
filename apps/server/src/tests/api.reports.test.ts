@@ -7,7 +7,7 @@ import { EXPORT_ROW_LIMIT, sheetsFor, LIST_FIELD_ORDER, listFieldLabel } from '@
 import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
-import { baseLookups } from './fixtures';
+import { baseLookups, assignAnalystToATest } from './fixtures';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -285,6 +285,27 @@ maybe('the TRF Master sheet reads the dosage forms, tests and generic name from 
   assert.equal(row['Generic Name'], 'Regression Generic', 'the generic name is exported');
   assert.ok(String(row['Dosage Form'] ?? '').trim().length > 0, 'the dosage form options are exported');
   assert.ok(String(row['Test Requested'] ?? '').trim().length > 0, 'the test requested options are exported');
+});
+
+maybe('the TRF Master sheet lists the analysts assigned to its tests', async () => {
+  const lookups = await baseLookups();
+  const created = await api('/api/trfs', {
+    method: 'POST',
+    body: JSON.stringify({
+      trfDate: TODAY, priority: 'Normal', batchNumber: `P8-ANALYST-${Date.now()}`, ...lookups,
+    }),
+  }, adminToken);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const trf = created.body as { id: number; trfNumber: string };
+
+  // Analysts are assigned per test, so the TRF's own analyst column is empty.
+  await assignAnalystToATest(trf.id, analyst.id);
+
+  const res = await exportBook(`sheet=TRF%20Master&search=${encodeURIComponent(trf.trfNumber)}`, manager.token);
+  assert.ok(res.ok);
+  const rows = rowsOf(res.book.getWorksheet('TRF Master'));
+  assert.equal(rows.length, 1, 'only the new TRF is exported');
+  assert.equal(rows[0]['Analyst Name'], analyst.fullName, 'the analyst assigned to the TRF test is exported');
 });
 
 maybe('the list filters carry into the file, and only those rows appear', async () => {
