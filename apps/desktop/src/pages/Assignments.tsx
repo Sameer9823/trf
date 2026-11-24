@@ -120,9 +120,9 @@ function AssignmentsManager() {
     () => visibleWorkload.reduce(
       (a, r) => ({
         pending: a.pending + r.pending, inProgress: a.inProgress + r.inProgress,
-        delayed: a.delayed + r.delayed, openTotal: a.openTotal + r.openTotal, completed: a.completed + r.completed,
+        openTotal: a.openTotal + r.openTotal, completed: a.completed + r.completed,
       }),
-      { pending: 0, inProgress: 0, delayed: 0, openTotal: 0, completed: 0 },
+      { pending: 0, inProgress: 0, openTotal: 0, completed: 0 },
     ),
     [visibleWorkload],
   );
@@ -132,16 +132,14 @@ function AssignmentsManager() {
       return [
         { label: 'Pending', value: workloadTotals.pending, tone: 'warn' },
         { label: 'In Progress', value: workloadTotals.inProgress, tone: 'info' },
-        { label: 'Delayed', value: workloadTotals.delayed, tone: 'danger' },
         { label: 'Open Total', value: workloadTotals.openTotal },
         { label: 'Completed', value: workloadTotals.completed, tone: 'ok' },
       ];
     }
     const tests = view === 'byTrf' ? groups.flatMap((g) => g.tests) : data;
-    let pending = 0, inProgress = 0, delayed = 0, completed = 0;
+    let pending = 0, inProgress = 0, completed = 0;
     for (const a of tests) {
-      if (assignmentStatusLabel(a) === 'Delayed') delayed += 1;
-      else if (a.status === 'Pending') pending += 1;
+      if (a.status === 'Pending') pending += 1;
       else if (a.status === 'In Progress' || a.status === 'Assigned') inProgress += 1;
       else if (a.status === 'Completed') completed += 1;
     }
@@ -150,7 +148,6 @@ function AssignmentsManager() {
       { label: 'Pending', value: pending, tone: 'warn' },
       { label: 'In Progress', value: inProgress, tone: 'info' },
       { label: 'Completed', value: completed, tone: 'ok' },
-      { label: 'Delayed', value: delayed, tone: 'danger' },
     ];
   }, [view, groups, data, workloadTotals]);
 
@@ -226,21 +223,21 @@ function AssignmentsManager() {
             <thead>
               <tr>
                 <th>Employee</th><th>Department</th><th className="num">Pending</th>
-                <th className="num">In Progress</th><th className="num">Delayed</th>
+                <th className="num">In Progress</th>
                 <th className="num">Open total</th><th className="num">Completed</th><th aria-label="Open" />
               </tr>
             </thead>
             <tbody>
-              {loading && <SkeletonRows cols={8} />}
+              {loading && <SkeletonRows cols={7} />}
               {!loading && workload.length === 0 && (
-                <tr><td colSpan={8} className="table__empty">
+                <tr><td colSpan={7} className="table__empty">
                   <div className="empty__icon" aria-hidden="true">✅</div>
                   <div className="empty__title">Nothing open right now</div>
                   <div className="empty__text">No work is assigned to anyone yet. Create a TRF and use “Assign tests” to hand work to your analysts.</div>
                 </td></tr>
               )}
               {!loading && workload.length > 0 && visibleWorkload.length === 0 && (
-                <tr><td colSpan={8} className="table__empty">
+                <tr><td colSpan={7} className="table__empty">
                   <div className="empty__icon" aria-hidden="true">🔍</div>
                   <div className="empty__title">No matches</div>
                   <div className="empty__text">No employees match “{workloadSearch}”. Try a different name or department.</div>
@@ -252,7 +249,6 @@ function AssignmentsManager() {
                   <td>{row.departmentName ?? '—'}</td>
                   <td className="num">{row.pending}</td>
                   <td className="num">{row.inProgress}</td>
-                  <td className="num">{row.delayed > 0 ? <span className="badge badge--danger">{row.delayed}</span> : 0}</td>
                   <td className="num"><strong>{row.openTotal}</strong></td>
                   <td className="num">{row.completed}</td>
                   <td><a className="link" href={`#/assignments?employeeId=${row.employeeId}`}>View work</a></td>
@@ -265,7 +261,6 @@ function AssignmentsManager() {
                   <td colSpan={2}>Total</td>
                   <td className="num">{workloadTotals.pending}</td>
                   <td className="num">{workloadTotals.inProgress}</td>
-                  <td className="num">{workloadTotals.delayed}</td>
                   <td className="num">{workloadTotals.openTotal}</td>
                   <td className="num">{workloadTotals.completed}</td>
                   <td />

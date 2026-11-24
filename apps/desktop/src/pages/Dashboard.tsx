@@ -60,10 +60,6 @@ export function Dashboard() {
     { label: 'TRFs', total: t.trfTotal, tone: 'info', to: '#/trf', hint: 'All requests' },
     { label: 'Completed', total: t.trfCompleted, tone: 'ok', to: cardLink('trf', { status: 'Completed' }), hint: 'Closed out' },
     {
-      label: 'Overdue', total: t.trfOverdue, tone: t.trfOverdue > 0 ? 'danger' : 'neutral',
-      to: cardLink('trf', { overdueOnly: 'true' }), hint: 'Past due date',
-    },
-    {
       label: 'Certificates to issue', total: t.coaAwaitingIssue,
       tone: t.coaAwaitingIssue > 0 ? 'warn' : 'neutral',
       to: cardLink('coa', { status: 'Draft,Under Review,Approved' }), hint: 'Awaiting issue',

@@ -12,23 +12,55 @@ import { Modal } from './Modal';
  * main process so the token never reaches the renderer.
  */
 export function ResultFileButton({ assignmentId, fileName }: { assignmentId: number; fileName: string | null }) {
+  const [busy, setBusy] = useState(false);
   if (!fileName) return null;
+  const name = fileName;
   const apiPath = `/api/ard-assignments/${assignmentId}/result-file`;
+
+  async function open() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      // A preload built before the view bridge existed falls back to a download.
+      if (typeof window.trf.viewPdf !== 'function') {
+        await window.trf.downloadBlob(apiPath, name);
+        return;
+      }
+      const res = await window.trf.viewPdf(apiPath, name);
+      if (!res.ok) {
+        window.alert(res.message ?? 'Could not open the PDF.');
+        await window.trf.downloadBlob(apiPath, name);
+      }
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      // A main process built before the view bridge rejects with this; download
+      // instead of leaving a dead button. Restarting the app clears it.
+      if (/no handler registered/i.test(msg)) {
+        await window.trf.downloadBlob(apiPath, name);
+      } else {
+        window.alert(msg || 'Could not open the PDF.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <span className="pdf-actions">
       <button
         type="button"
         className="btn btn--sm btn--primary pdf-actions__view"
-        onClick={() => void window.trf.viewPdf(apiPath, fileName)}
+        onClick={() => void open()}
+        disabled={busy}
         title="Open this PDF in your PDF viewer"
       >
         {Icons.eye}
-        <span>View PDF</span>
+        <span>{busy ? 'Opening…' : 'View PDF'}</span>
       </button>
       <button
         type="button"
         className="btn btn--sm pdf-actions__download"
-        onClick={() => void window.trf.downloadBlob(apiPath, fileName)}
+        onClick={() => void window.trf.downloadBlob(apiPath, name)}
         title="Download a copy of this PDF"
         aria-label="Download PDF"
       >

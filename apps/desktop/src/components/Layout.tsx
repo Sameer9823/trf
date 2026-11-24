@@ -1,6 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useCallback } from 'react';
-import { canAccessAnalytical } from '@trf/shared';
 import { useServerStatus } from '../lib/server-status';
 import { useAuth } from '../lib/auth';
 import { OfflineNotice } from './OfflineNotice';
@@ -67,15 +66,9 @@ export function Layout() {
     await switchUser();
   }, [switchUser]);
 
-  const accessibleNav = NAV.filter((n) => {
-    if (!canAccessModule(n.module)) return false;
-    // The ARD module is visible to Admin/Manager and to ARD-department analysts,
-    // but not to Formulation-only analysts or Viewers.
-    if (n.module === 'ard') {
-      return canAccessAnalytical(employee?.departmentName ?? null, employee?.role ?? 'Viewer');
-    }
-    return true;
-  });
+  // Only the modules this role may open are listed; the server checks again on
+  // every request. The ARD workspace is Manager+ only (see MODULE_ACCESS.ard).
+  const accessibleNav = NAV.filter((n) => canAccessModule(n.module));
 
   return (
     <div className={`shell${isCollapsed ? ' shell--collapsed' : ''}`}>

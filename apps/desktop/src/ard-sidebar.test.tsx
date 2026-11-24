@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { EmployeeProfile } from '@trf/shared';
-import { MODULE_ACCESS, canAccessAnalytical } from '@trf/shared';
+import { MODULE_ACCESS } from '@trf/shared';
 import { NAV } from './components/Layout';
 
 function employee(role: string, departmentName: string | null, team: string | null = null): EmployeeProfile {
@@ -12,21 +12,24 @@ function employee(role: string, departmentName: string | null, team: string | nu
   } as EmployeeProfile;
 }
 
-const mayAccessArd = (e: EmployeeProfile) =>
-  (MODULE_ACCESS['ard'] ?? []).includes(e.role) &&
-  canAccessAnalytical(e.departmentName, e.role);
+// The ARD workspace is Manager+ only; analysts reach their own tests through Assignments.
+const mayAccessArd = (e: EmployeeProfile) => (MODULE_ACCESS['ard'] ?? []).includes(e.role);
 
 describe('ARD sidebar visibility', () => {
   test('ARD nav item exists', () => {
     expect(NAV.find((n) => n.module === 'ard')).toBeDefined();
   });
 
-  test('ARD analyst sees the ARD nav item', () => {
-    expect(mayAccessArd(employee('Analyst', 'ARD', 'ARD'))).toBe(true);
+  test('ARD analyst does not see the ARD nav item', () => {
+    expect(mayAccessArd(employee('Analyst', 'ARD', 'ARD'))).toBe(false);
   });
 
   test('Manager sees the ARD nav item', () => {
     expect(mayAccessArd(employee('Manager', null))).toBe(true);
+  });
+
+  test('AGM sees the ARD nav item', () => {
+    expect(mayAccessArd(employee('AGM', null))).toBe(true);
   });
 
   test('Admin sees the ARD nav item', () => {

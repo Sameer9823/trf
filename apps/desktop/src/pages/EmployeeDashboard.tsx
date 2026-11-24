@@ -5,7 +5,6 @@ import { useAuth } from '../lib/auth';
 import { useServerStatus } from '../lib/server-status';
 import { OfflineNotice } from '../components/OfflineNotice';
 import { formatDate } from '../components/Badges';
-import { NotificationCentre } from '../components/NotificationCentre';
 import { EmptyState, StatStrip } from '../components/StatStrip';
 import { ResultReviewBadge, SubmitResultModal, ResultFileButton, type SubmitTarget } from '../components/ResultReview';
 import { Icons } from '../components/Icons';
@@ -147,10 +146,6 @@ export function EmployeeDashboard() {
   const approvedCount = assignments.filter((a) => a.reviewStatus === 'Approved').length;
   const rejectedCount = assignments.filter((a) => a.reviewStatus === 'Rejected').length;
   const completedCount = assignments.filter((a) => a.testStatus === 'Completed').length;
-  const today = new Date().toISOString().slice(0, 10);
-  const overdueCount = assignments.filter(
-    (a) => a.dueDate && a.dueDate < today && a.testStatus !== 'Completed' && a.testStatus !== 'Cancelled',
-  ).length;
   // Progress is measured against every non-cancelled assignment.
   const activeTotal = assignments.filter((a) => a.testStatus !== 'Cancelled').length;
   const completionPct = activeTotal > 0 ? Math.round((completedCount / activeTotal) * 100) : 0;
@@ -222,7 +217,6 @@ export function EmployeeDashboard() {
         { label: 'Submitted', value: submittedCount, tone: 'warn' },
         { label: 'Approved', value: approvedCount, tone: 'ok' },
         { label: 'Rejected', value: rejectedCount, tone: 'danger' },
-        { label: 'Overdue', value: overdueCount, tone: 'danger' },
       ]} />
 
       {assignments.length === 0 ? (
@@ -306,11 +300,6 @@ export function EmployeeDashboard() {
       )}
 
       <SubmitResultModal target={submitting} onClose={() => setSubmitting(null)} onSubmitted={() => void load()} />
-
-      {/* Notification Centre */}
-      <section style={{ marginTop: '24px' }}>
-        <NotificationCentre unreadOnly={true} />
-      </section>
     </div>
   );
 }

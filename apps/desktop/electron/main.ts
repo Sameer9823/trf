@@ -594,9 +594,25 @@ ipcMain.handle('api:viewPdf', async (event, apiPath: string, fileName: string): 
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safePdfName(fileName)}`;
     const target = path.join(tempDir, unique);
     await fs.promises.writeFile(target, buffer);
-    const failure = await shell.openPath(target);
-    if (failure) {
-      return { ok: false, message: `The file was saved but could not be opened: ${failure}` };
+
+    // Show the PDF inside the app so viewing never depends on an external PDF
+    // handler being configured. Fall back to the OS viewer if the window fails.
+    const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    try {
+      const win = new BrowserWindow({
+        width: 960,
+        height: 720,
+        title: safePdfName(fileName),
+        parent,
+        autoHideMenuBar: true,
+        webPreferences: { plugins: true, contextIsolation: true, nodeIntegration: false },
+      });
+      await win.loadURL(pathToFileURL(target).toString());
+    } catch {
+      const failure = await shell.openPath(target);
+      if (failure) {
+        return { ok: false, message: `The file was saved but could not be opened: ${failure}` };
+      }
     }
     return { ok: true };
   } catch (err) {

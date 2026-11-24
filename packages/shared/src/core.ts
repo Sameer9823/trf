@@ -136,7 +136,7 @@ export const MODULE_ACCESS: Record<string, readonly Role[]> = {
   approvals: ['Admin', 'GM', 'AGM'],
   notifications: ['Admin', 'GM', 'AGM', 'Manager', 'Analyst', 'Viewer'],
   teamaccounts: ['Admin'],
-  ard: ['Admin', 'GM', 'AGM', 'Manager', 'Analyst'],
+  ard: ['Admin', 'GM', 'AGM', 'Manager'],
 };
 
 export function canAccessModule(module: string, role: Role): boolean {

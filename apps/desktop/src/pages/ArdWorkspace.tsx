@@ -127,9 +127,9 @@ export function ArdWorkspace() {
       (a, r) => ({
         assigned: a.assigned + r.assigned, inProgress: a.inProgress + r.inProgress,
         submitted: a.submitted + r.submitted, approved: a.approved + r.approved,
-        rejected: a.rejected + r.rejected, overdue: a.overdue + r.overdue,
+        rejected: a.rejected + r.rejected,
       }),
-      { assigned: 0, inProgress: 0, submitted: 0, approved: 0, rejected: 0, overdue: 0 },
+      { assigned: 0, inProgress: 0, submitted: 0, approved: 0, rejected: 0 },
     );
     return [
       { label: 'Assigned', value: sum.assigned },
@@ -137,7 +137,6 @@ export function ArdWorkspace() {
       { label: 'Submitted', value: sum.submitted, tone: 'warn' },
       { label: 'Approved', value: sum.approved, tone: 'ok' },
       { label: 'Rejected', value: sum.rejected, tone: 'danger' },
-      { label: 'Overdue', value: sum.overdue, tone: 'danger' },
     ];
   }, [team]);
 
@@ -206,8 +205,8 @@ export function ArdWorkspace() {
           </div>
           {loading && (
             <table className="table table--striped">
-              <thead><tr><th>Employee</th><th className="num">Assigned</th><th className="num">In progress</th><th className="num">Submitted</th><th className="num">Approved</th><th className="num">Rejected</th><th className="num">Overdue</th></tr></thead>
-              <tbody><SkeletonRows cols={7} rows={3} /></tbody>
+              <thead><tr><th>Employee</th><th className="num">Assigned</th><th className="num">In progress</th><th className="num">Submitted</th><th className="num">Approved</th><th className="num">Rejected</th></tr></thead>
+              <tbody><SkeletonRows cols={6} rows={3} /></tbody>
             </table>
           )}
           {!loading && team.length === 0 && (
@@ -222,7 +221,7 @@ export function ArdWorkspace() {
           )}
           {!loading && visibleTeam.length > 0 && (
             <table className="table table--striped">
-              <thead><tr><th>Employee</th><th className="num">Assigned</th><th className="num">In progress</th><th className="num">Submitted</th><th className="num">Approved</th><th className="num">Rejected</th><th className="num">Overdue</th></tr></thead>
+              <thead><tr><th>Employee</th><th className="num">Assigned</th><th className="num">In progress</th><th className="num">Submitted</th><th className="num">Approved</th><th className="num">Rejected</th></tr></thead>
               <tbody>
                 {visibleTeam.map((t) => (
                   <tr key={t.employeeId}>
@@ -232,7 +231,6 @@ export function ArdWorkspace() {
                     <td className="num">{t.submitted}</td>
                     <td className="num">{t.approved}</td>
                     <td className="num">{t.rejected > 0 ? <span className="badge badge--danger">{t.rejected}</span> : 0}</td>
-                    <td className="num">{t.overdue > 0 ? <span className="badge badge--danger">{t.overdue}</span> : 0}</td>
                   </tr>
                 ))}
               </tbody>
