@@ -263,6 +263,30 @@ maybe('the TRF Master sheet uses the same field order as the TRF screen', async 
     'the TRF Master columns must follow the field order of the TRF screen');
 });
 
+maybe('the TRF Master sheet reads the dosage forms, tests and generic name from their own tables', async () => {
+  const lookups = await baseLookups();
+  const created = await api('/api/trfs', {
+    method: 'POST',
+    body: JSON.stringify({
+      trfDate: TODAY, priority: 'Normal', batchNumber: `P8-EXPORT-${Date.now()}`,
+      genericName: 'Regression Generic', ...lookups,
+    }),
+  }, adminToken);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const trf = created.body as { id: number; trfNumber: string };
+
+  const res = await exportBook(`sheet=TRF%20Master&search=${encodeURIComponent(trf.trfNumber)}`, manager.token);
+  assert.ok(res.ok);
+  const rows = rowsOf(res.book.getWorksheet('TRF Master'));
+  assert.equal(rows.length, 1, 'only the new TRF is exported');
+  const row = rows[0];
+  // The dosage forms and tests are chosen in join tables; the export must read
+  // those names rather than the legacy text columns, which are empty for these.
+  assert.equal(row['Generic Name'], 'Regression Generic', 'the generic name is exported');
+  assert.ok(String(row['Dosage Form'] ?? '').trim().length > 0, 'the dosage form options are exported');
+  assert.ok(String(row['Test Requested'] ?? '').trim().length > 0, 'the test requested options are exported');
+});
+
 maybe('the list filters carry into the file, and only those rows appear', async () => {
   const res = await exportBook(`sheet=TRF%20Master&search=${encodeURIComponent(myTrf)}`, manager.token);
   assert.ok(res.ok);

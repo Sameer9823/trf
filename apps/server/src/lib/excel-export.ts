@@ -50,6 +50,7 @@ const TRF_MASTER_COLUMN: Record<string, { key: string; width?: number }> = {
   trfNumber: { key: 'trf_number', width: 18 },
   trfDate: { key: 'trf_date' },
   productName: { key: 'product_name', width: 26 },
+  genericName: { key: 'generic_name', width: 26 },
   batchNumber: { key: 'batch_number', width: 18 },
   batchSize: { key: 'batch_size', width: 14 },
   customerName: { key: 'customer_name', width: 26 },
@@ -233,6 +234,27 @@ function asDate(value: unknown): Date | null {
 
 const text = (value: unknown): string | null => (value === null || value === undefined ? null : String(value));
 
+/**
+ * A multi-select value as one readable string: the option names joined, or the
+ * plain text when the column stores a single value. The TRF form keeps the
+ * chosen dosage forms and tests in join tables, so the export has to read those
+ * names rather than the legacy text column, which is empty for most records.
+ */
+function joinNames(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    const names = value.map((item) => text(item)).filter(Boolean) as string[];
+    return names.length > 0 ? names.join(', ') : null;
+  }
+  return text(value);
+}
+
+/** Appends an " (Other: …)" suffix the way the detail page shows it. */
+function withOther(base: string | null, other: unknown): string | null {
+  const note = text(other);
+  if (!base) return note;
+  return note ? `${base} (${note})` : base;
+}
+
 /** A TIMESTAMPTZ keeps its time of day, unlike a DATE column. */
 function asMoment(value: unknown): Date | null {
   if (!value) return null;
@@ -279,9 +301,10 @@ export async function buildExportWorkbook(
 
     const { rows } = await pool.query(
       `SELECT t.trf_number, t.trf_date, cu.name AS customer_name, p.name AS product_name,
+              COALESCE(t.generic_name, p.generic_name) AS generic_name,
               t.batch_number, t.batch_size, t.sample_quantity, t.required_completion_date, t.priority,
-              t.status, t.requested_analysis, t.special_instructions, t.analysis_purpose,
-              t.dosage_form, t.manufacturing_location, t.label_claim, t.pack_size, t.pack_type,
+              t.status, t.requested_analysis, t.test_requested_other, t.special_instructions, t.analysis_purpose,
+              t.dosage_form, t.dosage_form_other, t.manufacturing_location, t.label_claim, t.pack_size, t.pack_type,
               t.storage_condition, t.storage_period, t.manufacturing_date, t.expiry_date,
               t.remarks, t.remarks_status, t.sample_given_by, ssb.full_name AS sample_submitted_by_name, srb.full_name AS sample_received_by_name,
               t.signature_date,
@@ -290,10 +313,13 @@ export async function buildExportWorkbook(
               (${ARD_TAT_SQL}) AS tat, t.workflow_status,
               t.sample_received_date,
               e.full_name AS assigned_name,
-      (${OVERDUE_SQL}) AS is_overdue,
-      COALESCE((
-        SELECT json_agg(df.name) FROM trf_dosage_forms tdf JOIN dosage_form_options df ON df.id = tdf.dosage_form_option_id WHERE tdf.trf_id = t.id
-      ), '[]'::json) AS dosage_form_options
+       (${OVERDUE_SQL}) AS is_overdue,
+       COALESCE((
+         SELECT json_agg(df.name) FROM trf_dosage_forms tdf JOIN dosage_form_options df ON df.id = tdf.dosage_form_option_id WHERE tdf.trf_id = t.id
+       ), '[]'::json) AS dosage_form_options,
+       COALESCE((
+         SELECT json_agg(tro.name) FROM trf_test_requested ttr JOIN test_requested_options tro ON tro.id = ttr.test_requested_option_id WHERE ttr.trf_id = t.id
+       ), '[]'::json) AS test_requested_options
      FROM trfs t
        LEFT JOIN customers cu ON cu.id = t.customer_id
        LEFT JOIN products p ON p.id = t.product_id
@@ -313,11 +339,12 @@ export async function buildExportWorkbook(
       trf_date: asDate(r.trf_date),
       customer_name: text(r.customer_name),
       product_name: text(r.product_name),
+      generic_name: text(r.generic_name),
       batch_number: text(r.batch_number),
       batch_size: text(r.batch_size),
       sample_quantity: text(r.sample_quantity),
-      dosage_form: text(r.dosage_form),
-      dosage_form_options: Array.isArray(r.dosage_form_options) ? r.dosage_form_options.join(', ') : text(r.dosage_form_options),
+      dosage_form: withOther(joinNames(r.dosage_form_options) ?? text(r.dosage_form), r.dosage_form_other),
+      dosage_form_options: joinNames(r.dosage_form_options),
       dosage_form_other: text(r.dosage_form_other),
       manufacturing_location: text(r.manufacturing_location),
       label_claim: text(r.label_claim),
@@ -327,7 +354,7 @@ export async function buildExportWorkbook(
       storage_period: text(r.storage_period),
       manufacturing_date: asDate(r.manufacturing_date),
       expiry_date: asDate(r.expiry_date),
-      requested_analysis: text(r.requested_analysis),
+      requested_analysis: withOther(joinNames(r.test_requested_options) ?? text(r.requested_analysis), r.test_requested_other),
       special_instructions: text(r.special_instructions),
       analysis_purpose: text(r.analysis_purpose),
       required_completion_date: asDate(r.required_completion_date),
@@ -364,11 +391,14 @@ export async function buildExportWorkbook(
 
     const { rows } = await pool.query(
       `SELECT t.ard_number, t.trf_number, t.trf_date, cu.name AS customer_name, p.name AS product_name,
-              t.batch_number, t.ard_stage, t.requested_analysis, t.special_instructions,
+              t.batch_number, t.ard_stage, t.requested_analysis, t.test_requested_other, t.special_instructions,
               an.full_name AS analyst_name,
               t.analysis_start_date, t.reporting_status, t.coa_status, t.ard_remarks,
               t.ard_remarks_status, (${ARD_TAT_SQL}) AS tat, t.workflow_status,
-              t.sample_received_date
+              t.sample_received_date,
+              COALESCE((
+                SELECT json_agg(tro.name) FROM trf_test_requested ttr JOIN test_requested_options tro ON tro.id = ttr.test_requested_option_id WHERE ttr.trf_id = t.id
+              ), '[]'::json) AS test_requested_options
        FROM trfs t
        LEFT JOIN customers cu ON cu.id = t.customer_id
        LEFT JOIN products p ON p.id = t.product_id
@@ -401,7 +431,7 @@ export async function buildExportWorkbook(
       batch_number: text(r.batch_number),
       customer_name: text(r.customer_name),
       ard_stage: text(r.ard_stage),
-      requested_analysis: text(r.requested_analysis),
+      requested_analysis: withOther(joinNames(r.test_requested_options) ?? text(r.requested_analysis), r.test_requested_other),
       special_instructions: text(r.special_instructions),
       analyst_name: text(r.analyst_name),
       analysis_start_date: asDate(r.analysis_start_date),
@@ -468,7 +498,7 @@ export async function buildExportWorkbook(
       // A result is either a number or a reading in words, so they share one column.
       result: r.result_value !== null && r.result_value !== undefined
         ? String(r.result_value)
-        : (text(r.result_text) ?? 'â€”'),
+        : (text(r.result_text) ?? '—'),
       unit: text(r.unit),
       lower_limit: text(r.lower_limit),
       upper_limit: text(r.upper_limit),
