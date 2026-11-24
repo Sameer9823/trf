@@ -234,7 +234,7 @@ maybe('the TRF Master sheet carries every column the list shows', async () => {
     'A.R. No.', 'Stage', 'Analyst Name', 'Date of Analysis', 'COA',
     'ARD Remark', 'Final Status',
     'Sample Received Date',
-    'Status', 'Assigned Employee',
+    'Status',
   ]) {
     assert.ok(headers.includes(heading), `the TRF Master sheet is missing "${heading}"`);
   }
@@ -292,8 +292,8 @@ maybe('the ARD Tracking sheet is present and lists the seeded ARDs', async () =>
       ['Initial', 'Received', 'In Progress', 'Completed', 'Cancelled'].includes(String(r['Stage'])),
       `each row has a known stage, got ${String(r['Stage'])}`,
     );
-    assert.equal(r['TAT'], null, 'no start date means no TAT');
-    assert.ok(r['ARD Remarks / Status'], 'each row has an ARD remark status');
+    assert.equal(r['TAT'], undefined, 'TAT is no longer a column');
+    assert.ok(r['ARD Remarks / Status'] === undefined, 'ARD Remarks / Status is no longer a column');
     assert.ok(r['Final Status'] !== undefined, 'each row has a final status column');
   }
   // A TRF created now starts as the active stage.
@@ -303,8 +303,8 @@ maybe('the ARD Tracking sheet is present and lists the seeded ARDs', async () =>
   const ardHeaders = (sheet!.getRow(1).values as unknown[]).filter((v) => typeof v === 'string') as string[];
   for (const heading of [
     'A.R. No.', 'TRF No.', 'Date of Request', 'Product Name', 'Batch Number', 'Market/Customer',
-    'Stage', 'Test Requested', 'Test Details', 'Analyst Name', 'Date of Analysis', 'Reporting', 'COA',
-    'ARD Remarks / Status', 'ARD Remark', 'TAT', 'Final Status',
+    'Stage', 'Test Requested', 'Test Details', 'Analyst Name', 'Date of Analysis', 'COA',
+    'ARD Remark', 'Final Status',
     'Sample Received Date',
   ]) {
     assert.ok(ardHeaders.includes(heading), `the ARD Tracking sheet is missing "${heading}"`);

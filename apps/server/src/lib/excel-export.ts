@@ -298,7 +298,6 @@ export async function buildExportWorkbook(
     results.push({ name: 'TRF Master', rowCount: addSheet(book, 'TRF Master', [
       ...trfMasterColumns(),
       { header: 'Status', key: 'status', width: 20 },
-      { header: 'Assigned Employee', key: 'assigned_name', width: 24 },
     ], rows.map((r) => ({
       trf_number: r.trf_number,
       trf_date: asDate(r.trf_date),
@@ -380,11 +379,8 @@ export async function buildExportWorkbook(
       { header: 'Test Details', key: 'special_instructions', width: 30 },
       { header: 'Analyst Name', key: 'analyst_name', width: 24 },
       { header: 'Date of Analysis', key: 'analysis_start_date' },
-      { header: 'Reporting', key: 'reporting_status', width: 18 },
       { header: 'COA', key: 'coa_status', width: 16 },
-      { header: 'ARD Remarks / Status', key: 'ard_remarks_status', width: 20 },
       { header: 'ARD Remark', key: 'ard_remarks', width: 30 },
-      { header: 'TAT', key: 'tat', width: 10 },
       { header: 'Final Status', key: 'workflow_status', width: 18 },
       { header: 'Sample Received Date', key: 'sample_received_date' },
     ], rows.map((r) => ({
@@ -399,11 +395,8 @@ export async function buildExportWorkbook(
       special_instructions: text(r.special_instructions),
       analyst_name: text(r.analyst_name),
       analysis_start_date: asDate(r.analysis_start_date),
-      reporting_status: text(r.reporting_status),
       coa_status: text(r.coa_status),
       ard_remarks: text(r.ard_remarks),
-      ard_remarks_status: text(r.ard_remarks_status),
-      tat: r.tat ?? null,
       workflow_status: text(r.workflow_status),
       sample_received_date: asDate(r.sample_received_date),
     })), { statusKey: 'ard_stage' }) });
