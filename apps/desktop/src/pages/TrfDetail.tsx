@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { ArdWorkflowStatus, EmployeeProfile, TrfDetail, TrfStatus, TrfStatusHistoryEntry, ArdStatusHistoryEntry, TrfDocument } from '@trf/shared';
-import { MESSAGES, canEditTrfPartA, canEditTrfPartB, canDeleteTrf, isAdminDesignation } from '@trf/shared';
+import { MESSAGES, canEditTrfPartA, canEditTrfPartB, canDeleteTrf, isAdminDesignation, bulletList, analystNameList } from '@trf/shared';
 import { messageOf } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { OverdueBadge, PriorityBadge, StatusBadge, ArdCoaBadge, ArdReportingBadge, allowedNextStatuses, allowedNextArdStatuses, formatDate } from '../components/Badges';
@@ -453,7 +453,10 @@ const load = useCallback(async () => {
               <dt>Batch Number</dt><dd>{currentTrf.batchNumber ?? '—'}</dd>
               <dt>Batch Size</dt><dd>{currentTrf.batchSize ?? '—'}</dd>
               <dt>Market/Customer</dt><dd>{currentTrf.customerName ?? '—'}</dd>
-              <dt>Dosage Form</dt><dd>{currentTrf.dosageFormOptionNames?.length ? currentTrf.dosageFormOptionNames.join(', ') : currentTrf.dosageForm ?? '—'}{currentTrf.dosageFormOther ? ` (${currentTrf.dosageFormOther})` : ''}</dd>
+              <dt>Dosage Form</dt><dd className="pre">{bulletList([
+                ...(currentTrf.dosageFormOptionNames?.length ? currentTrf.dosageFormOptionNames : [currentTrf.dosageForm]),
+                currentTrf.dosageFormOther,
+              ]) || '—'}</dd>
               <dt>Manufacturing Location</dt><dd>{currentTrf.manufacturingLocation ?? '—'}</dd>
               <dt>Label Claim</dt><dd>{currentTrf.labelClaim ?? '—'}</dd>
               <dt>Pack Size</dt><dd>{currentTrf.packSize ?? '—'}</dd>
@@ -462,7 +465,10 @@ const load = useCallback(async () => {
               <dt>Storage Period</dt><dd>{currentTrf.storagePeriod ?? '—'}</dd>
               <dt>Manufacturing Date</dt><dd>{formatDate(currentTrf.manufacturingDate)}</dd>
               <dt>Expiry Date</dt><dd>{formatDate(currentTrf.expiryDate)}</dd>
-              <dt>Test Requested</dt><dd className="pre">{currentTrf.testRequestedOptionNames?.length ? currentTrf.testRequestedOptionNames.join(', ') : (currentTrf.requestedAnalysis ?? '—')}{currentTrf.testRequestedOther ? ` (Other: ${currentTrf.testRequestedOther})` : ''}</dd>
+              <dt>Test Requested</dt><dd className="pre">{bulletList([
+                ...(currentTrf.testRequestedOptionNames?.length ? currentTrf.testRequestedOptionNames : [currentTrf.requestedAnalysis]),
+                currentTrf.testRequestedOther,
+              ]) || '—'}</dd>
               <dt>Test Details</dt><dd className="pre">{currentTrf.specialInstructions ?? '—'}</dd>
               <dt>Analysis Required For / Purpose</dt><dd>{currentTrf.analysisPurpose ?? '—'}</dd>
               <dt>Required Completion Date</dt><dd>{formatDate(currentTrf.requiredCompletionDate)}</dd>
@@ -539,9 +545,12 @@ const load = useCallback(async () => {
             <dl className="facts facts--wide">
               <dt>A.R. No.</dt><dd>{currentTrf.ardNumber ?? '—'}</dd>
               <dt>Stage</dt><dd><ArdStageBadge stage={currentTrf.stage} /></dd>
-              <dt>Test Requested</dt><dd className="pre">{currentTrf.requestedAnalysis ?? '—'} <span className="muted">— carried forward from the Formulation request</span></dd>
+              <dt>Test Requested</dt><dd className="pre">{bulletList([
+                ...(currentTrf.testRequestedOptionNames?.length ? currentTrf.testRequestedOptionNames : [currentTrf.requestedAnalysis]),
+                currentTrf.testRequestedOther,
+              ]) || '—'} <span className="muted">— carried forward from the Formulation request</span></dd>
               <dt>Test Details</dt><dd className="pre">{currentTrf.specialInstructions ?? '—'} <span className="muted">— carried forward from the Formulation request</span></dd>
-              <dt>Analyst Name</dt><dd>{(currentTrf.assignedAnalystNames || currentTrf.analystName) ?? '—'}</dd>
+              <dt>Analyst Name</dt><dd className="pre">{bulletList(analystNameList(currentTrf.assignedAnalystNames, currentTrf.analystName)) || '—'}</dd>
               <dt>Date of Analysis</dt><dd>{formatDate(currentTrf.analysisStartDate)}</dd>
               <dt>Reporting</dt><dd><ArdReportingBadge status={currentTrf.reportingStatus} /></dd>
               <dt>COA</dt><dd><ArdCoaBadge status={currentTrf.coaStatus} /></dd>

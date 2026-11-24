@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { TrfDetail } from '@trf/shared';
+import { bulletList } from '@trf/shared';
 import { messageOf } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { OfflineNotice } from '../components/OfflineNotice';
@@ -135,7 +136,7 @@ export function TrfPrint() {
     ...(trf.testRequestedOther ? [`Other: ${trf.testRequestedOther}`] : []),
   ].filter(Boolean);
   const purpose = trf.analysisPurpose ?? '';
-  const analysisLength = tests.join(', ').length + purpose.length;
+  const analysisLength = bulletList(tests).length + purpose.length;
 
   const approvedBy = trf.ardDecidedByName ?? trf.finalDecidedByName ?? '';
   const approvedAt = trf.finalDecidedAt ?? trf.ardDecidedAt ?? null;
@@ -203,7 +204,7 @@ export function TrfPrint() {
           <div className="c12"><span className="trf-form__label">Label Claim:</span> {trf.labelClaim ?? ''}</div>
 
           <div className={`c12 trf-form__tall${analysisLength > 650 ? ' trf-form__tall--long' : ''}`}>
-            <span className="trf-form__label">Analysis Required for:</span> {tests.join(', ')}
+            <span className="trf-form__label">Analysis Required for:</span> {bulletList(tests)}
             {purpose && <div className="trf-form__purpose">{purpose}</div>}
           </div>
           <div className="c12 trf-form__remarks"><span className="trf-form__label">Remarks:</span> {trf.remarks ?? ''}</div>

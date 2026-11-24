@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import type { EmployeeProfile, ExportFilterSet, ExportScope, ExportSheetName } from '@trf/shared';
-import { LIST_FIELD_ORDER, LIST_HIDDEN_FIELD_KEYS, listFieldLabel } from '@trf/shared';
+import { LIST_FIELD_ORDER, LIST_HIDDEN_FIELD_KEYS, listFieldLabel, bulletList, analystNameList } from '@trf/shared';
 import { pool } from '../db.js';
 import { writeAudit } from './audit.js';
 import { OUTCOME_SQL } from './analysis-query.js';
@@ -211,7 +211,9 @@ function addSheet(
     line.font = BODY_FONT;
     for (let c = 1; c <= columns.length; c++) {
       const cell = line.getCell(c);
-      cell.alignment = { vertical: 'top' };
+      // A bulleted cell holds newlines, so it must wrap to show every item.
+      const wrapped = typeof cell.value === 'string' && cell.value.includes('\n');
+      cell.alignment = { vertical: 'top', ...(wrapped ? { wrapText: true } : {}) };
       if (cell.value instanceof Date) cell.numFmt = DATE_FORMAT;
       else if (typeof cell.value === 'number') cell.numFmt = '#,##0.####';
     }
@@ -246,24 +248,26 @@ function asDate(value: unknown): Date | null {
 const text = (value: unknown): string | null => (value === null || value === undefined ? null : String(value));
 
 /**
- * A multi-select value as one readable string: the option names joined, or the
- * plain text when the column stores a single value. The TRF form keeps the
- * chosen dosage forms and tests in join tables, so the export has to read those
- * names rather than the legacy text column, which is empty for most records.
+ * A multi-select value as a bulleted block. The TRF form keeps the chosen dosage
+ * forms and tests in join tables, so the export reads those names and falls back
+ * to the legacy text column only when no options are chosen. An "Other" entry is
+ * added as one more bullet so every item is listed the same way.
  */
-function joinNames(value: unknown): string | null {
-  if (Array.isArray(value)) {
-    const names = value.map((item) => text(item)).filter(Boolean) as string[];
-    return names.length > 0 ? names.join(', ') : null;
-  }
-  return text(value);
+function bulletField(options: unknown, legacy: unknown, other: unknown): string | null {
+  const names = Array.isArray(options) ? options.map((item) => text(item)) : [];
+  const items = names.length > 0 ? names : [text(legacy)];
+  const note = text(other);
+  if (note) items.push(note);
+  return bulletList(items) || null;
 }
 
-/** Appends an " (Other: …)" suffix the way the detail page shows it. */
-function withOther(base: string | null, other: unknown): string | null {
-  const note = text(other);
-  if (!base) return note;
-  return note ? `${base} (${note})` : base;
+/**
+ * Analyst names as bullets: the per-test analysts when present, otherwise the
+ * single ARD analyst. `assigned_analyst_names` arrives comma-separated from SQL.
+ */
+function analystNames(value: unknown, fallback: unknown): string | null {
+  const names = analystNameList(typeof value === 'string' ? value : null, text(fallback));
+  return bulletList(names) || text(fallback);
 }
 
 /** A TIMESTAMPTZ keeps its time of day, unlike a DATE column. */
@@ -355,8 +359,8 @@ export async function buildExportWorkbook(
       batch_number: text(r.batch_number),
       batch_size: text(r.batch_size),
       sample_quantity: text(r.sample_quantity),
-      dosage_form: withOther(joinNames(r.dosage_form_options) ?? text(r.dosage_form), r.dosage_form_other),
-      dosage_form_options: joinNames(r.dosage_form_options),
+      dosage_form: bulletField(r.dosage_form_options, r.dosage_form, r.dosage_form_other),
+      dosage_form_options: bulletField(r.dosage_form_options, null, null),
       dosage_form_other: text(r.dosage_form_other),
       manufacturing_location: text(r.manufacturing_location),
       label_claim: text(r.label_claim),
@@ -366,7 +370,7 @@ export async function buildExportWorkbook(
       storage_period: text(r.storage_period),
       manufacturing_date: asDate(r.manufacturing_date),
       expiry_date: asDate(r.expiry_date),
-      requested_analysis: withOther(joinNames(r.test_requested_options) ?? text(r.requested_analysis), r.test_requested_other),
+      requested_analysis: bulletField(r.test_requested_options, r.requested_analysis, r.test_requested_other),
       special_instructions: text(r.special_instructions),
       analysis_purpose: text(r.analysis_purpose),
       required_completion_date: asDate(r.required_completion_date),
@@ -377,7 +381,7 @@ export async function buildExportWorkbook(
       signature_date: asDate(r.signature_date),
       ard_number: text(r.ard_number),
       ard_stage: text(r.ard_stage),
-      analyst_name: text(r.assigned_analyst_names) ?? text(r.analyst_name),
+      analyst_name: analystNames(r.assigned_analyst_names, r.analyst_name),
       analysis_start_date: asDate(r.analysis_start_date),
       reporting_status: text(r.reporting_status),
       coa_status: text(r.coa_status),
@@ -444,9 +448,9 @@ export async function buildExportWorkbook(
       batch_number: text(r.batch_number),
       customer_name: text(r.customer_name),
       ard_stage: text(r.ard_stage),
-      requested_analysis: withOther(joinNames(r.test_requested_options) ?? text(r.requested_analysis), r.test_requested_other),
+      requested_analysis: bulletField(r.test_requested_options, r.requested_analysis, r.test_requested_other),
       special_instructions: text(r.special_instructions),
-      analyst_name: text(r.assigned_analyst_names) ?? text(r.analyst_name),
+      analyst_name: analystNames(r.assigned_analyst_names, r.analyst_name),
       analysis_start_date: asDate(r.analysis_start_date),
       coa_status: text(r.coa_status),
       ard_remarks: text(r.ard_remarks),

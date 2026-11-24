@@ -100,7 +100,9 @@ test('the values come from the TRF, the dates keep their calendar day, and Appro
   expect(body).toContain('01-09-2028');
   expect(body).toContain('TRF/2026/0012');
   expect(body).toContain('Ascorbic acid');
-  expect(body).toContain('Assay, Moisture, Other: Particle size');
+  expect(body).toContain('• Assay');               // each requested test is its own bullet
+  expect(body).toContain('• Moisture');
+  expect(body).toContain('• Other: Particle size');
   expect(body).toContain('Release testing.');       // the product's generic name
   expect(body).toContain('QAQN-003:F1');          // the controlled form's number
   expect(body).toContain('ARD/2026/0004');

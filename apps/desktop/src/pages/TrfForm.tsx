@@ -11,7 +11,7 @@ import {
   REMARKS_STATUSES, ARD_COA_STATUSES,
   DEFAULT_ARD_STAGE, canEditTrfPartA, canEditTrfPartB, FINAL_APPROVAL_STATUSES,
 } from '@trf/shared';
-import { MESSAGES, ANALYTICAL_DEPARTMENTS } from '@trf/shared';
+import { MESSAGES, ANALYTICAL_DEPARTMENTS, bulletList } from '@trf/shared';
 import { fieldsOf, messageOf } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { Icons } from '../components/Icons';
@@ -854,7 +854,7 @@ export function TrfForm() {
                   const assignmentStatus = existingAssignment?.status ?? 'Pending Assignment';
                   const isAssigned = assignedAnalystIds.length > 0;
                   const assignedAnalystNames = isAssigned 
-                    ? assignedAnalystIds.map(id => ardEmployees.find(e => e.id === id)?.fullName).filter(Boolean).join(', ')
+                    ? bulletList(assignedAnalystIds.map(id => ardEmployees.find(e => e.id === id)?.fullName))
                     : '';
                   
                   return (
@@ -898,7 +898,7 @@ export function TrfForm() {
                             )}
                           </div>
                         ) : (
-                          <span>{isAssigned ? assignedAnalystNames : 'Unassigned'}</span>
+                          <span className="cell-bullets">{isAssigned ? assignedAnalystNames : 'Unassigned'}</span>
                         )}
                       </td>
                       <td className="assignment-status">
@@ -1233,7 +1233,7 @@ export function TrfForm() {
             />
 
             <Field htmlFor="trf-ard-test-requested" label="Test Requested" lockOwner="System">
-              <textarea id="trf-ard-test-requested" rows={2} value={form.testRequestedOptionIds.map((id) => testRequestedOptions.find((o) => o.id === id)?.name).filter(Boolean).join(', ')} readOnly disabled />
+              <textarea id="trf-ard-test-requested" rows={2} value={bulletList(form.testRequestedOptionIds.map((id) => testRequestedOptions.find((o) => o.id === id)?.name))} readOnly disabled />
               <p className="field-hint">Carried forward from the Formulation request.</p>
             </Field>
 

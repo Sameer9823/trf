@@ -119,6 +119,40 @@ export function listFieldLabel(field: TrfFieldSpec): string {
   return field.listLabel ?? field.label;
 }
 
+/**
+ * A value the API returns as a comma-separated list as an array of names. The
+ * assigned analysts come back joined this way, so every screen can split once
+ * and render the names as bullets instead of a comma-separated run.
+ */
+export function splitNames(value: string | null | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The names to show for the analyst field: the per-test analysts when any are
+ * assigned, otherwise the single ARD analyst.
+ */
+export function analystNameList(assigned: string | null | undefined, fallback: string | null | undefined): string[] {
+  const names = splitNames(assigned);
+  return names.length > 0 ? names : (fallback ? [fallback] : []);
+}
+
+/**
+ * A list of values as a bulleted block, one per line. Every screen and export
+ * that can hold more than one value uses this, so the same TRF reads the same
+ * way everywhere rather than as a comma-separated run.
+ */
+export function bulletList(items: readonly (string | null | undefined)[]): string {
+  return items
+    .map((item) => (item ?? '').trim())
+    .filter(Boolean)
+    .map((item) => `• ${item}`)
+    .join('\n');
+}
+
 /** Label shown on the form / detail / print for a field spec. */
 export function formFieldLabel(field: TrfFieldSpec): string {
   return field.label;

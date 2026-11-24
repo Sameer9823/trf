@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ArdResultOutcome, ArdResultReviewStatus, ArdTestAssignment } from '@trf/shared';
-import { ARD_RESULT_OUTCOMES } from '@trf/shared';
+import { ARD_RESULT_OUTCOMES, bulletList } from '@trf/shared';
 import { fieldsOf, messageOf } from '../lib/api';
 import { formatDate } from './Badges';
 import { Modal } from './Modal';
@@ -430,7 +430,7 @@ export function TestResultsCard({ trfId, trfNumber, canReview, onChanged }: {
               return (
                 <tr key={a.id}>
                   <td>{a.testName}</td>
-                  <td>{a.analysts?.map((x) => x.fullName).join(', ') || '—'}</td>
+                  <td className="cell-bullets">{bulletList(a.analysts?.map((x) => x.fullName) ?? []) || '—'}</td>
                   <td>
                     {a.resultMode === 'pdf' && a.fileName ? (
                       <ResultFileButton assignmentId={a.id} fileName={a.fileName} />

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import type { Customer, Department, Priority, Product, TrfListItem, TrfListPage, TrfSortField, TrfStatus } from '@trf/shared';
-import { DEFAULT_TRF_FILTERS, PRIORITIES, TRF_STATUSES, LIST_FIELD_ORDER, LIST_HIDDEN_FIELD_KEYS, listFieldLabel, canEditTrfPartA, canEditTrfPartB, canDeleteTrf } from '@trf/shared';
+import { DEFAULT_TRF_FILTERS, PRIORITIES, TRF_STATUSES, LIST_FIELD_ORDER, LIST_HIDDEN_FIELD_KEYS, listFieldLabel, 
+canEditTrfPartA, canEditTrfPartB, canDeleteTrf, bulletList, analystNameList } from '@trf/shared';
 import { messageOf, toQuery } from '../lib/api';
 import { useTrfSort } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -414,13 +415,16 @@ export function TrfList() {
 }
 
 const TRUNCATE_FIELDS = new Set([
-   'Market/Customer', 'Product Name', 'Batch Number', 'Batch Size', 'Dosage Form',
+   'Market/Customer', 'Product Name', 'Batch Number', 'Batch Size',
    'Manufacturing Location', 'Label Claim', 'Pack Size', 'Pack Type',
-   'Storage Condition', 'Storage Period', 'Test Requested', 'Test Details',
+   'Storage Condition', 'Storage Period', 'Test Details',
    'Analysis Required For / Purpose', 'Remarks', 'Sample Submitted By',
    'A.R. No.', 'ARD Remark', 'Reporting', 'COA', 'Remarks / Status',
    'ARD Remarks / Status', 'Signature / Date',
 ]);
+
+/** Columns that hold more than one value and render as a bulleted block. */
+const BULLET_FIELDS = new Set(['Dosage Form', 'Test Requested', 'Analyst Name']);
 
 function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
   trf: TrfListItem; columns: ColumnDef[]; canEditAny: boolean; canDeleteAny: boolean;
@@ -468,9 +472,11 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
       case 'Market/Customer':
         return { node: <span className="muted-cell">{trf.customerName ?? '—'}</span>, text: trf.customerName };
       case 'Dosage Form': {
-        const names = trf.dosageFormOptionNames?.length ? trf.dosageFormOptionNames.join(', ') : trf.dosageForm;
-        const label = names ? `${names}${trf.dosageFormOther ? ` (${trf.dosageFormOther})` : ''}` : '—';
-        return { node: <span className="muted-cell">{label}</span>, text: label === '—' ? null : label };
+        const label = bulletList([
+          ...(trf.dosageFormOptionNames?.length ? trf.dosageFormOptionNames : [trf.dosageForm]),
+          trf.dosageFormOther,
+        ]) || '—';
+        return { node: <span className="cell-bullets">{label}</span>, text: label === '—' ? null : label };
       }
       case 'Manufacturing Location':
         return { node: <span className="muted-cell">{trf.manufacturingLocation ?? '—'}</span>, text: trf.manufacturingLocation };
@@ -489,9 +495,11 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
       case 'Expiry Date':
         return { node: <span className="nowrap">{formatDate(trf.expiryDate)}</span>, text: null };
       case 'Test Requested': {
-        const names = trf.testRequestedOptionNames?.length ? trf.testRequestedOptionNames.join(', ') : trf.requestedAnalysis;
-        const label = names ? `${names}${trf.testRequestedOther ? ` (Other: ${trf.testRequestedOther})` : ''}` : '—';
-        return { node: <span className="muted-cell">{label}</span>, text: label === '—' ? null : label };
+        const label = bulletList([
+          ...(trf.testRequestedOptionNames?.length ? trf.testRequestedOptionNames : [trf.requestedAnalysis]),
+          trf.testRequestedOther,
+        ]) || '—';
+        return { node: <span className="cell-bullets">{label}</span>, text: label === '—' ? null : label };
       }
       case 'Test Details':
         return { node: <span className="muted-cell">{trf.specialInstructions ?? '—'}</span>, text: trf.specialInstructions };
@@ -517,8 +525,8 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
       case 'Stage':
         return { node: <ArdStageBadge stage={trf.stage} />, text: null };
       case 'Analyst Name': {
-        const name = trf.assignedAnalystNames || trf.analystName;
-        return { node: <span className="muted-cell">{name ?? '—'}</span>, text: name ?? null };
+        const label = bulletList(analystNameList(trf.assignedAnalystNames, trf.analystName)) || '—';
+        return { node: <span className="cell-bullets">{label}</span>, text: label === '—' ? null : label };
       }
       case 'Date of Analysis':
         return { node: <span className="nowrap">{formatDate(trf.analysisStartDate)}</span>, text: null };
@@ -576,6 +584,8 @@ function TrfRow({ trf, columns, canEditAny, canDeleteAny, onDelete }: {
   const cellContent = (column: ColumnDef) => {
     const { node, text } = rawCell(column);
     if (!node) return null;
+    // A bulleted column already lists every value, so it is never truncated.
+    if (BULLET_FIELDS.has(column.label)) return node;
     // A long value is cut to one line with an ellipsis, and the whole value is
     // in the tooltip so nothing is lost.
     if (!TRUNCATE_FIELDS.has(column.label) || !text) return node;

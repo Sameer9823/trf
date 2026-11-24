@@ -283,8 +283,8 @@ maybe('the TRF Master sheet reads the dosage forms, tests and generic name from 
   // The dosage forms and tests are chosen in join tables; the export must read
   // those names rather than the legacy text columns, which are empty for these.
   assert.equal(row['Generic Name'], 'Regression Generic', 'the generic name is exported');
-  assert.ok(String(row['Dosage Form'] ?? '').trim().length > 0, 'the dosage form options are exported');
-  assert.ok(String(row['Test Requested'] ?? '').trim().length > 0, 'the test requested options are exported');
+  assert.match(String(row['Dosage Form'] ?? ''), /^• /, 'the dosage form options are bulleted');
+  assert.match(String(row['Test Requested'] ?? ''), /^• /, 'the test requested options are bulleted');
 });
 
 maybe('the TRF Master sheet lists the analysts assigned to its tests', async () => {
@@ -305,7 +305,7 @@ maybe('the TRF Master sheet lists the analysts assigned to its tests', async () 
   assert.ok(res.ok);
   const rows = rowsOf(res.book.getWorksheet('TRF Master'));
   assert.equal(rows.length, 1, 'only the new TRF is exported');
-  assert.equal(rows[0]['Analyst Name'], analyst.fullName, 'the analyst assigned to the TRF test is exported');
+  assert.equal(rows[0]['Analyst Name'], `• ${analyst.fullName}`, 'the analyst assigned to the TRF test is exported as a bullet');
 });
 
 maybe('the list filters carry into the file, and only those rows appear', async () => {

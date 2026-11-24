@@ -100,6 +100,7 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .table tbody tr:hover .col-actions { background: #f7f1ec; }
 .col-priority, .col-assigned { min-width: 90px; }
 .muted-cell { color: var(--muted); }
+.cell-bullets { white-space: pre-line; }
 .nowrap { white-space: nowrap; }
 .table-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .btn-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); font: inherit; cursor: pointer; color: var(--text); text-decoration: none; }
