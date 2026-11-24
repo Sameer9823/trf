@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useCallback } from 'react';
+import type { EmployeeProfile } from '@trf/shared';
 import { useServerStatus } from '../lib/server-status';
 import { useAuth } from '../lib/auth';
 import { OfflineNotice } from './OfflineNotice';
@@ -20,6 +21,20 @@ export const NAV = [
 ];
 
 const TEAM_LABEL = { FRD: 'Formulation team', ARD: 'Analytical team' } as const;
+
+/**
+ * The modules a signed-in employee should see in the sidebar. ARD team-account
+ * members do their work in Assignments, so the main operations dashboard is
+ * left out for them; every other account keeps it. The same list decides where
+ * the app opens, so the two can never disagree.
+ */
+export function visibleNav(
+  employee: EmployeeProfile | null,
+  canAccessModule: (module: string) => boolean,
+): typeof NAV {
+  const hideDashboard = employee?.team === 'ARD';
+  return NAV.filter((n) => canAccessModule(n.module) && !(hideDashboard && n.module === 'dashboard'));
+}
 
 function StatusBadge() {
   const { state } = useServerStatus();
@@ -68,7 +83,7 @@ export function Layout() {
 
   // Only the modules this role may open are listed; the server checks again on
   // every request. The ARD workspace is Manager+ only (see MODULE_ACCESS.ard).
-  const accessibleNav = NAV.filter((n) => canAccessModule(n.module));
+  const accessibleNav = visibleNav(employee, canAccessModule);
 
   return (
     <div className={`shell${isCollapsed ? ' shell--collapsed' : ''}`}>

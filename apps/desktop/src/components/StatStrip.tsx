@@ -4,7 +4,7 @@ export type StatTone = 'ok' | 'warn' | 'danger' | 'info';
 
 export interface StatTile {
   label: string;
-  value: number;
+  value: number | string;
   tone?: StatTone;
 }
 

@@ -138,9 +138,6 @@ export function TrfPrint() {
   const purpose = trf.analysisPurpose ?? '';
   const analysisLength = bulletList(tests).length + purpose.length;
 
-  const approvedBy = trf.ardDecidedByName ?? trf.finalDecidedByName ?? '';
-  const approvedAt = trf.finalDecidedAt ?? trf.ardDecidedAt ?? null;
-
   return (
     <div className="trf-print">
       {!canPrint && (
@@ -149,7 +146,7 @@ export function TrfPrint() {
         </div>
       )}
 
-      <div className="trf-form">
+      <div className="trf-sheet">
         {/* Header: logo | company | SOP and revision | MASTER and effective date, then TITLE | name | issued by */}
         <div className="trf-form__header trf-form__box">
           <div className="trf-form__logo">
@@ -210,15 +207,13 @@ export function TrfPrint() {
           <div className="c12 trf-form__remarks"><span className="trf-form__label">Remarks:</span> {trf.remarks ?? ''}</div>
         </div>
 
-        <div className="trf-form__five trf-form__box" style={{ borderTop: 0 }}>
+        <div className="trf-form__five trf-form__box">
           <div className="head">Sampled by</div>
           <div className="head">TRF Number</div>
-          <div className="head">Sample given by</div>
           <div className="head">Sample Received by</div>
           <div className="head">AR number</div>
           <div className="value">{trf.sampleSubmittedByName ?? ''}</div>
           <div className="value">{trf.trfNumber}</div>
-          <div className="value">{trf.sampleGivenBy ?? ''}</div>
           <div className="value">{trf.sampleReceivedByName ?? ''}</div>
           <div className="value">{trf.ardNumber ?? ''}</div>
         </div>
@@ -228,11 +223,9 @@ export function TrfPrint() {
           <div className="head">Approved by</div>
           <div className="trf-form__sign">
             <span className="trf-form__label">Signature/ Date</span>
-            <span>{trf.createdByName ?? ''}{trf.createdAt ? `, ${ddMMyyyy(trf.createdAt)}` : ''}</span>
           </div>
           <div className="trf-form__sign">
             <span className="trf-form__label">Signature/ Date</span>
-            <span>{approvedBy}{approvedBy && approvedAt ? `, ${ddMMyyyy(approvedAt)}` : ''}</span>
           </div>
           <div><span className="trf-form__label">Department:</span> {settings.department}</div>
           <div className="trf-form__page">Page 1 of 1</div>

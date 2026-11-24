@@ -1,13 +1,53 @@
 :root {
-  --ink: #2c1812; --ink-2: #40231a; --paper: #faf7f4; --panel: #ffffff; --line: #e7ddd5;
-  --text: #2a1f1a; --muted: #7a6b62; --accent: #6b3a2a; --accent-2: #55301f; --navy: #0a2a5c; --tint: #f1e6dd; --tint-2: #f7f1ec; --tint-3: #fbf8f5;
-  --ok: #2f7d4f; --warn: #b7791f; --danger: #b3382c;
+  /* Brand: clear, factual, professional. No hype. Brown is the brand. */
+  /* 1) PRIMITIVES — raw values only, referenced by the semantic layer. */
+  --brown-950: #2a1f1a; --brown-900: #2c1812; --brown-800: #40231a;
+  --brown-700: #6b3a2a; --brown-600: #55301f; --brown-300: #c9b6aa;
+  --brown-100: #f1e6dd; --brown-050: #f7f1ec; --brown-025: #fbf8f5;
+  --sand-50: #faf7f4; --white: #ffffff; --neutral-200: #e7ddd5; --neutral-500: #7a6b62;
+  --navy-700: #0a2a5c; --green-600: #2f7d4f; --amber-600: #b7791f; --red-600: #b3382c;
+  --blue-300: #8fb4c6; --clay-400: #a9745f; --mist-300: #b9c6cc;
+
+  /* 2) SEMANTIC — purpose aliases; a dark theme could be added by redefining these. */
+  --color-bg: var(--sand-50); --color-surface: var(--white); --color-surface-sunken: var(--brown-025);
+  --color-border: var(--neutral-200); --color-text: var(--brown-950); --color-text-muted: var(--neutral-500);
+  --color-text-strong: var(--brown-900); --color-primary: var(--brown-700); --color-primary-strong: var(--brown-600);
+  --color-primary-soft: var(--brown-100); --color-accent-navy: var(--navy-700);
+  --color-success: var(--green-600); --color-warning: var(--amber-600); --color-danger: var(--red-600);
+
+  /* 3) ALIASES — every existing variable name still resolves (identical values). */
+  --ink: var(--brown-900); --ink-2: var(--brown-800); --paper: var(--sand-50); --panel: var(--color-surface);
+  --line: var(--color-border); --text: var(--color-text); --muted: var(--color-text-muted);
+  --accent: var(--color-primary); --accent-2: var(--color-primary-strong); --navy: var(--navy-700);
+  --tint: var(--brown-100); --tint-2: var(--brown-050); --tint-3: var(--brown-025);
+  --ok: var(--color-success); --warn: var(--color-warning); --danger: var(--color-danger);
+
+  /* Scales — dense/dashboard rhythm (use the 8–32px part, not marketing spacing). */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --space-7: 48px;
+  --text-xs: 12px; --text-sm: 13px; --text-base: 14px; --text-md: 16px; --text-lg: 20px; --text-xl: 28px;
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(44, 24, 18, .05);
+  --shadow-2: 0 4px 12px rgba(44, 24, 18, .08);
+  --shadow-3: 0 10px 24px rgba(44, 24, 18, .12);
+
+  /* Motion — durations and easings (transform/opacity only; see the dashboard). */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-press: 140ms; --dur-pop: 180ms; --dur-panel: 220ms;
+
+  /* 4) COMPONENT TOKENS — reused by buttons, cards, banner and charts. */
+  --kpi-bg: var(--color-surface); --kpi-border: var(--color-border); --kpi-radius: var(--radius-lg); --kpi-shadow: var(--shadow-1);
+  --panel-bg: var(--color-surface); --panel-border: var(--color-border); --panel-radius: var(--radius-lg);
+  --banner-bg: linear-gradient(135deg, var(--brown-700) 0%, var(--brown-900) 100%);
+  --focus-ring: 0 0 0 3px rgba(107, 58, 42, .35);
+
   --z-sticky: 2;
   --z-sidebar: 10;
   --z-dropdown: 30;
   --z-modal: 100;
   --sidebar-width: 248px;
   --sidebar-collapsed-width: 72px;
+  --sheet-line: 0.3mm solid #000;
   font-family: 'Manrope Variable', system-ui, sans-serif; color: var(--text);
 }
 * { box-sizing: border-box; }
@@ -54,6 +94,8 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .notice--error { background: #fbefed; border-color: #e4b8b2; max-width: 560px; }
 .notice h1 { margin-bottom: 8px; }
 .muted { color: var(--muted); }
+/* Visually hidden, still read by screen readers (chart text summaries). */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .facts { display: grid; grid-template-columns: 160px 1fr; gap: 8px 16px; background: var(--panel); border: 1px solid var(--line); padding: 16px; border-radius: 4px; margin: 0; }
 .facts dt { color: var(--muted); } .facts dd { margin: 0; }
 .form { background: var(--panel); border: 1px solid var(--line); padding: 16px; border-radius: 4px; max-width: 560px; }
@@ -483,7 +525,7 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .emp-progress__row { display: grid; grid-template-columns: minmax(120px, 190px) 1fr auto; align-items: center; gap: 12px; }
 .emp-progress__name { font-size: 13px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .emp-progress__bar { height: 8px; background: var(--tint); border-radius: 999px; overflow: hidden; }
-.emp-progress__fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%); border-radius: 999px; transition: width .45s cubic-bezier(0.23, 1, 0.32, 1); }
+.emp-progress__fill { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%); border-radius: 999px; transform-origin: left center; transition: transform .45s var(--ease-out); }
 .emp-progress__count { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .emp-progress__count strong { color: var(--ok); font-weight: 700; }
 .dash .panel__title { font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--ink); }
@@ -505,7 +547,150 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
   .attention__items { margin-left: 0; width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .kpi, .pipeline__item, .breakdown__key, .attention__item { transition: none; }
+  .kpi, .pipeline__item, .breakdown__key, .attention__item, .flow__item, .emp-progress__fill { transition: none; }
+}
+
+/* ---- Dashboard: hero banner, KPI ring, connected pipeline, attention, skeletons ---- */
+
+/* Slim brand banner (≤120px). White-on-brown; contrast stays high across the gradient. */
+.dash-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-5);
+  min-height: 96px; padding: var(--space-4) var(--space-6);
+  background: var(--banner-bg); color: var(--white);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
+}
+.dash-banner__main { min-width: 0; }
+.dash-banner__greeting { margin: 0; font-size: var(--text-xl); font-weight: 700; letter-spacing: -.01em; line-height: 1.15; }
+.dash-banner__scope { margin: var(--space-1) 0 0; font-size: var(--text-sm); color: rgba(255, 255, 255, .85); }
+.dash-banner__figure { text-align: right; white-space: nowrap; }
+.dash-banner__figure strong { display: block; font-size: var(--text-xl); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.dash-banner__figure span { font-size: var(--text-xs); color: rgba(255, 255, 255, .85); }
+.dash-banner__actions { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+.dash-banner .btn { background: rgba(255, 255, 255, .14); border-color: rgba(255, 255, 255, .28); color: var(--white); }
+.dash-banner .btn:hover { background: rgba(255, 255, 255, .24); }
+.dash-banner .server-badge { background: rgba(255, 255, 255, .14); border-color: rgba(255, 255, 255, .28); color: var(--white); }
+.dash-banner .server-badge--connected { color: #d7f2e1; }
+.dash-banner .server-badge--connected .server-badge__dot { background: #7ee0a3; }
+.dash-banner .server-badge--offline { color: #ffd9d3; }
+.dash-banner .server-badge--offline .server-badge__dot { background: #ff9d90; }
+
+/* KPI row: value plus an optional completion ring (Completed card). */
+.kpi__row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.kpi-ring {
+  --pct: 0deg; flex: none; width: 46px; height: 46px; border-radius: 50%;
+  background: conic-gradient(var(--color-success) 0 var(--pct), var(--tint) var(--pct) 360deg);
+  display: grid; place-items: center;
+}
+.kpi-ring__hole {
+  width: 34px; height: 34px; border-radius: 50%; background: var(--panel);
+  display: grid; place-items: center; font-size: 11px; font-weight: 700;
+  color: var(--color-success); font-variant-numeric: tabular-nums;
+}
+
+/* Connected pipeline: stage cards joined by arrow connectors, wraps on narrow widths. */
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--space-2); }
+.flow__item {
+  flex: 1 1 140px; display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-3) var(--space-3); border-radius: var(--radius-md);
+  background: var(--panel); border: 1px solid var(--color-border);
+  text-decoration: none; color: var(--color-text); transition: border-color var(--dur-pop) var(--ease-out), background var(--dur-pop) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .flow__item:hover { border-color: var(--color-primary); background: var(--tint-3); }
+}
+.flow__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--color-primary); flex: none; }
+.flow__item--info .flow__dot { background: var(--color-accent-navy); }
+.flow__item--ok .flow__dot { background: var(--color-success); }
+.flow__item--warn .flow__dot { background: var(--color-warning); }
+.flow__item--danger .flow__dot { background: var(--color-danger); }
+.flow__item--neutral .flow__dot { background: var(--brown-300); }
+.flow__label { flex: 1; font-size: var(--text-sm); color: var(--color-text-muted); }
+.flow__value { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--color-text-strong); }
+.flow__arrow { align-self: center; color: var(--brown-300); font-weight: 700; flex: none; user-select: none; }
+
+/* Attention items get an icon so colour is never the only signal. */
+.attention__item svg { width: 15px; height: 15px; flex: none; }
+.attention__item strong { font-weight: 700; }
+
+/* Loading skeletons that mirror the final layout, so nothing jumps. */
+.dash-skel-banner { height: 96px; border-radius: var(--radius-lg); }
+.dash-skel-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); }
+.dash-skel-card { height: 104px; border-radius: var(--radius-lg); }
+.dash-skel-panel { height: 260px; border-radius: var(--radius-lg); }
+
+/* First-load motion only: transform/opacity, staggered; disabled under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .dash-banner, .dash-grid > *, .kpi-grid > *, .dash > .panel, .dash > .attention {
+    animation: dash-rise var(--dur-panel) var(--ease-out) both;
+  }
+  .kpi-grid > *:nth-child(2) { animation-delay: 40ms; }
+  .kpi-grid > *:nth-child(3) { animation-delay: 80ms; }
+  .kpi-grid > *:nth-child(4) { animation-delay: 120ms; }
+  .dash-grid > *:nth-child(2) { animation-delay: 60ms; }
+}
+@keyframes dash-rise {
+  from { opacity: 0; transform: translateY(6px) scale(.995); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 900px) {
+  .dash-banner { flex-wrap: wrap; }
+  .dash-skel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .dash-banner__figure { text-align: left; }
+  .dash-skel-grid { grid-template-columns: 1fr; }
+}
+
+/* Employee (ARD) dashboard — reuses the .dash visual system, adds its own pieces. */
+.ework-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ework-grid { display: grid; grid-template-columns: 340px 1fr; gap: 16px; align-items: stretch; }
+
+.ework-ring-panel { display: flex; flex-direction: column; }
+.ework-ring-wrap { display: flex; flex: 1; align-items: center; justify-content: center; gap: 22px; flex-wrap: wrap; }
+.ework-ring {
+  --pct: 0deg;
+  position: relative; flex: none;
+  width: 150px; height: 150px; border-radius: 50%;
+  background: conic-gradient(var(--ok) 0 var(--pct), var(--tint) var(--pct) 360deg);
+  display: grid; place-items: center;
+}
+.ework-ring__hole {
+  width: 110px; height: 110px; border-radius: 50%;
+  background: var(--panel); box-shadow: inset 0 0 0 1px var(--line);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.ework-ring__pct { font-size: 28px; font-weight: 800; line-height: 1; color: var(--ok); font-variant-numeric: tabular-nums; }
+.ework-ring__label { margin-top: 3px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.ework-ring-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 130px; }
+.ework-ring-legend li { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.ework-ring-legend strong { margin-left: auto; color: var(--ink); font-variant-numeric: tabular-nums; }
+.ework-ring-legend__dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+.ework-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ework-timeline__item { display: grid; grid-template-columns: 14px 1fr; gap: 12px; position: relative; padding: 7px 0; }
+.ework-timeline__item:not(:last-child)::before {
+  content: ''; position: absolute; left: 6px; top: 20px; bottom: -6px;
+  width: 2px; background: var(--line);
+}
+.ework-timeline__dot { width: 14px; height: 14px; border-radius: 50%; margin-top: 2px; box-shadow: 0 0 0 3px var(--panel); }
+.ework-timeline__body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ework-timeline__what { font-size: 13px; color: var(--ink); }
+.ework-timeline__when { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.ework-queue { padding: 16px 18px; }
+.ework-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.ework-toolbar .panel__title { margin: 0; }
+.ework-toolbar__filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.ework-toolbar__filters input { max-width: 280px; }
+.ework-toolbar__filters select { max-width: 180px; }
+.ework .table__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+@media (max-width: 900px) {
+  .ework-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .ework-toolbar__filters { width: 100%; }
+  .ework-toolbar__filters input, .ework-toolbar__filters select { max-width: none; flex: 1; }
 }
 
 /* Certificates of Analysis */
@@ -563,17 +748,19 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 
 /* ---- The printed TRF: the company's controlled form (SOP QAQN-003:F1), one A4 page, black on white ---- */
 .trf-print { max-width: 188mm; margin: 0 auto; color: #000; background: #fff; }
-.trf-form {
+.trf-sheet {
+  display: block;
   font-family: 'Times New Roman', 'Liberation Serif', serif;
   font-size: 10pt; line-height: 1.25; color: #000; background: #fff;
-  border: 1px solid #000; padding: 3mm;
+  border: var(--sheet-line); padding: 3mm;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  break-inside: avoid; page-break-inside: avoid;
 }
-.trf-form * { box-sizing: border-box; }
+.trf-sheet * { box-sizing: border-box; }
 
 /* Cells draw their own right and bottom edge; the box draws the top and left, so no line is ever doubled. */
-.trf-form__box { border-top: 1px solid #000; border-left: 1px solid #000; }
-.trf-form__box > * { border-right: 1px solid #000; border-bottom: 1px solid #000; }
+.trf-form__box { border-top: var(--sheet-line); border-left: var(--sheet-line); break-inside: avoid; page-break-inside: avoid; }
+.trf-form__box > * { border-right: var(--sheet-line); border-bottom: var(--sheet-line); }
 .trf-form__label { font-weight: 700; }
 
 /* Header: logo | company | SOP and revision | MASTER and effective date, then TITLE | name | issued by */
@@ -584,7 +771,7 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .trf-form__company { display: flex; align-items: center; justify-content: center; text-align: center; font-weight: 700; font-size: 11.5pt; text-transform: uppercase; }
 .trf-form__stack { padding: 0 !important; display: grid; grid-template-rows: 1fr 1fr; }
 .trf-form__stack > div { padding: 1.5mm 2mm; min-width: 0; overflow-wrap: anywhere; }
-.trf-form__stack > div + div { border-top: 1px solid #000; }
+.trf-form__stack > div + div { border-top: var(--sheet-line); }
 .trf-form__master { display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13pt; letter-spacing: .02em; }
 .trf-form__title-label { display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11.5pt; }
 .trf-form__title { grid-column: span 2; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12pt; text-transform: uppercase; }
@@ -603,8 +790,8 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .trf-form__purpose { margin-top: 1mm; white-space: pre-wrap; }
 .trf-form__remarks { min-height: 15mm !important; white-space: pre-wrap; }
 
-/* The five cells: Sampled by | TRF Number | Sample given by | Sample Received by | AR number */
-.trf-form__five { display: grid; grid-template-columns: repeat(5, 1fr); }
+/* The four cells: Sampled by | TRF Number | Sample Received by | AR number */
+.trf-form__five { display: grid; grid-template-columns: repeat(4, 1fr); }
 .trf-form__five > div { padding: 1.5mm 2mm; text-align: center; min-width: 0; overflow-wrap: anywhere; }
 .trf-form__five .head { font-weight: 700; }
 .trf-form__five .value { min-height: 9mm; display: flex; align-items: center; justify-content: center; }
@@ -613,7 +800,7 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .trf-form__footer { display: grid; grid-template-columns: 1fr 1fr; margin-top: 4mm; }
 .trf-form__footer > div { padding: 1.5mm 2mm; min-width: 0; overflow-wrap: anywhere; }
 .trf-form__footer .head { text-align: center; font-weight: 700; }
-.trf-form__sign { min-height: 12mm; display: flex; align-items: flex-end; gap: 2mm; flex-wrap: wrap; }
+.trf-form__sign { min-height: 18mm; display: flex; align-items: flex-end; gap: 2mm; flex-wrap: wrap; }
 .trf-form__page { text-align: right; }
 
 .trf-print__printed-note { font-size: 7pt; text-align: center; margin: 1mm 0 0; color: #333; font-family: 'Times New Roman', 'Liberation Serif', serif; }
@@ -623,7 +810,7 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 
 @media print {
   .trf-print { max-width: none; }
-  .trf-form { break-inside: avoid; page-break-inside: avoid; }
+  .trf-form__grid, .trf-form__five, .trf-form__footer { break-inside: avoid; page-break-inside: avoid; }
   .trf-print__actions, .trf-print__disabled-notice { display: none !important; }
 }
 
@@ -1436,3 +1623,36 @@ h2 { font-size: 15.5px; font-weight: 700; }
 @media (prefers-reduced-motion: reduce) {
   .btn, .field input, .field select, .field textarea, .form input, .modal input { transition: none; }
 }
+
+/* ============================================================
+   Scrollable modal — pinned head + footer, only the body scrolls.
+   Keeps the actions out of the way instead of overlapping fields.
+   ============================================================ */
+.modal-backdrop--scroll { align-items: center; padding: var(--space-4); }
+.modal--scroll { display: flex; flex-direction: column; max-height: calc(100vh - var(--space-6)); padding: 0; overflow: hidden; }
+.modal--scroll .modal__head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--line); }
+.modal--scroll .modal__head h2 { margin: 0; padding-right: var(--space-6); }
+.modal--scroll .modal__close { position: static; }
+.modal--scroll .modal__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--space-4) var(--space-5); }
+.modal--scroll .modal__footer { flex: none; padding: var(--space-3) var(--space-5); border-top: 1px solid var(--line); background: var(--panel); }
+.modal--scroll .modal__actions { position: static; margin-top: 0; border-top: 0; }
+.modal__footer .row { margin-top: 0; justify-content: flex-end; }
+.modal__footer .btn { min-height: 40px; }
+
+/* ============================================================
+   Approvals — two stacked cards, each with its own scrollable
+   table and its own empty state.
+   ============================================================ */
+.approvals { display: flex; flex-direction: column; gap: var(--space-5); max-width: 1440px; margin: 0 auto; }
+.approvals .page__head { margin-bottom: 0; }
+.list-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
+.list-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--line); }
+.list-card__titles h2 { margin: 0; }
+.list-card__desc { margin: 4px 0 0; }
+.list-card__count { flex: none; min-width: 32px; padding: 2px 10px; border-radius: var(--radius-pill); background: var(--tint); color: var(--accent); font-size: var(--text-sm); font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+.list-card__body { padding: var(--space-4) var(--space-5); }
+.list-card .table { margin-top: 0; }
+.list-card .table td, .list-card .table th { font-variant-numeric: tabular-nums; }
+.list-card .table .col-wrap { white-space: normal; min-width: 120px; }
+.list-card .table a { color: var(--accent); text-decoration: none; }
+.list-card .table a:hover { text-decoration: underline; }

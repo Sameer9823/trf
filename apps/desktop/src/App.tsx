@@ -1,5 +1,5 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { Layout } from './components/Layout';
+import { Layout, visibleNav } from './components/Layout';
 import { ServerStatusProvider } from './lib/server-status';
 import { AuthProvider, useAuth } from './lib/auth';
 import { ChangePassword } from './pages/ChangePassword';
@@ -40,6 +40,20 @@ function RequireModule({ module, children }: { module: string; children: JSX.Ele
   return children;
 }
 
+/**
+ * The landing page. Most accounts open on the main dashboard; ARD team members
+ * have no dashboard, so they open on their first module instead (TRF). Deriving
+ * this from visibleNav keeps the landing and the sidebar in step.
+ */
+function Home() {
+  const { employee, canAccessModule } = useAuth();
+  const nav = visibleNav(employee, canAccessModule);
+  if (!nav.some((n) => n.module === 'dashboard')) {
+    return <Navigate to={nav[0]?.to ?? '/trf'} replace />;
+  }
+  return <Dashboard />;
+}
+
 function Shell() {
   const { employee, actingEmployeeId } = useAuth();
 
@@ -68,7 +82,7 @@ function Shell() {
       {/* The server address must be reachable before sign-in, so Settings sits outside the shell. */}
       <Route path="/settings" element={<Settings />} />
       <Route element={<Layout />}>
-        <Route index element={<Dashboard />} />
+        <Route index element={<Home />} />
         <Route path="trf" element={
           <RequireModule module="trf"><TrfList /></RequireModule>
         } />

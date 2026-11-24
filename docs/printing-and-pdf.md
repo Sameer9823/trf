@@ -8,8 +8,9 @@ product's **Generic Name** added under the product name.
   Print opens the system print dialog; Save as PDF asks where to save an A4 PDF named `TRF-<number>.pdf`.
 - **What it shows:** header (logo, company, SOP number, revision, MASTER, effective date, issued by), product and generic name,
   batch, customer, quantities, dates, storage, pack, label claim, "Analysis Required for" (the tests requested, then the purpose),
-  remarks, the five sample cells (Sampled by, TRF Number, Sample given by, Sample Received by, AR number), and Prepared by
-  (who created the TRF) and Approved by (the administrator who gave the final approval) with dates.
+  remarks, the four sample cells (Sampled by, TRF Number, Sample Received by, AR number), and Prepared by and Approved by as blank
+  signature boxes to be signed by hand. The creator and approver are still recorded in the system and in the print audit log; only the
+  printed form leaves their names and dates off so the boxes can be signed by hand.
 - **Header values** are the `FORM_*` settings (SOP number, revision, effective date, issued by, department), read through
   `GET /api/settings/form` and edited by administrators in Settings.
 - **Audit:** every print and every PDF is recorded first (`POST /api/trfs/:id/print-log`, action `trf.printed`). The server names

@@ -10,6 +10,12 @@ interface ModalProps {
   busy?: boolean;
   /** Extra class names for the dialog container (e.g. "modal--danger", "modal--wide"). */
   className?: string;
+  /**
+   * When true the dialog becomes a flex column: a pinned head and footer with
+   * only the body scrolling. Pair the children with <ModalBody> and <ModalFooter>
+   * so the actions stay outside the scrolling region instead of overlapping it.
+   */
+  scrollable?: boolean;
   /** The dialog content (form fields, help text, action buttons) */
   children: ReactNode;
 }
@@ -25,7 +31,7 @@ const INITIAL_FOCUS_SELECTOR = 'input, select, textarea';
  */
 const FOCUS_SELECTOR = 'input, select, textarea, [href], button:not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])'; 
 
-export function Modal({ open, onClose, title, busy = false, className, children }: ModalProps) {
+export function Modal({ open, onClose, title, busy = false, className, scrollable = false, children }: ModalProps) {
   const uid = useId();
   const titleId = `modal-title${uid.replace(/:/g, '-')}`;
 
@@ -88,35 +94,66 @@ export function Modal({ open, onClose, title, busy = false, className, children 
 
   if (!open) return null;
 
+  const closeButton = !busy ? (
+    <button
+      type="button"
+      className="modal__close"
+      aria-label="Close"
+      tabIndex={-1}
+      onClick={onClose}
+    >
+      ×
+    </button>
+  ) : null;
+
+  // The scrollable variant pins the close button inside a dedicated head so it
+  // never scrolls away with the body; every other modal keeps the absolute button.
+  const content = scrollable ? (
+    <>
+      {title && (
+        <div className="modal__head">
+          <h2 id={titleId}>{title}</h2>
+          {closeButton}
+        </div>
+      )}
+      {!title && closeButton}
+      {children}
+    </>
+  ) : (
+    <>
+      {title && <h2 id={titleId}>{title}</h2>}
+      {children}
+      {closeButton}
+    </>
+  );
+
   return createPortal(
     <div
-      className="modal-backdrop"
+      className={`modal-backdrop${scrollable ? ' modal-backdrop--scroll' : ''}`}
       ref={overlayRef}
       onClick={(e) => { if (e.target === overlayRef.current && !busyRef.current) onCloseRef.current(); }}
     >
       <div
-        className={`modal ${className ?? ''}`.trim()}
+        className={`modal${scrollable ? ' modal--scroll' : ''} ${className ?? ''}`.trim()}
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
       >
-        {title && <h2 id={titleId}>{title}</h2>}
-        {children}
-        {!busy && (
-          <button
-            type="button"
-            className="modal__close"
-            aria-label="Close"
-            tabIndex={-1}
-            onClick={onClose}
-          >
-            ×
-          </button>
-        )}
+        {content}
       </div>
     </div>,
     document.body
   );
+}
+
+/** The scrolling region of a <Modal scrollable>. Everything between head and footer. */
+export function ModalBody({ children }: { children: ReactNode }) {
+  return <div className="modal__body">{children}</div>;
+}
+
+/** The pinned footer of a <Modal scrollable>: actions that stay put while the body scrolls. */
+export function ModalFooter({ children }: { children: ReactNode }) {
+  return <div className="modal__footer">{children}</div>;
 }

@@ -1,7 +1,7 @@
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, test, expect, vi } from 'vitest';
-import { Modal } from './Modal';
+import { Modal, ModalBody, ModalFooter } from './Modal';
 import { EmployeeSelect } from './EmployeeSelect';
 import type { EmployeeOption } from '@trf/shared';
 import { TeamType } from '@trf/shared';
@@ -215,4 +215,40 @@ test('applies custom className to the dialog', () => {
   );
   const dialog = document.querySelector('.modal');
   expect(dialog?.className).toContain('modal--danger');
+});
+
+test('scrollable modal keeps the footer outside the scrolling body', () => {
+  render(
+    <Modal open={true} onClose={() => {}} title="Scrollable" scrollable>
+      <ModalBody><p>Body content</p></ModalBody>
+      <ModalFooter><button>Save</button></ModalFooter>
+    </Modal>
+  );
+  const dialog = document.querySelector('.modal')!;
+  expect(dialog.classList.contains('modal--scroll')).toBe(true);
+  const body = dialog.querySelector('.modal__body')!;
+  const footer = dialog.querySelector('.modal__footer')!;
+  expect(body).not.toBeNull();
+  expect(footer).not.toBeNull();
+  // The footer is a sibling of the body, never nested inside the scrolling region.
+  expect(body.contains(footer)).toBe(false);
+  expect(footer.parentElement).toBe(dialog);
+  // The close button is pinned in the head rather than floating over the body.
+  expect(dialog.querySelector('.modal__head .modal__close')).not.toBeNull();
+});
+
+test('a plain modal is unchanged: no scroll regions and the close button stays absolute', () => {
+  render(
+    <Modal open={true} onClose={() => {}} title="Plain">
+      <p>Body</p>
+    </Modal>
+  );
+  const dialog = document.querySelector('.modal')!;
+  expect(dialog.classList.contains('modal--scroll')).toBe(false);
+  expect(dialog.querySelector('.modal__body')).toBeNull();
+  expect(dialog.querySelector('.modal__footer')).toBeNull();
+  expect(dialog.querySelector('.modal__head')).toBeNull();
+  // The close button is a direct child of the dialog, positioned by CSS.
+  const close = dialog.querySelector('.modal__close')!;
+  expect(close.parentElement).toBe(dialog);
 });

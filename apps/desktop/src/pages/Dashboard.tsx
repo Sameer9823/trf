@@ -1,19 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import type { DashboardCard, DashboardPayload, StatusSlice } from '@trf/shared';
+import type { AnalystResultRow, DashboardPayload, StatusSlice } from '@trf/shared';
+import {
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer,
+  Tooltip, XAxis, YAxis,
+} from 'recharts';
 import { cardLink, loadDashboard } from '../lib/dashboard';
 import { useAuth } from '../lib/auth';
 import { useServerStatus } from '../lib/server-status';
 import { OfflineNotice } from '../components/OfflineNotice';
-import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer,
-  Tooltip, XAxis, YAxis,
-} from 'recharts';
+import { Icons } from '../components/Icons';
 
 /**
  * Every figure on this page is counted by the server over the scope of the
- * signed-in role. Nothing is totalled in the browser, so a card and the list it
- * opens can never disagree.
+ * signed-in role. Nothing is totalled, filtered or derived in the browser, so a
+ * card and the list it opens can never disagree. The one ratio shown — the
+ * completion ring — is two payload figures over each other, not a recount.
  */
 export function Dashboard() {
   const { state, health, serverUrl, lastChecked } = useServerStatus();
@@ -22,6 +24,8 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  // Chart draw-in plays once per session, on the first data only; never on refresh.
+  const [animateCharts, setAnimateCharts] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -37,10 +41,35 @@ export function Dashboard() {
     void load();
   }, [load, state, nonce]);
 
+  useEffect(() => {
+    if (!data) return;
+    const id = setTimeout(() => setAnimateCharts(false), 700);
+    return () => clearTimeout(id);
+  }, [data]);
+
+  const prefersReduced = useMemo(
+    () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
+    [],
+  );
+  const chartAnim = animateCharts && !prefersReduced;
+
   if (state === 'offline') return <div className="page page--wide"><OfflineNotice /></div>;
 
   if (loading && !data) {
-    return <div className="page page--wide"><p className="muted">Loading the dashboard…</p></div>;
+    return (
+      <div className="page page--wide">
+        <div className="dash">
+          <div className="skel dash-skel-banner" />
+          <div className="dash-skel-grid">
+            <div className="skel dash-skel-card" />
+            <div className="skel dash-skel-card" />
+            <div className="skel dash-skel-card" />
+            <div className="skel dash-skel-card" />
+          </div>
+          <div className="skel dash-skel-panel" />
+        </div>
+      </div>
+    );
   }
 
   if (!data) {
@@ -56,92 +85,106 @@ export function Dashboard() {
   const t = data.totals;
   const completionPct = t.trfTotal > 0 ? Math.round((t.trfCompleted / t.trfTotal) * 100) : 0;
 
-  const primary: DashCard[] = [
-    { label: 'TRFs', total: t.trfTotal, tone: 'info', to: '#/trf', hint: 'All requests' },
-    { label: 'Completed', total: t.trfCompleted, tone: 'ok', to: cardLink('trf', { status: 'Completed' }), hint: 'Closed out' },
+  const firstName = employee?.fullName.split(' ')[0] ?? 'there';
+  const greeting = greetingFor(new Date());
+  const scopeText = data.scope === 'own'
+    ? "Your team's TRFs, tests and certificates."
+    : 'Every TRF, test and certificate in the system.';
+  const statusKind = state === 'connected' ? 'connected' : 'checking';
+
+  const heroes: HeroKpi[] = [
+    { label: 'TRFs', value: t.trfTotal, tone: 'info', to: '#/trf', hint: 'All requests' },
+    { label: 'Completed', value: t.trfCompleted, tone: 'ok', to: cardLink('trf', { status: 'Completed' }), hint: 'Closed out', ringPct: completionPct },
     {
-      label: 'Certificates to issue', total: t.coaAwaitingIssue,
+      label: 'Overdue',
+      value: t.trfOverdue,
+      tone: t.trfOverdue > 0 ? 'danger' : 'neutral',
+      to: cardLink('trf', { overdueOnly: 'true' }),
+      hint: t.trfOverdue > 0 ? 'Past due date' : 'Nothing overdue',
+    },
+    {
+      label: 'Certificates to issue',
+      value: t.coaAwaitingIssue,
       tone: t.coaAwaitingIssue > 0 ? 'warn' : 'neutral',
-      to: cardLink('coa', { status: 'Draft,Under Review,Approved' }), hint: 'Awaiting issue',
+      to: cardLink('coa', { status: 'Draft,Under Review,Approved' }),
+      hint: 'Awaiting issue',
     },
   ];
 
-  const pipeline: DashCard[] = [
-    { label: 'New', total: t.trfNew, tone: 'neutral', to: cardLink('trf', { status: 'New' }) },
-    { label: 'Assigned', total: t.trfAssigned, tone: 'info', to: cardLink('trf', { status: 'Assigned' }) },
-    { label: 'In Progress', total: t.trfInProgress, tone: 'info', to: cardLink('trf', { status: 'In Progress' }) },
-    {
-      label: 'Analysis Completed', total: t.trfAnalysisCompleted, tone: 'neutral',
-      to: cardLink('trf', { status: 'Analysis Completed' }),
-    },
-    {
-      label: 'COA Pending', total: t.trfCoaPending, tone: t.trfCoaPending > 0 ? 'warn' : 'neutral',
-      to: cardLink('trf', { status: 'COA Pending' }),
-    },
-    {
-      label: 'Open tests', total: t.analysisOpenTests, tone: 'info',
-      to: cardLink('analysis', { status: 'Assigned,In Progress,Re-test Required' }),
-    },
-    {
-      label: 'Delayed tests', total: t.analysisDelayedTests,
-      tone: t.analysisDelayedTests > 0 ? 'warn' : 'neutral',
-      to: cardLink('analysis', { delayedOnly: 'true' }),
-    },
-    { label: 'Certificates issued', total: t.coaIssued, tone: 'ok', to: cardLink('coa', { status: 'Issued' }) },
+  const pipeline: StageCard[] = [
+    { label: 'New', value: t.trfNew, tone: 'neutral', to: cardLink('trf', { status: 'New' }) },
+    { label: 'Assigned', value: t.trfAssigned, tone: 'info', to: cardLink('trf', { status: 'Assigned' }) },
+    { label: 'In Progress', value: t.trfInProgress, tone: 'info', to: cardLink('trf', { status: 'In Progress' }) },
+    { label: 'Analysis Completed', value: t.trfAnalysisCompleted, tone: 'neutral', to: cardLink('trf', { status: 'Analysis Completed' }) },
+    { label: 'COA Pending', value: t.trfCoaPending, tone: t.trfCoaPending > 0 ? 'warn' : 'neutral', to: cardLink('trf', { status: 'COA Pending' }) },
+    { label: 'Completed', value: t.trfCompleted, tone: 'ok', to: cardLink('trf', { status: 'Completed' }) },
   ];
 
-  const attention: DashCard[] = [
+  const attention: AttentionItem[] = [
     ...(t.trfOverdue > 0
-      ? [{ label: 'overdue', total: t.trfOverdue, tone: 'danger' as const, to: cardLink('trf', { overdueOnly: 'true' }) }]
-      : []),
-    ...(t.trfCoaPending > 0
-      ? [{ label: 'COA pending', total: t.trfCoaPending, tone: 'warn' as const, to: cardLink('trf', { status: 'COA Pending' }) }]
+      ? [{ label: 'Overdue TRFs', count: t.trfOverdue, tone: 'danger' as const, to: cardLink('trf', { overdueOnly: 'true' }), icon: Icons.trf }]
       : []),
     ...(t.analysisDelayedTests > 0
-      ? [{ label: 'delayed tests', total: t.analysisDelayedTests, tone: 'warn' as const, to: cardLink('analysis', { delayedOnly: 'true' }) }]
+      ? [{ label: 'Delayed tests', count: t.analysisDelayedTests, tone: 'warn' as const, to: cardLink('analysis', { delayedOnly: 'true' }), icon: Icons.ard }]
+      : []),
+    ...(t.coaAwaitingIssue > 0
+      ? [{ label: 'Certificates awaiting issue', count: t.coaAwaitingIssue, tone: 'warn' as const, to: cardLink('coa', { status: 'Draft,Under Review,Approved' }), icon: Icons.approvals }]
       : []),
   ];
+
+  const rankedEmployees = [...data.trfByEmployee].sort(
+    (a, b) => b.total - a.total || b.completed - a.completed,
+  );
+  const monthlyEmpty = data.monthlyTrfs.every((p) => p.count === 0);
 
   return (
     <div className="page page--wide">
       <div className="dash">
-        <header className="dash__head">
-          <div>
-            <h1 className="dash__title">Dashboard</h1>
-            <p className="dash__scope">
-              {data.scope === 'own'
-                ? 'The TRFs, tests and certificates you are involved in.'
-                : 'Every TRF, test and certificate in the system.'}
+        <header className="dash-banner">
+          <div className="dash-banner__main">
+            <p className="dash-banner__greeting">{greeting}, {firstName}</p>
+            <p className="dash-banner__scope">
+              {employee ? `${employee.role} · ` : ''}{scopeText}
             </p>
           </div>
-          <button className="btn" onClick={() => setNonce((n) => n + 1)} disabled={loading}>Refresh</button>
+          <div className="dash-banner__figure">
+            <strong>{t.trfTotal.toLocaleString()}</strong>
+            <span>TRFs in scope</span>
+          </div>
+          <div className="dash-banner__actions">
+            <span className={`server-badge server-badge--${statusKind}`} role="status">
+              <span className="server-badge__dot" aria-hidden="true" />
+              {state === 'connected' ? 'Connected' : 'Checking…'}
+            </span>
+            <button className="btn" onClick={() => setNonce((n) => n + 1)} disabled={loading}>Refresh</button>
+          </div>
         </header>
 
         {error && <p className="error-text" role="alert">{error}</p>}
 
-        {t.trfTotal > 0 && (
-          <div className="progress-card">
-            <div className="progress-card__head">
-              <div className="progress-card__lead">
-                <span className="progress-card__title">Overall progress</span>
-                <span className="muted">
-                  {t.trfCompleted.toLocaleString()} of {t.trfTotal.toLocaleString()} TRFs completed
-                </span>
-              </div>
-              <span className="progress-card__pct">{completionPct}%</span>
-            </div>
-            <div
-              className="progress-bar"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={completionPct}
-              aria-label="TRFs completed"
-            >
-              <div className="progress-bar__fill" style={{ width: `${completionPct}%` }} />
-            </div>
+        <div className="kpi-grid">
+          {heroes.map((card) => <Kpi key={card.label} card={card} />)}
+        </div>
+
+        <section aria-labelledby="dash-pipeline-title">
+          <h2 id="dash-pipeline-title" className="dash__section-title">Pipeline</h2>
+          <div className="flow">
+            {pipeline.map((stage, i) => (
+              <Fragment key={stage.label}>
+                {i > 0 && <span className="flow__arrow" aria-hidden="true">→</span>}
+                <Link
+                  className={`flow__item flow__item--${stage.tone}`}
+                  to={stage.to.replace('#', '')}
+                  title={`Show the ${stage.label.toLowerCase()} list`}
+                >
+                  <span className="flow__dot" aria-hidden="true" />
+                  <span className="flow__label">{stage.label}</span>
+                  <span className="flow__value">{stage.value.toLocaleString()}</span>
+                </Link>
+              </Fragment>
+            ))}
           </div>
-        )}
+        </section>
 
         {attention.length > 0 && (
           <section className="attention" aria-label="Needs attention">
@@ -152,8 +195,10 @@ export function Dashboard() {
                   key={item.label}
                   className={`attention__item attention__item--${item.tone}`}
                   to={item.to.replace('#', '')}
+                  title={`Show all ${item.label.toLowerCase()}`}
                 >
-                  <strong>{item.total.toLocaleString()}</strong>
+                  <span aria-hidden="true">{item.icon}</span>
+                  <strong>{item.count.toLocaleString()}</strong>
                   <span>{item.label}</span>
                 </Link>
               ))}
@@ -161,102 +206,84 @@ export function Dashboard() {
           </section>
         )}
 
-        <div className="kpi-grid">
-          {primary.map((card) => (
-            <Kpi key={card.label} card={card} />
-          ))}
-        </div>
-
-        {t.trfTotal === 0 && (
-          <div className="notice">
-            <strong>Nothing to show yet.</strong> Create a TRF, or wait for work to be assigned, and this page fills in on its own.
-          </div>
-        )}
-
-        <section aria-labelledby="dash-pipeline-title">
-          <h2 id="dash-pipeline-title" className="dash__section-title">Pipeline</h2>
-          <div className="pipeline">
-            {pipeline.map((card) => (
-              <Link
-                key={card.label}
-                className={`pipeline__item pipeline__item--${card.tone}`}
-                to={card.to.replace('#', '')}
-                title={`Show the ${card.label.toLowerCase()} list`}
-              >
-                <span className="pipeline__dot" aria-hidden="true" />
-                <span className="pipeline__label">{card.label}</span>
-                <span className="pipeline__value">{card.total.toLocaleString()}</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-
         <div className="dash-grid">
           <Panel title="TRFs received, last 12 months">
-            <ResponsiveContainer width="100%" height={240}>
-              <AreaChart data={data.monthlyTrfs} margin={{ top: 8, right: 12, bottom: 4, left: -18 }}>
-                <defs>
-                  <linearGradient id="trfFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#6b3a2a" stopOpacity={0.2} />
-                    <stop offset="100%" stopColor="#6b3a2a" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="#efe6df" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" axisLine={false} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={TOOLTIP_STYLE}
-                  formatter={(v: number) => [`${v} TRF${v === 1 ? '' : 's'}`, 'Received']}
-                />
-                <Area
-                  type="monotone" dataKey="count" stroke="#6b3a2a" strokeWidth={2}
-                  fill="url(#trfFill)" dot={false} activeDot={{ r: 4 }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {monthlyEmpty ? (
+              <p className="chart-empty">No TRFs in this period yet.</p>
+            ) : (
+              <>
+                <p className="sr-only">
+                  {`Monthly TRF receipts over the last 12 months; ${data.monthlyTrfs.reduce((s, p) => s + p.count, 0)} in total.`}
+                </p>
+                <ResponsiveContainer width="100%" height={240}>
+                  <AreaChart data={data.monthlyTrfs} margin={{ top: 8, right: 12, bottom: 4, left: -18 }}>
+                    <defs>
+                      <linearGradient id="trfFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={CHART.primary} stopOpacity={0.2} />
+                        <stop offset="100%" stopColor={CHART.primary} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke={CHART.grid} vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [`${v} TRF${v === 1 ? '' : 's'}`, 'Received']} />
+                    <Area type="monotone" dataKey="count" stroke={CHART.primary} strokeWidth={2} fill="url(#trfFill)" dot={false} activeDot={{ r: 4 }} isAnimationActive={chartAnim} animationDuration={500} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </>
+            )}
           </Panel>
 
           <Panel title="TRF status">
-            <StatusBreakdown data={data.trfStatus} palette={TRF_PALETTE} linkFor={(s) => cardLink('trf', { status: s })} />
+            <StatusBars data={data.trfStatus} palette={TRF_PALETTE} animate={chartAnim}
+              linkFor={(s) => cardLink('trf', { status: s })} />
           </Panel>
 
           <Panel title="Analysis status">
-            <StatusBreakdown data={data.analysisStatus} palette={ANALYSIS_PALETTE}
+            <StatusBars data={data.analysisStatus} palette={ANALYSIS_PALETTE} animate={chartAnim}
               linkFor={(s) => cardLink('analysis', { status: s })} />
           </Panel>
 
           {can('coa.view') && (
             <Panel title="Certificate status">
-              <StatusBreakdown data={data.coaStatus} palette={COA_PALETTE} linkFor={(s) => cardLink('coa', { status: s })} />
+              <StatusBars data={data.coaStatus} palette={COA_PALETTE} animate={chartAnim}
+                linkFor={(s) => cardLink('coa', { status: s })} />
             </Panel>
           )}
         </div>
 
-        {data.workload.length > 0 && (
-          <Panel title={data.scope === 'own' ? 'Your work' : 'Analyst workload'}>
-            <div className="chart-scroll">
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={data.workload} margin={{ top: 8, right: 12, bottom: 4, left: -18 }}>
-                  <CartesianGrid stroke="#efe6df" vertical={false} />
-                  <XAxis dataKey="employeeName" tick={{ fontSize: 11 }} interval={0} axisLine={false} tickLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'rgba(107,58,42,.06)' }} />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="assigned" name="Assigned" stackId="work" fill="#c9b6aa" />
-                  <Bar dataKey="inProgress" name="In progress" stackId="work" fill="#6b3a2a" />
-                  <Bar dataKey="delayed" name="Delayed" stackId="work" fill="#b7791f" />
-                  <Bar dataKey="passed" name="Completed, passed" stackId="done" fill="#2f7d4f" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="failed" name="Completed, failed" stackId="done" fill="#b3382c" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </Panel>
-        )}
+        <Panel title={data.scope === 'own' ? 'Your analyst results' : 'Analyst results'}>
+          {data.workload.length === 0 ? (
+            <p className="chart-empty">No analyst results in this period yet.</p>
+          ) : (
+            <>
+              <p className="sr-only">{analystSummary(data.workload)}</p>
+              <div className="chart-scroll">
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={data.workload} margin={{ top: 8, right: 12, bottom: 4, left: -18 }}>
+                    <CartesianGrid stroke={CHART.grid} vertical={false} />
+                    <XAxis dataKey="employeeName" tick={{ fontSize: 11 }} interval={0} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: CHART.cursor }} />
+                    <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="assigned" name="Assigned" stackId="work" fill={CHART.primarySoft} isAnimationActive={chartAnim} animationDuration={500} />
+                    <Bar dataKey="inProgress" name="In progress" stackId="work" fill={CHART.primary} />
+                    <Bar dataKey="delayed" name="Delayed" stackId="work" fill={CHART.amber} />
+                    <Bar dataKey="passed" name="Completed, passed" stackId="done" fill={CHART.green} radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="failed" name="Completed, failed" stackId="done" fill={CHART.red} radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
+        </Panel>
 
-        {data.trfByEmployee.length > 0 && (
-          <Panel title={data.scope === 'own' ? 'Your TRFs' : 'TRFs completed by employee'}>
+        <Panel title={data.scope === 'own' ? 'Your TRFs completed' : 'Completed by employee'}>
+          {rankedEmployees.length === 0 ? (
+            <p className="chart-empty">No TRFs assigned to anyone in this scope yet.</p>
+          ) : (
             <ul className="emp-progress">
-              {data.trfByEmployee.map((row) => {
+              {rankedEmployees.map((row) => {
                 const pct = row.total > 0 ? Math.round((row.completed / row.total) * 100) : 0;
                 return (
                   <li key={row.employeeId} className="emp-progress__row">
@@ -269,24 +296,23 @@ export function Dashboard() {
                       aria-valuenow={row.completed}
                       aria-label={`${row.employeeName}: ${row.completed} of ${row.total} TRFs completed`}
                     >
-                      <span className="emp-progress__fill" style={{ width: `${pct}%` }} />
+                      <span className="emp-progress__fill" style={{ transform: `scaleX(${row.total > 0 ? row.completed / row.total : 0})` }} />
                     </span>
-                    <span className="emp-progress__count"><strong>{row.completed}</strong> / {row.total}</span>
+                    <span className="emp-progress__count"><strong>{row.completed}</strong> / {row.total} · {pct}%</span>
                   </li>
                 );
               })}
             </ul>
-          </Panel>
-        )}
+          )}
+        </Panel>
 
         <footer className="dash-foot">
           <dl className="dash-foot__grid">
             <dt>Company server</dt><dd>{serverUrl}</dd>
-            <dt>Status</dt><dd>{state === 'checking' ? 'Checking…' : 'Connected'}</dd>
             <dt>Database</dt><dd>{health?.database === 'connected' ? 'Connected' : 'Unavailable'}</dd>
             <dt>Server version</dt><dd>{health?.version ?? '—'}</dd>
             <dt>Figures as at</dt><dd>{new Date(data.generatedAt).toLocaleString()}</dd>
-            <dt>Last checked</dt><dd>{lastChecked ? lastChecked.toLocaleTimeString() : '—'}</dd>
+            <dt>Last refreshed</dt><dd>{lastChecked ? lastChecked.toLocaleTimeString() : '—'}</dd>
           </dl>
           {employee && (
             <p className="dash-foot__who">
@@ -306,19 +332,63 @@ const TOOLTIP_STYLE = {
   boxShadow: '0 6px 16px rgba(44,24,18,.08)',
 } as const;
 
-/** A tile that always links to the list behind it. */
-type DashCard = DashboardCard & { to: string };
+// Series colours mirror the brand tokens in styles.css; recharts needs concrete values.
+const CHART = {
+  primary: '#6b3a2a', primarySoft: '#c9b6aa', navy: '#0a2a5c', blue: '#8fb4c6',
+  clay: '#a9745f', green: '#2f7d4f', amber: '#b7791f', red: '#b3382c', mist: '#b9c6cc',
+  grid: '#efe6df', cursor: 'rgba(107,58,42,.06)',
+} as const;
 
-/** A headline tile: the number is the point, the label and hint give it context. */
-function Kpi({ card }: { card: DashboardCard }) {
+const TRF_PALETTE: Record<string, string> = {
+  New: CHART.primarySoft, Assigned: CHART.blue, 'In Progress': CHART.primary,
+  'Analysis Completed': CHART.clay, 'COA Pending': CHART.amber, Completed: CHART.green, Cancelled: CHART.mist,
+};
+const ANALYSIS_PALETTE: Record<string, string> = {
+  Pending: CHART.primarySoft, Assigned: CHART.blue, 'In Progress': CHART.primary,
+  Completed: CHART.green, 'Re-test Required': CHART.amber, Cancelled: CHART.mist,
+};
+const COA_PALETTE: Record<string, string> = {
+  Pending: CHART.primarySoft, Draft: CHART.blue, 'Under Review': CHART.primary,
+  Approved: CHART.amber, Issued: CHART.green,
+};
+
+type Tone = 'neutral' | 'info' | 'warn' | 'danger' | 'ok';
+interface HeroKpi { label: string; value: number; tone: Tone; to: string; hint?: string; ringPct?: number }
+interface StageCard { label: string; value: number; tone: Tone; to: string }
+interface AttentionItem { label: string; count: number; tone: 'warn' | 'danger'; to: string; icon: JSX.Element }
+
+function greetingFor(now: Date): string {
+  const h = now.getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function analystSummary(rows: AnalystResultRow[]): string {
+  const sum = rows.reduce((a, r) => ({
+    assigned: a.assigned + r.assigned, inProgress: a.inProgress + r.inProgress,
+    passed: a.passed + r.passed, failed: a.failed + r.failed, delayed: a.delayed + r.delayed,
+  }), { assigned: 0, inProgress: 0, passed: 0, failed: 0, delayed: 0 });
+  return `Analyst results across ${rows.length} people: ${sum.assigned} assigned, ${sum.inProgress} in progress, ${sum.passed} passed, ${sum.failed} failed, ${sum.delayed} delayed.`;
+}
+
+/** A headline tile that links to the list behind it; the Completed tile carries the ring. */
+function Kpi({ card }: { card: HeroKpi }) {
   const inner = (
     <>
       <span className="kpi__label">{card.label}</span>
-      <span className="kpi__value">{card.total.toLocaleString()}</span>
+      <span className="kpi__row">
+        <span className="kpi__value">{card.value.toLocaleString()}</span>
+        {card.ringPct != null && (
+          <span className="kpi-ring" style={{ ['--pct' as string]: `${card.ringPct * 3.6}deg` } as React.CSSProperties}
+            role="img" aria-label={`${card.ringPct}% of TRFs completed`}>
+            <span className="kpi-ring__hole">{card.ringPct}%</span>
+          </span>
+        )}
+      </span>
       {card.hint && <span className="kpi__hint">{card.hint}</span>}
     </>
   );
-  if (!card.to) return <div className={`kpi kpi--${card.tone}`}>{inner}</div>;
   return (
     <Link className={`kpi kpi--${card.tone}`} to={card.to.replace('#', '')} title={`Show the ${card.label.toLowerCase()} list`}>
       {inner}
@@ -336,33 +406,34 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 }
 
 /**
- * A status mix as one proportional bar plus a clickable legend. Clicking a row
- * opens the list that produced it with the same status filter, so a chart and
- * its list cannot describe different things. Statuses at zero are left out: the
- * server still sends them, but a zero-length segment says nothing on screen.
+ * A status mix as a horizontal bar chart plus a keyboard/AT-friendly legend.
+ * The chart is aria-hidden; the legend buttons carry the same numbers and open
+ * the matching filtered list, so the chart and its list cannot disagree and the
+ * data is reachable without a pointer. Statuses at zero are left out.
  */
-function StatusBreakdown<T extends string>({
-  data, palette, linkFor,
-}: {
+function StatusBars<T extends string>({ data, palette, linkFor, animate }: {
   data: StatusSlice<T>[];
   palette: Record<string, string>;
   linkFor: (status: T) => string;
+  animate: boolean;
 }) {
   const navigate = useNavigate();
   const rows = data.filter((d) => d.count > 0);
-  if (rows.length === 0) {
-    return <p className="muted chart-empty">Nothing recorded yet.</p>;
-  }
+  if (rows.length === 0) return <p className="chart-empty">Nothing recorded yet.</p>;
   return (
     <div className="breakdown">
-      <div className="breakdown__bar" aria-hidden="true">
-        {rows.map((row) => (
-          <span
-            key={row.status}
-            className="breakdown__seg"
-            style={{ flexGrow: row.count, background: palette[row.status] ?? '#c9b6aa' }}
-          />
-        ))}
+      <div aria-hidden="true">
+        <ResponsiveContainer width="100%" height={Math.min(260, rows.length * 34 + 16)}>
+          <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 20, bottom: 4, left: 8 }}>
+            <CartesianGrid stroke={CHART.grid} horizontal={false} />
+            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis type="category" dataKey="status" width={116} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: CHART.cursor }} formatter={(v: number) => [v, 'Count']} />
+            <Bar dataKey="count" radius={[0, 4, 4, 0]} isAnimationActive={animate} animationDuration={500}>
+              {rows.map((row) => <Cell key={row.status} fill={palette[row.status] ?? CHART.primarySoft} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </div>
       <ul className="breakdown__legend">
         {rows.map((row) => (
@@ -373,7 +444,7 @@ function StatusBreakdown<T extends string>({
               onClick={() => navigate(linkFor(row.status))}
               aria-label={`${row.status}: ${row.count}. Show the list.`}
             >
-              <span className="breakdown__dot" style={{ background: palette[row.status] ?? '#c9b6aa' }} aria-hidden="true" />
+              <span className="breakdown__dot" style={{ background: palette[row.status] ?? CHART.primarySoft }} aria-hidden="true" />
               <span className="breakdown__label">{row.status}</span>
               <span className="breakdown__count">{row.count}</span>
             </button>
@@ -383,19 +454,3 @@ function StatusBreakdown<T extends string>({
     </div>
   );
 }
-
-// Colours carry meaning here: blue is work in hand, amber is late, green is done.
-const TRF_PALETTE: Record<string, string> = {
-  New: '#c9b6aa', Assigned: '#8fb4c6', 'In Progress': '#6b3a2a',
-  'Analysis Completed': '#a9745f', 'COA Pending': '#b7791f', Completed: '#2f7d4f', Cancelled: '#b9c6cc',
-};
-
-const ANALYSIS_PALETTE: Record<string, string> = {
-  Pending: '#c9b6aa', Assigned: '#8fb4c6', 'In Progress': '#6b3a2a',
-  Completed: '#2f7d4f', 'Re-test Required': '#b7791f', Cancelled: '#b9c6cc',
-};
-
-const COA_PALETTE: Record<string, string> = {
-  Pending: '#c9b6aa', Draft: '#8fb4c6', 'Under Review': '#6b3a2a',
-  Approved: '#b7791f', Issued: '#2f7d4f',
-};

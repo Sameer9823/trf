@@ -82,7 +82,7 @@ test('the form carries the paper form\'s labels, in the paper form\'s order, wit
   const order = ['SOP. No:', 'Revision No:', 'MASTER', 'EFFECTIVE DATE:', 'TITLE', 'Test Request Form', 'ISSUED BY:', 'Sign/Date:',
     'Product Name:', 'Date:', 'Generic Name:', 'Batch Number:', 'Batch Size:', 'Mfg Date:', 'Market/Customer:', 'Sample Quantity:', 'Exp Date:',
     'Storage Condition:', 'Storage period:', 'Pack type:', 'Manufacturing Location:', 'Pack size:', 'Label Claim:', 'Analysis Required for:',
-    'Remarks:', 'Sampled by', 'TRF Number', 'Sample given by', 'Sample Received by', 'AR number', 'Prepared by', 'Approved by',
+    'Remarks:', 'Sampled by', 'TRF Number', 'Sample Received by', 'AR number', 'Prepared by', 'Approved by',
     'Signature/ Date', 'Department:', 'Page 1 of 1'];
   let at = -1;
   for (const label of order) {
@@ -90,6 +90,68 @@ test('the form carries the paper form\'s labels, in the paper form\'s order, wit
     expect(next, `${label} should follow the one before it`).toBeGreaterThan(at);
     at = next;
   }
+});
+
+test('the printed form does not show Sample given by', async () => {
+  mount(trf());
+  await screen.findByText('Test Request Form');
+  const body = document.body.textContent ?? '';
+  expect(body).not.toContain('Sample given by');
+  expect(body).not.toContain('Stores');                 // the TRF's sampleGivenBy value is not printed
+  expect(body).toContain('Sampled by');
+  expect(body).toContain('TRF Number');
+  expect(body).toContain('Sample Received by');
+  expect(body).toContain('AR number');
+});
+
+test('the sample row has exactly four cells after removing Sample given by', async () => {
+  mount(trf());
+  await screen.findByText('Test Request Form');
+  const row = document.querySelector('.trf-form__five');
+  expect(row).toBeTruthy();
+  const heads = row!.querySelectorAll('.head');
+  expect(heads.length).toBe(4);
+  expect(Array.from(heads).map((h) => h.textContent)).toEqual(
+    ['Sampled by', 'TRF Number', 'Sample Received by', 'AR number'],
+  );
+});
+
+test('the printed root uses the sheet class and is not the entry form', async () => {
+  mount(trf());
+  await screen.findByText('Test Request Form');
+  const root = document.querySelector('.trf-print');
+  expect(root?.querySelector('.trf-sheet')).toBeTruthy();
+  expect(root?.querySelector('.trf-form')).toBeFalsy();
+});
+
+test('the sample-cells row has no inline border-top override, so the box draws its own top line', async () => {
+  mount(trf());
+  await screen.findByText('Test Request Form');
+  const row = document.querySelector('.trf-form__five');
+  expect(row).toBeTruthy();
+  expect((row as HTMLElement).style.borderTop).toBe('');
+});
+
+test('the printed-form root rule has no flex gap and the entry form keeps its own class', async () => {
+  const css = readFileSync(`${process.cwd()}/src/styles.css`, 'utf8');
+  const sheetRule = css.match(/\.trf-sheet\s*\{[^}]*\}/);
+  expect(sheetRule, 'the printed form needs a .trf-sheet rule').toBeTruthy();
+  expect(sheetRule![0]).not.toMatch(/gap/);
+  expect(sheetRule![0]).not.toMatch(/display:\s*flex/);
+  expect(css).toContain('.trf-form { display: flex; flex-direction: column; gap: 16px; padding-bottom: 8px; }');
+});
+
+test('the entry form keeps its own .trf-form class and the printed form does not use it', async () => {
+  const css = readFileSync(`${process.cwd()}/src/styles.css`, 'utf8');
+  expect(css).toContain('.trf-form { display: flex; flex-direction: column; gap: 16px; padding-bottom: 8px; }');
+  expect(css).toMatch(/\.trf-sheet\s*\{[^}]*display:\s*block/);
+  expect(css).not.toMatch(/\.trf-sheet\s*\{[^}]*gap/);
+  expect(css).not.toMatch(/\.trf-sheet\s*\{[^}]*display:\s*flex/);
+  mount(trf());
+  await screen.findByText('Test Request Form');
+  const root = document.querySelector('.trf-print');
+  expect(root?.querySelector('.trf-sheet')).toBeTruthy();
+  expect(root?.querySelector('.trf-form')).toBeFalsy();
 });
 
 test('the values come from the TRF, the dates keep their calendar day, and Approved by is the final approver', async () => {
@@ -107,9 +169,16 @@ test('the values come from the TRF, the dates keep their calendar day, and Appro
   expect(body).toContain('QAQN-003:F1');          // the controlled form's number
   expect(body).toContain('ARD/2026/0004');
   const footer = document.querySelector('.trf-form__footer')?.textContent ?? '';
-  expect(footer).toContain('Meena Rao, 26-10-2026');   // Approved by: the administrator who gave the final approval
-  expect(footer).toContain('Bhavin Patel, 23-10-2026'); // Prepared by: who created the TRF
+  expect(footer).toContain('Prepared by');
+  expect(footer).toContain('Approved by');
+  expect(footer).toContain('Signature/ Date');
+  expect((footer.match(/Signature\/ Date/g) ?? []).length).toBe(2);
+  expect(footer).toContain('Department:');
   expect(footer).not.toContain('Quality Head');        // who issued the form is not who approved the TRF
+  expect(footer).not.toContain('Meena Rao');            // the approver is signed by hand, not printed
+  expect(footer).not.toContain('Bhavin Patel');         // the creator is signed by hand, not printed
+  expect(footer).not.toContain('26-10-2026');           // the approval date is signed by hand, not printed
+  expect(footer).not.toContain('23-10-2026');           // the creation date is signed by hand, not printed
 });
 
 test('the logo is found relative to the page, so it still loads from the packaged app', async () => {
