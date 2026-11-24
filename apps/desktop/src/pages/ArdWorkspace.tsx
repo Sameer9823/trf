@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { AnalystAssignedTest, ArdResultReviewStatus } from '@trf/shared';
 import { useAuth } from '../lib/auth';
 import { useServerStatus } from '../lib/server-status';
@@ -7,6 +8,7 @@ import { EmployeeDashboard } from './EmployeeDashboard';
 import { ResultReviewBadge } from '../components/ResultReview';
 import { formatDate } from '../components/Badges';
 import { EmptyState, SkeletonRows, StatStrip, initials } from '../components/StatStrip';
+import { Icons } from '../components/Icons';
 import type { StatTile } from '../components/StatStrip';
 
 type Tab = 'my-tests' | 'submitted' | 'approved' | 'team';
@@ -180,7 +182,7 @@ export function ArdWorkspace() {
       {(tab === 'submitted' || tab === 'approved') && (
         <ResultsCard
           title={tab === 'approved' ? 'Approved results' : 'Submitted results'}
-          icon={tab === 'approved' ? '✅' : '📝'}
+          icon={tab === 'approved' ? Icons.check : Icons.trf}
           rows={tab === 'approved' ? visibleApproved : visibleSubmitted}
           total={tab === 'approved' ? approved.length : submitted.length}
           tiles={tab === 'approved' ? approvedTiles : submittedTiles}
@@ -210,7 +212,7 @@ export function ArdWorkspace() {
           )}
           {!loading && team.length === 0 && (
             <EmptyState
-              icon="👥"
+              icon={Icons.employees}
               title="No ARD employees found"
               text="Team workload appears here once ARD employees and assignments exist."
             />
@@ -244,7 +246,7 @@ export function ArdWorkspace() {
 
 /** A searchable results card shared by the Submitted and Approved tabs. */
 function ResultsCard({ title, icon, rows, total, tiles, search, onSearch, loading, emptyTitle, emptyText }: {
-  title: string; icon: string; rows: ResultRow[]; total: number; tiles: StatTile[];
+  title: string; icon: ReactNode; rows: ResultRow[]; total: number; tiles: StatTile[];
   search: string; onSearch: (value: string) => void; loading: boolean; emptyTitle: string; emptyText: string;
 }) {
   return (

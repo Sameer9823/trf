@@ -12,3 +12,4 @@ apps/server/storage/
 test_output*.txt
 temp_*.txt
 rest_backup*.txt
+.kilocode

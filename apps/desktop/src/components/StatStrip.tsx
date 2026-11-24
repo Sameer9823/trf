@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 export type StatTone = 'ok' | 'warn' | 'danger' | 'info';
 
 export interface StatTile {
@@ -22,7 +24,7 @@ export function StatStrip({ tiles }: { tiles: StatTile[] }) {
 }
 
 /** Friendly centred empty state with an icon, title and hint. */
-export function EmptyState({ icon, title, text }: { icon: string; title: string; text: string }) {
+export function EmptyState({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return (
     <div className="empty">
       <div className="empty__icon" aria-hidden="true">{icon}</div>

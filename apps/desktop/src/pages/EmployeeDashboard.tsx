@@ -8,6 +8,7 @@ import { formatDate } from '../components/Badges';
 import { NotificationCentre } from '../components/NotificationCentre';
 import { EmptyState, StatStrip } from '../components/StatStrip';
 import { ResultReviewBadge, SubmitResultModal, ResultFileButton, type SubmitTarget } from '../components/ResultReview';
+import { Icons } from '../components/Icons';
 
 interface AssignmentSummary {
   id: number;
@@ -197,7 +198,7 @@ export function EmployeeDashboard() {
 
       {assignments.length === 0 ? (
         <EmptyState
-          icon="🧪"
+          icon={Icons.ard}
           title="No tests assigned to you"
           text="When a GM or AGM assigns a test, it will appear here."
         />

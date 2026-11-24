@@ -1292,3 +1292,119 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .btn--primary:disabled, .btn--primary[disabled] { background: var(--accent); box-shadow: none; }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn--primary:focus-visible { outline-color: var(--accent-2); }
+
+/* ============================================================
+   Global finish — professional polish across every screen
+   ============================================================ */
+
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+::selection { background: rgba(107, 58, 42, .16); color: var(--ink); }
+
+/* Slim, unobtrusive scrollbars */
+* { scrollbar-width: thin; scrollbar-color: #d9c8bc transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #d9c8bc; border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: #c4ad9e; background-clip: content-box; }
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* Headings: a touch more presence, tighter tracking */
+h1 { font-size: 23px; font-weight: 700; letter-spacing: -.015em; }
+h2 { font-size: 15.5px; font-weight: 700; }
+
+/* One radius and one soft depth for every surface */
+.card, .panel, .form, .facts, .stat, .stat-tile, .report-card,
+.filters--panel, .filters--card, .assign-group, .empty, .pdf-status-container {
+  border-radius: 12px;
+}
+.card, .panel, .form, .stat-tile, .report-card, .filters--panel, .filters--card {
+  box-shadow: 0 1px 2px rgba(44, 24, 18, .04);
+}
+
+/* Topbar and small controls */
+.topbar { box-shadow: 0 1px 2px rgba(44, 24, 18, .03); }
+.server-badge { border-radius: 999px; }
+.notification-bell__btn { border-radius: 10px; }
+
+/* Inputs: consistent shape, hover and focus */
+.field input, .field select, .field textarea,
+.form input, .form textarea, .form select,
+.modal input, .modal select, .modal textarea,
+.filters input, .filters select,
+.topbar__search,
+.login__card input,
+.employee-select,
+.assignment-analyst select,
+.assignment-due-date input {
+  border-radius: 8px;
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+.field input:hover:not(:disabled), .field select:hover:not(:disabled), .field textarea:hover:not(:disabled),
+.form input:hover:not(:disabled), .form textarea:hover:not(:disabled), .form select:hover:not(:disabled),
+.modal input:hover:not(:disabled), .modal select:hover:not(:disabled),
+.filters input:hover, .filters select:hover,
+.topbar__search:hover,
+.login__card input:hover {
+  border-color: #d6c4b8;
+}
+.field input:focus, .field select:focus, .field textarea:focus,
+.form input:focus, .form textarea:focus, .form select:focus,
+.modal input:focus, .modal select:focus, .modal textarea:focus,
+.filters input:focus, .filters select:focus,
+.topbar__search:focus,
+.login__card input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(107, 58, 42, .14);
+}
+.field input:disabled, .field select:disabled, .field textarea:disabled,
+.form input:disabled, .modal input:disabled {
+  background: #f5efea;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* Buttons: the filled danger state several screens depend on */
+.btn--danger { background: var(--danger); border-color: var(--danger); color: #fff; box-shadow: 0 2px 6px rgba(179, 56, 44, .22); }
+.btn--danger:hover { background: #9c2f26; border-color: #9c2f26; box-shadow: 0 6px 16px rgba(179, 56, 44, .28); }
+.btn--danger:disabled, .btn--danger[disabled] { background: var(--danger); opacity: .55; box-shadow: none; }
+
+/* Badges: one family, brand colours, pill shape */
+.badge { border-radius: 999px; font-weight: 600; }
+.badge--ok { color: #1f6b41; background: #e9f6ee; border-color: #bfe3cd; }
+.badge--warn, .badge--warning { color: #8a5a12; background: #fdf3e1; border-color: #ecd3a4; }
+.badge--danger { color: #9c2f26; background: #fbeceb; border-color: #e8c0ba; }
+.badge--info { color: var(--accent-2); background: #f4eae2; border-color: #e2cdbd; }
+.badge--muted { color: var(--muted); background: #f4efe9; border-color: var(--line); }
+.badge--small { font-size: 11px; padding: 1px 7px; }
+
+/* Tables: clearer header, calmer hover */
+.table th { background: #f5efe9; font-weight: 700; }
+.table tbody tr:hover td { background: #faf5f1; }
+
+/* Page header rhythm */
+.page__head { margin-bottom: 18px; }
+
+/* Sidebar nav label truncates instead of wrapping when space is tight */
+.nav-link__label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Modals: softer and more elevated */
+.modal { border-radius: 14px; box-shadow: 0 20px 50px rgba(44, 24, 18, .22); }
+
+/* Login: a brand moment rather than a plain card on brown */
+.login { background: radial-gradient(1200px 620px at 50% -12%, #4a2b1c 0%, var(--ink) 62%); }
+.login__card { border-radius: 16px; padding: 32px 36px; box-shadow: 0 24px 60px rgba(0, 0, 0, .35); }
+.login__title { font-size: 22px; font-weight: 700; letter-spacing: -.01em; margin-bottom: 6px; }
+.login__card input { padding: 10px 12px; }
+.login__forgot { margin-top: 14px; text-align: center; }
+.login__forgot a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.login__forgot a:hover { text-decoration: underline; }
+.success-text { color: #1f6b41; background: #e9f6ee; border: 1px solid #bfe3cd; border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+
+/* Empty states: the icon sits in a soft disc */
+.empty__icon { display: inline-grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: var(--tint); color: var(--accent); margin-bottom: 12px; }
+.empty__icon svg { width: 24px; height: 24px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn, .field input, .field select, .field textarea, .form input, .modal input { transition: none; }
+}

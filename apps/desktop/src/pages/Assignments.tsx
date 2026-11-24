@@ -10,6 +10,7 @@ import { ExportButton } from '../components/ExportButton';
 import { Modal } from '../components/Modal';
 import { useServerStatus } from '../lib/server-status';
 import { EmployeeDashboard } from './EmployeeDashboard';
+import { Icons } from '../components/Icons';
 import { EmptyState, SkeletonRows, StatStrip, initials } from '../components/StatStrip';
 import type { StatTile } from '../components/StatStrip';
 
@@ -280,7 +281,7 @@ function AssignmentsManager() {
           {loading && <GroupSkeleton />}
           {!loading && groups.length === 0 && (
             <EmptyState
-              icon="🗂️"
+              icon={Icons.assignments}
               title="No tests are assigned yet"
               text="Open a TRF and use “Assign tests” to give work to your analysts. Assigned tests will be grouped here by TRF."
             />
