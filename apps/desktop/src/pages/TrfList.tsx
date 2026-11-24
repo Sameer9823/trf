@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import type { Customer, Department, Priority, Product, TrfListItem, TrfListPage, TrfSortField, TrfStatus } from '@trf/shared';
-import { DEFAULT_TRF_FILTERS, PRIORITIES, TRF_STATUSES, LIST_FIELD_ORDER, listFieldLabel, canEditTrfPartA, canEditTrfPartB, canDeleteTrf } from '@trf/shared';
+import { DEFAULT_TRF_FILTERS, PRIORITIES, TRF_STATUSES, LIST_FIELD_ORDER, LIST_HIDDEN_FIELD_KEYS, listFieldLabel, canEditTrfPartA, canEditTrfPartB, canDeleteTrf } from '@trf/shared';
 import { messageOf, toQuery } from '../lib/api';
 import { useTrfSort } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -32,7 +32,7 @@ interface ColumnDef {
  * keys stay in the shared field spec (used by the form and the detail page)
  * but are not rendered as their own list columns.
  */
-const HIDDEN_LIST_KEYS = new Set(['dosageFormOptions', 'dosageFormOther', 'testRequestedOptionIds']);
+const HIDDEN_LIST_KEYS = new Set<string>(LIST_HIDDEN_FIELD_KEYS);
 
 const RECORD_COLUMNS: ColumnDef[] = LIST_FIELD_ORDER
   .filter((field) => !HIDDEN_LIST_KEYS.has(field.key))
@@ -45,8 +45,6 @@ const RECORD_COLUMNS: ColumnDef[] = LIST_FIELD_ORDER
 const ALL_COLUMNS: ColumnDef[] = [
   ...RECORD_COLUMNS,
   { field: 'status', label: 'Status', alwaysVisible: false },
-  { field: 'priority', label: 'Priority', className: 'col-priority', alwaysVisible: false },
-  { field: null, label: 'Overdue', alwaysVisible: false },
 ];
 
 export function TrfList() {

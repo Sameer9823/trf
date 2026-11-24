@@ -104,6 +104,16 @@ export const LIST_FIELD_ORDER: readonly TrfFieldSpec[] = [
   ...ARD_FIELDS,
 ] as const;
 
+/**
+ * Field keys that stay in the shared spec (the form, detail page and print use
+ * them) but are not columns of the TRF list or its Excel export. The list and
+ * the export read this one list, so they can never drift apart.
+ */
+export const LIST_HIDDEN_FIELD_KEYS: readonly string[] = [
+  'dosageFormOptions', 'dosageFormOther', 'testRequestedOptionIds',
+  'reportingStatus', 'ardRemarksStatus', 'tat',
+];
+
 /** Label shown in the list / Excel for a field spec. */
 export function listFieldLabel(field: TrfFieldSpec): string {
   return field.listLabel ?? field.label;

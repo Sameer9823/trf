@@ -231,10 +231,10 @@ maybe('the TRF Master sheet carries every column the list shows', async () => {
     'Storage Condition', 'Storage Period', 'Manufacturing Date', 'Expiry Date',
     'Test Requested', 'Test Details', 'Analysis Required For / Purpose', 'Required Completion Date',
     'Sample Quantity', 'Sample Submitted By', 'Remarks / Status', 'Remarks', 'Signature / Date',
-    'A.R. No.', 'Stage', 'Analyst Name', 'Date of Analysis', 'Reporting', 'COA',
-    'ARD Remarks / Status', 'ARD Remark', 'TAT', 'Final Status',
+    'A.R. No.', 'Stage', 'Analyst Name', 'Date of Analysis', 'COA',
+    'ARD Remark', 'Final Status',
     'Sample Received Date',
-    'Status', 'Priority', 'Assigned Employee', 'Overdue',
+    'Status', 'Assigned Employee',
   ]) {
     assert.ok(headers.includes(heading), `the TRF Master sheet is missing "${heading}"`);
   }
@@ -246,15 +246,16 @@ maybe('the TRF Master sheet uses the same field order as the TRF screen', async 
   const sheet = res.book.getWorksheet('TRF Master');
   const headers = (sheet!.getRow(1).values as unknown[]).filter((v) => typeof v === 'string') as string[];
   // Part A (Test Requested / Test Details appear once, in the ARD block),
-  // then the ARD block. This matches LIST_FIELD_ORDER from @trf/shared.
+  // then the ARD block. This matches LIST_FIELD_ORDER minus
+  // LIST_HIDDEN_FIELD_KEYS from @trf/shared.
   const expected = [
     'TRF No.', 'Date of Request', 'Product Name', 'Generic Name', 'Batch Number', 'Batch Size', 'Market/Customer',
-    'Dosage Form', 'Dosage Form (Options)', 'Dosage Form (Other)', 'Manufacturing Location', 'Label Claim', 'Pack Size', 'Pack Type',
+    'Dosage Form', 'Manufacturing Location', 'Label Claim', 'Pack Size', 'Pack Type',
     'Storage Condition', 'Storage Period', 'Manufacturing Date', 'Expiry Date',
-    'Test Requested (Multi-select)', 'Analysis Required For / Purpose', 'Required Completion Date',
+    'Analysis Required For / Purpose', 'Required Completion Date',
     'Sample Quantity', 'Sample Submitted By', 'Remarks / Status', 'Remarks', 'Signature / Date',
     'A.R. No.', 'Stage', 'Test Requested', 'Test Details', 'Analyst Name', 'Date of Analysis',
-    'Reporting', 'COA', 'ARD Remarks / Status', 'ARD Remark', 'TAT',
+    'COA', 'ARD Remark',
     'Final Status', 'Sample Received Date', 'Sample Received By',
   ];
   assert.deepEqual(headers.slice(0, expected.length), expected,

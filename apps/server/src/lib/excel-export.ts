@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import type { EmployeeProfile, ExportFilterSet, ExportScope, ExportSheetName } from '@trf/shared';
-import { LIST_FIELD_ORDER, listFieldLabel } from '@trf/shared';
+import { LIST_FIELD_ORDER, LIST_HIDDEN_FIELD_KEYS, listFieldLabel } from '@trf/shared';
 import { pool } from '../db.js';
 import { writeAudit } from './audit.js';
 import { OUTCOME_SQL } from './analysis-query.js';
@@ -86,12 +86,14 @@ const TRF_MASTER_COLUMN: Record<string, { key: string; width?: number }> = {
   sampleReceivedDate: { key: 'sample_received_date' },
 };
 
-/** The TRF Master columns in the shared field order. */
+/** The TRF Master columns in the shared field order, matching the TRF list. */
 function trfMasterColumns(): { header: string; key: string; width?: number }[] {
-  return LIST_FIELD_ORDER.map((field) => ({
-    header: listFieldLabel(field),
-    ...TRF_MASTER_COLUMN[field.key],
-  }));
+  return LIST_FIELD_ORDER
+    .filter((field) => !LIST_HIDDEN_FIELD_KEYS.includes(field.key))
+    .map((field) => ({
+      header: listFieldLabel(field),
+      ...TRF_MASTER_COLUMN[field.key],
+    }));
 }
 
 /**
@@ -296,9 +298,7 @@ export async function buildExportWorkbook(
     results.push({ name: 'TRF Master', rowCount: addSheet(book, 'TRF Master', [
       ...trfMasterColumns(),
       { header: 'Status', key: 'status', width: 20 },
-      { header: 'Priority', key: 'priority' },
       { header: 'Assigned Employee', key: 'assigned_name', width: 24 },
-      { header: 'Overdue', key: 'is_overdue' },
     ], rows.map((r) => ({
       trf_number: r.trf_number,
       trf_date: asDate(r.trf_date),
