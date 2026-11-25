@@ -25,6 +25,7 @@ import { trfsRouter } from './routes/trfs.js';
 import { searchRouter } from './routes/search.js';
 import { settingsRouter } from './routes/settings.js';
 import { ardAssignmentsRouter } from './routes/ard-assignments.js';
+import { frdRouter } from './routes/frd.js';
 
 export const logger = buildLogger();
 
@@ -166,6 +167,8 @@ export function buildApp() {
   app.use('/api/reports', reportsRouter);
   // ARD test assignments
   app.use('/api/ard-assignments', ardAssignmentsRouter);
+  // FRD (Formulation) team views for higher authorities
+  app.use('/api/frd', frdRouter);
   // The audit trail is read-only, so it is mounted without any write verbs.
   app.use('/api/audit', auditRouter);
   app.use('/api/notifications', notificationsRouter);

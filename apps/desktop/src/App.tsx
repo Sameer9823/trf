@@ -11,6 +11,9 @@ import { CoaPage } from './pages/Coa';
 import { Dashboard } from './pages/Dashboard';
 import { EmployeeDashboard } from './pages/EmployeeDashboard';
 import { ArdWorkspace } from './pages/ArdWorkspace';
+import { ArdEmployeeDetail } from './pages/ArdEmployeeDetail';
+import { FrdWorkspace } from './pages/FrdWorkspace';
+import { FrdEmployeeDetail } from './pages/FrdEmployeeDetail';
 import { Employees } from './pages/Employees';
 import { ReportsPage } from './pages/Reports';
 import { Login } from './pages/Login';
@@ -107,6 +110,15 @@ function Shell() {
         } />
         <Route path="ard" element={
           <RequireModule module="ard"><ArdWorkspace /></RequireModule>
+        } />
+        <Route path="ard/employee/:id" element={
+          <RequireModule module="ard"><ArdEmployeeDetail /></RequireModule>
+        } />
+        <Route path="frd" element={
+          <RequireModule module="frd"><FrdWorkspace /></RequireModule>
+        } />
+        <Route path="frd/employee/:id" element={
+          <RequireModule module="frd"><FrdEmployeeDetail /></RequireModule>
         } />
         <Route path="analysis" element={
           <RequireModule module="analysis"><Analysis /></RequireModule>

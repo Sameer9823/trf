@@ -273,6 +273,7 @@ function buildWhere(filters: ReturnType<typeof toFilters>, params: unknown[], sc
   if (filters.customerId) { params.push(filters.customerId); clauses.push(`t.customer_id = $${params.length}`); }
   if (filters.productId) { params.push(filters.productId); clauses.push(`t.product_id = $${params.length}`); }
   if (filters.assignedEmployeeId) { params.push(filters.assignedEmployeeId); clauses.push(`t.assigned_employee_id = $${params.length}`); }
+  if (filters.createdBy) { params.push(filters.createdBy); clauses.push(`t.created_by = $${params.length}`); }
   if (filters.departmentId) { params.push(filters.departmentId); clauses.push(`t.department_id = $${params.length}`); }
   if (filters.dateFrom) { params.push(filters.dateFrom); clauses.push(`t.trf_date >= $${params.length}::date`); }
   if (filters.dateTo) { params.push(filters.dateTo); clauses.push(`t.trf_date <= $${params.length}::date`); }

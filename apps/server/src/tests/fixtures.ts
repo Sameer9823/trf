@@ -95,3 +95,29 @@ export async function assignAnalystToATest(trfId: number, analystId: number): Pr
     [assignment.rows[0].id, analystId],
   );
 }
+
+/**
+ * Assigns an analyst to an ARD test assignment whose due date is in the past,
+ * so the overdue counts (team list and employee detail) have something to find.
+ * Idempotent on (trf_id, test_requested_option_id) and (assignment_id, analyst_id).
+ */
+export async function assignOverdueTest(trfId: number, analystId: number, dueDate: string): Promise<void> {
+  const option = await pool.query<{ id: number }>(
+    'SELECT id FROM test_requested_options ORDER BY id LIMIT 1',
+  );
+  if (!option.rowCount) throw new Error('No test_requested_options row is available for the fixture');
+  const assignment = await pool.query<{ id: number }>(
+    `INSERT INTO ard_test_assignments (trf_id, test_requested_option_id, test_name, status, due_date)
+     VALUES ($1, $2, 'Overdue Test', 'Assigned', $3)
+     ON CONFLICT (trf_id, test_requested_option_id)
+     DO UPDATE SET status = 'Assigned', due_date = EXCLUDED.due_date
+     RETURNING id`,
+    [trfId, option.rows[0].id, dueDate],
+  );
+  await pool.query(
+    `INSERT INTO ard_test_assignment_analysts (assignment_id, analyst_id)
+     VALUES ($1, $2)
+     ON CONFLICT (assignment_id, analyst_id) DO NOTHING`,
+    [assignment.rows[0].id, analystId],
+  );
+}

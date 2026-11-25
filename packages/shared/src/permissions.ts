@@ -156,6 +156,17 @@ export function roleHasPermission(role: Role, permission: Permission): boolean {
   return ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
 }
 
+/**
+ * Higher authorities: Admin, GM and AGM. The role is the trusted value;
+ * the AGM/GM/COO designations already resolve to the Admin role at save time
+ * (see resolveAccess in the employees route), so no designation check is needed.
+ * Legacy GM/AGM roles count as higher authorities.
+ */
+export function isHigherAuthority(employee: { role?: Role | string | null } | null | undefined): boolean {
+  const role = employee?.role;
+  return role === 'Admin' || role === 'GM' || role === 'AGM';
+}
+
 export function permissionsForRole(role: Role): Permission[] {
   return [...(ROLE_PERMISSIONS[role] ?? [])];
 }

@@ -34,6 +34,7 @@ export function toQuery(filters: Partial<TrfFilters> & { page?: number }): strin
   if (merged.customerId) params.set('customerId', String(merged.customerId));
   if (merged.productId) params.set('productId', String(merged.productId));
   if (merged.assignedEmployeeId) params.set('assignedEmployeeId', String(merged.assignedEmployeeId));
+  if (merged.createdBy) params.set('createdBy', String(merged.createdBy));
   if (merged.departmentId) params.set('departmentId', String(merged.departmentId));
   if (merged.dateFrom) params.set('dateFrom', merged.dateFrom);
   if (merged.dateTo) params.set('dateTo', merged.dateTo);

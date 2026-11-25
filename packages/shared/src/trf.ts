@@ -416,6 +416,7 @@ export interface TrfFilters { page: number;
   customerId?: number;
   productId?: number;
   assignedEmployeeId?: number;
+  createdBy?: number;
   departmentId?: number;
   dateFrom?: string;
   dateTo?: string;

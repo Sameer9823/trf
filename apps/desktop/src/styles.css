@@ -1394,6 +1394,8 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 
 /* Right-aligned numeric cells with tabular figures */
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+.row--muted { color: var(--color-text-muted); }
+.row--muted .link, .row--muted a { color: var(--color-text-muted); }
 
 /* Summary stat tiles */
 .stat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 12px; margin: 4px 0 12px; }

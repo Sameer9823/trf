@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useCallback } from 'react';
 import type { EmployeeProfile } from '@trf/shared';
+import { isHigherAuthority } from '@trf/shared';
 import { useServerStatus } from '../lib/server-status';
 import { useAuth } from '../lib/auth';
 import { OfflineNotice } from './OfflineNotice';
@@ -14,6 +15,7 @@ export const NAV = [
   { to: '/trf', label: 'TRF Management', module: 'trf', icon: Icons.trf, description: 'Create & manage TRFs' },
   { to: '/assignments', label: 'Assignments', module: 'assignments', icon: Icons.assignments, description: 'Test assignments' },
   { to: '/ard', label: 'ARD', module: 'ard', icon: Icons.ard, description: 'My tests & results' },
+  { to: '/frd', label: 'FRD', module: 'frd', icon: Icons.frd, description: 'Formulation team' },
   { to: '/approvals', label: 'Approvals', module: 'approvals', icon: Icons.approvals, description: 'Review & approve' },
   { to: '/employees', label: 'Employees', module: 'employees', icon: Icons.employees, description: 'Team management' },
   { to: '/reports', label: 'Reports', module: 'reports', icon: Icons.reports, description: 'Analytics & exports' },
@@ -33,10 +35,11 @@ export function visibleNav(
   canAccessModule: (module: string) => boolean,
 ): typeof NAV {
   const hideDashboard = employee?.team === 'ARD';
-  const isHigherAuthority = employee?.role === 'Admin' || employee?.designation === 'AGM' || employee?.designation === 'GM';
-  const hideAssignments = isHigherAuthority;
+  const higherAuthority = isHigherAuthority(employee);
+  const hideAssignments = higherAuthority;
   return NAV.filter((n) => 
     canAccessModule(n.module) && 
+    !(n.module === 'frd' && !higherAuthority) &&
     !(hideDashboard && n.module === 'dashboard') &&
     !(hideAssignments && n.module === 'assignments')
   );

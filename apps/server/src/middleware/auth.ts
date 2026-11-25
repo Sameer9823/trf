@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { ZodSchema } from 'zod';
-import { Role, canEditTrfPartA, canEditTrfPartB, canDeleteTrf, permissionsForRole, roleHasPermission, Permission, EmployeeProfile, TeamType, MESSAGES } from '@trf/shared';
+import { Role, canEditTrfPartA, canEditTrfPartB, canDeleteTrf, permissionsForRole, roleHasPermission, isHigherAuthority, Permission, EmployeeProfile, TeamType, MESSAGES } from '@trf/shared';
 import { AppError, badRequest, forbidden, notFound, unauthorized } from '../lib/errors.js';
 import { verifyAccessToken } from '../lib/tokens.js';
 import { pool } from '../db.js';
@@ -255,6 +255,18 @@ export function requireAssignmentsManage() {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.employee) return next(unauthorized('Sign in to continue.'));
     if (!roleHasPermission(req.employee.role, 'assignments.manage')) return next(forbidden());
+    next();
+  };
+}
+
+/**
+ * Higher authorities only (Admin, GM, AGM). Used by the FRD team views; the
+ * server is the authority, so hiding the nav item is never the protection.
+ */
+export function requireHigherAuthority() {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.employee) return next(unauthorized('Sign in to continue.'));
+    if (!isHigherAuthority(req.employee)) return next(forbidden('Only a higher authority may view this.'));
     next();
   };
 }

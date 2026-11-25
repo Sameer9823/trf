@@ -119,6 +119,7 @@ export function TrfList() {
     customerId: params.get('customerId') ? Number(params.get('customerId')) : undefined,
     productId: params.get('productId') ? Number(params.get('productId')) : undefined,
     assignedEmployeeId: params.get('assignedEmployeeId') ? Number(params.get('assignedEmployeeId')) : undefined,
+    createdBy: params.get('createdBy') ? Number(params.get('createdBy')) : undefined,
     departmentId: params.get('departmentId') ? Number(params.get('departmentId')) : undefined,
     dateFrom: params.get('dateFrom') ?? undefined,
     dateTo: params.get('dateTo') ?? undefined,
@@ -232,7 +233,7 @@ export function TrfList() {
   if (state === 'offline') return <div className="page page--wide"><OfflineNotice /></div>;
 
   const activeFilterCount = [
-    filters.search, filters.customerId, filters.productId, filters.departmentId, filters.assignedEmployeeId,
+    filters.search, filters.customerId, filters.productId, filters.departmentId, filters.assignedEmployeeId, filters.createdBy,
     filters.dateFrom, filters.dateTo,
   ].filter(Boolean).length + filters.status.length + filters.priority.length + (filters.overdueOnly ? 1 : 0);
 
@@ -338,6 +339,13 @@ export function TrfList() {
             <label>
               Assigned employee
               <select value={filters.assignedEmployeeId ?? ''} onChange={(e) => setFilter('assignedEmployeeId', e.target.value)}>
+                <option value="">All</option>
+                {employees.map((e) => <option key={e.id} value={e.id}>{e.fullName} ({e.employeeCode})</option>)}
+              </select>
+            </label>
+            <label>
+              Created by
+              <select value={filters.createdBy ?? ''} onChange={(e) => setFilter('createdBy', e.target.value)}>
                 <option value="">All</option>
                 {employees.map((e) => <option key={e.id} value={e.id}>{e.fullName} ({e.employeeCode})</option>)}
               </select>

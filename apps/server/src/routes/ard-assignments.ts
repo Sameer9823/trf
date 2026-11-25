@@ -1288,6 +1288,15 @@ res.json({ items: result.rows.map(row => ({
 });
 
 /**
+ * Overdue test: the due date has passed and the assignment is not terminal.
+ * Shared by the team list and the employee detail summary so the two always
+ * agree. `todayParam` is the placeholder bound to today (todayLocal()).
+ */
+const testOverdueSql = (todayParam: string) =>
+  `(ata.due_date IS NOT NULL AND ata.due_date < ${todayParam} AND ata.status <> 'Completed' AND ata.status <> 'Cancelled')`;
+const TEST_OVERDUE_SQL = testOverdueSql('$1');
+
+/**
  * GET /api/ard-assignments/team-workload - per-employee assignment counts for
  * the ARD team. Only users with assignments.manage (Manager/Admin) may call it.
  */
@@ -1314,7 +1323,7 @@ ardAssignmentsRouter.get('/team-workload', async (req, res, next) => {
         COUNT(*) FILTER (WHERE r.review_status = 'Submitted') AS submitted,
         COUNT(*) FILTER (WHERE r.review_status = 'Approved') AS approved,
         COUNT(*) FILTER (WHERE r.review_status = 'Rejected') AS rejected,
-        COUNT(*) FILTER (WHERE ata.due_date IS NOT NULL AND ata.due_date < $1 AND ata.status <> 'Completed' AND ata.status <> 'Cancelled') AS overdue
+        COUNT(*) FILTER (WHERE ${TEST_OVERDUE_SQL}) AS overdue
       FROM ard_test_assignment_analysts ataa
       JOIN employees e ON e.id = ataa.analyst_id
       JOIN ard_test_assignments ata ON ata.id = ataa.assignment_id
@@ -1334,5 +1343,177 @@ ardAssignmentsRouter.get('/team-workload', async (req, res, next) => {
       rejected: Number(r.rejected),
       overdue: Number(r.overdue),
     })) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * The per-employee ARD aggregates, as one SELECT so the list and the detail
+ * summary can never disagree. `$1` is today; `$2` (when present) is the
+ * employee id. Every count is computed in SQL over the whole set.
+ */
+const ARD_EMPLOYEE_AGGREGATES = `
+  SELECT e.id AS employee_id, e.full_name, e.employee_code, e.designation,
+    COUNT(DISTINCT ata.trf_id) FILTER (WHERE ata.status <> 'Cancelled') AS assigned_trfs,
+    COUNT(ata.id) FILTER (WHERE ata.status <> 'Cancelled') AS tests_assigned,
+    COUNT(ata.id) FILTER (WHERE ata.status = 'Assigned') AS assigned,
+    COUNT(ata.id) FILTER (WHERE ata.status = 'In Progress' OR ata.status = 'Re-test Required') AS in_progress,
+    COUNT(ata.id) FILTER (WHERE r.review_status = 'Submitted') AS submitted,
+    COUNT(ata.id) FILTER (WHERE r.review_status = 'Approved') AS approved,
+    COUNT(ata.id) FILTER (WHERE r.review_status = 'Rejected') AS rejected,
+    COUNT(ata.id) FILTER (WHERE ${TEST_OVERDUE_SQL}) AS overdue,
+    COUNT(ata.id) FILTER (WHERE ata.status = 'Completed') AS completed
+  FROM employees e
+  LEFT JOIN departments d ON d.id = e.department_id
+  LEFT JOIN ard_test_assignment_analysts ataa ON ataa.analyst_id = e.id
+  LEFT JOIN ard_test_assignments ata ON ata.id = ataa.assignment_id
+  LEFT JOIN ard_assignment_results r ON r.assignment_id = ata.id
+  WHERE e.is_active = TRUE AND (e.team = 'ARD' OR d.name = 'ARD')`;
+
+interface ArdEmployeeAggregateRow {
+  employee_id: number; full_name: string; employee_code: string; designation: string | null;
+  assigned_trfs: string; tests_assigned: string; assigned: string; in_progress: string;
+  submitted: string; approved: string; rejected: string; overdue: string; completed: string;
+}
+
+function mapArdEmployeeAggregate(r: ArdEmployeeAggregateRow) {
+  return {
+    employeeId: Number(r.employee_id),
+    fullName: r.full_name,
+    employeeCode: r.employee_code,
+    designation: r.designation,
+    assignedTrfs: Number(r.assigned_trfs),
+    testsAssigned: Number(r.tests_assigned),
+    assigned: Number(r.assigned),
+    inProgress: Number(r.in_progress),
+    submitted: Number(r.submitted),
+    approved: Number(r.approved),
+    rejected: Number(r.rejected),
+    overdue: Number(r.overdue),
+    completedTests: Number(r.completed),
+  };
+}
+
+/**
+ * GET /api/ard-assignments/employees - every ACTIVE ARD employee (team = 'ARD'
+ * OR department 'ARD'), including those with no work. assignments.manage only.
+ */
+ardAssignmentsRouter.get('/employees', requireAssignmentsManage(), async (_req, res, next) => {
+  try {
+    const today = todayLocal();
+    const result = await pool.query<ArdEmployeeAggregateRow>(
+      `${ARD_EMPLOYEE_AGGREGATES} GROUP BY e.id, e.full_name, e.employee_code, e.designation ORDER BY e.full_name`,
+      [today],
+    );
+    res.json({ items: result.rows.map(mapArdEmployeeAggregate) });
+  } catch (err) { next(err); }
+});
+
+const ardEmployeeDetailQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(25),
+  status: z.string().default(''),
+  search: z.string().trim().max(120).default(''),
+});
+
+/**
+ * GET /api/ard-assignments/employees/:id - one ARD employee's summary (counts
+ * over the whole set) and a paginated list of their test assignments.
+ */
+ardAssignmentsRouter.get('/employees/:id', requireAssignmentsManage(), async (req, res, next) => {
+  try {
+    const employeeId = Number(req.params.id);
+    if (!Number.isInteger(employeeId) || employeeId <= 0) throw notFound('That ARD employee could not be found.');
+    const q = ardEmployeeDetailQuerySchema.parse(req.query);
+    const today = todayLocal();
+
+    const summaryResult = await pool.query<ArdEmployeeAggregateRow>(
+      `${ARD_EMPLOYEE_AGGREGATES} AND e.id = $2 GROUP BY e.id, e.full_name, e.employee_code, e.designation`,
+      [today, employeeId],
+    );
+    if (!summaryResult.rows[0]) throw notFound('That ARD employee could not be found.');
+    const summary = mapArdEmployeeAggregate(summaryResult.rows[0]);
+
+    const params: unknown[] = [today, employeeId];
+    const clauses = ['ataa.analyst_id = $2'];
+    if (q.status === 'Overdue') {
+      clauses.push(TEST_OVERDUE_SQL);
+    } else if (q.status) {
+      params.push(q.status);
+      clauses.push(`ata.status = $${params.length}`);
+    }
+    if (q.search) {
+      params.push(`%${q.search.toLowerCase()}%`);
+      const p = params.length;
+      clauses.push(`(lower(t.trf_number) LIKE $${p} OR lower(COALESCE(t.ard_number, '')) LIKE $${p}
+        OR lower(COALESCE(p.name, '')) LIKE $${p} OR lower(ata.test_name) LIKE $${p})`);
+    }
+    const whereSql = `WHERE ${clauses.join(' AND ')}`;
+    const fromSql = `
+      FROM ard_test_assignment_analysts ataa
+      JOIN ard_test_assignments ata ON ata.id = ataa.assignment_id
+      JOIN trfs t ON t.id = ata.trf_id
+      LEFT JOIN products p ON p.id = t.product_id
+      LEFT JOIN ard_assignment_results r ON r.assignment_id = ata.id`;
+
+    // The count query uses its own parameters (employee id first) so $1 is
+    // always referenced; otherwise Postgres cannot infer an unused $1 type.
+    const countParams: unknown[] = [employeeId];
+    const countClauses = ['ataa.analyst_id = $1'];
+    if (q.status === 'Overdue') {
+      countParams.push(today);
+      countClauses.push(testOverdueSql(`$${countParams.length}`));
+    } else if (q.status) {
+      countParams.push(q.status);
+      countClauses.push(`ata.status = $${countParams.length}`);
+    }
+    if (q.search) {
+      countParams.push(`%${q.search.toLowerCase()}%`);
+      const p = countParams.length;
+      countClauses.push(`(lower(t.trf_number) LIKE $${p} OR lower(COALESCE(t.ard_number, '')) LIKE $${p}
+        OR lower(COALESCE(p.name, '')) LIKE $${p} OR lower(ata.test_name) LIKE $${p})`);
+    }
+    const countWhereSql = `WHERE ${countClauses.join(' AND ')}`;
+
+    const countResult = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count ${fromSql} ${countWhereSql}`, countParams,
+    );
+    const total = Number(countResult.rows[0].count);
+    const pageSize = q.pageSize;
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const offset = (q.page - 1) * pageSize;
+
+    const listResult = await pool.query<{
+      trf_id: number; trf_number: string; ard_number: string | null; product_name: string | null;
+      test_name: string; test_status: ArdTestAssignmentStatus; review_status: string | null;
+      assigned_at: Date | string | null; due_date: string | null; is_delayed: boolean;
+    }>(
+      `SELECT ata.trf_id, t.trf_number, t.ard_number, p.name AS product_name,
+        ata.test_name, ata.status AS test_status, r.review_status,
+        ataa.assigned_at, ata.due_date, (${TEST_OVERDUE_SQL}) AS is_delayed
+       ${fromSql} ${whereSql}
+       ORDER BY ataa.assigned_at DESC NULLS LAST, ata.id DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, pageSize, offset],
+    );
+
+    res.json({
+      summary,
+      items: listResult.rows.map((row) => ({
+        trfId: row.trf_id,
+        trfNumber: row.trf_number,
+        arNumber: row.ard_number,
+        productName: row.product_name,
+        testName: row.test_name,
+        testStatus: row.test_status,
+        reviewStatus: row.review_status,
+        assignedDate: row.assigned_at ? new Date(row.assigned_at).toISOString() : null,
+        dueDate: row.due_date ? String(row.due_date).slice(0, 10) : null,
+        isDelayed: row.is_delayed,
+      })),
+      total,
+      page: q.page,
+      pageSize,
+      pageCount,
+    });
   } catch (err) { next(err); }
 });
