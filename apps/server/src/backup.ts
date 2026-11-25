@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { config } from './config.js';
+import { config, DOCUMENT_DIR } from './config.js';
 import { pool } from './db.js';
 
 /**
@@ -18,6 +18,9 @@ import { pool } from './db.js';
 /** Backups older than this are removed after a new one succeeds. */
 const KEEP_DAYS = 30;
 
+/** Expired or revoked tokens older than this are deleted after a backup. */
+const TOKEN_KEEP_DAYS = 30;
+
 function backupDir(): string {
   return path.resolve(process.env.BACKUP_DIR ?? './backups');
 }
@@ -26,6 +29,16 @@ function backupDir(): string {
 export function backupFileName(date: Date): string {
   const stamp = date.toISOString().replace(/[:T]/g, '-').slice(0, 16);
   return `${config.DATABASE_NAME}-${stamp}.dump`;
+}
+
+/**
+ * The documents folder beside the dump: uploaded result PDFs and generated TRF
+ * PDFs live on disk, not in the database, so a database-only backup would lose
+ * them. Same stamp as the dump, so a dump and its documents sort together.
+ */
+export function documentsBackupName(date: Date): string {
+  const stamp = date.toISOString().replace(/[:T]/g, '-').slice(0, 16);
+  return `${config.DATABASE_NAME}-${stamp}-documents`;
 }
 
 interface RunResult { code: number; stdout: string; stderr: string }
@@ -150,7 +163,9 @@ function prune(dir: string, keepDays: number, keep: Set<string>): string[] {
     if (!name.startsWith(`${config.DATABASE_NAME}-`)) continue;
     const full = path.join(dir, name);
     try {
-      if (fs.statSync(full).mtimeMs < cutoff) { fs.unlinkSync(full); removed.push(name); }
+      // Both the .dump files and the -documents folders are pruned the same way;
+      // rmSync removes either, and force ignores an entry that vanished already.
+      if (fs.statSync(full).mtimeMs < cutoff) { fs.rmSync(full, { recursive: true, force: true }); removed.push(name); }
     } catch { /* already gone */ }
   }
   return removed;
@@ -189,8 +204,48 @@ async function backup(): Promise<void> {
   }
 
   console.log(`Backup complete: ${target} (${(bytes / 1024 / 1024).toFixed(1)} MB)`);
-  const removed = prune(dir, KEEP_DAYS, new Set([path.basename(target)]));
+
+  // The dump holds the database; the documents on disk are the other half. Copy
+  // DOCUMENT_DIR beside the dump so a restore brings back the PDFs too. Skipped
+  // silently when the folder does not exist (nothing has been generated yet).
+  const keep = new Set([path.basename(target)]);
+  if (fs.existsSync(DOCUMENT_DIR)) {
+    const docsTarget = path.join(dir, documentsBackupName(new Date()));
+    try {
+      fs.cpSync(DOCUMENT_DIR, docsTarget, { recursive: true });
+      keep.add(path.basename(docsTarget));
+      console.log(`Documents copied: ${docsTarget}`);
+    } catch (err) {
+      // The dump is intact, but the backup is incomplete without the documents,
+      // so the run is marked failed rather than reported as a clean backup.
+      console.error(`Could not copy documents from ${DOCUMENT_DIR}: ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  }
+
+  const removed = prune(dir, KEEP_DAYS, keep);
   if (removed.length) console.log(`Removed ${removed.length} backup(s) older than ${KEEP_DAYS} days.`);
+
+  await pruneExpiredTokens();
+}
+
+/**
+ * Deletes tokens that expired or were revoked/used more than TOKEN_KEEP_DAYS ago.
+ * Old rows are dead weight and a needless liability; the backup is a natural
+ * once-a-day moment to clear them.
+ */
+async function pruneExpiredTokens(): Promise<void> {
+  const cutoff = new Date(Date.now() - TOKEN_KEEP_DAYS * 24 * 60 * 60 * 1000);
+  const refresh = await pool.query(
+    `DELETE FROM refresh_tokens WHERE expires_at < $1 OR revoked_at < $1`,
+    [cutoff],
+  );
+  const reset = await pool.query(
+    `DELETE FROM password_reset_tokens WHERE expires_at < $1 OR used_at < $1`,
+    [cutoff],
+  );
+  const total = (refresh.rowCount ?? 0) + (reset.rowCount ?? 0);
+  if (total) console.log(`Removed ${total} expired/revoked token(s) older than ${TOKEN_KEEP_DAYS} days.`);
 }
 
 /** Counts, so a restore can be checked without trusting the file alone. */

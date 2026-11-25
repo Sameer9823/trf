@@ -10,7 +10,7 @@ import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
 import { markDbReady } from '../readiness';
 import { logFileFor, pruneOldLogs } from '../lib/logger';
-import { backupFileName, chooseDumpTool, dumpToolMajor } from '../backup';
+import { backupFileName, documentsBackupName, chooseDumpTool, dumpToolMajor } from '../backup';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -88,6 +88,14 @@ test('a backup file is named for its database and its moment', () => {
   assert.notEqual(backupFileName(new Date('2026-10-01T09:05:00Z')), backupFileName(new Date('2026-10-01T09:06:00Z')));
   // Nothing in a filename may need escaping on Windows.
   assert.doesNotMatch(name, /[:*?"<>|]/);
+});
+
+test('the documents folder is named for the same moment as its dump', () => {
+  const when = new Date('2026-10-01T09:05:00Z');
+  const docs = documentsBackupName(when);
+  // Same database and stamp as the dump, so a dump and its documents sort together.
+  assert.equal(docs, `${backupFileName(when).replace(/\.dump$/, '')}-documents`);
+  assert.doesNotMatch(docs, /[:*?"<>|]/);
 });
 
 test('the major version is read out of what pg_dump prints', () => {

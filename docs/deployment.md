@@ -45,6 +45,7 @@ Edit `apps/server/.env`:
 | `LOG_LEVEL` | `info` normally; `debug` only while investigating. |
 | `API_HOST` / `API_PORT` | Default `0.0.0.0:4000`. |
 | `BACKUP_DIR` | Where `npm run backup` writes. Default `./backups`. |
+| `DOCUMENT_DIR` | Where generated TRF PDFs and uploaded result PDFs are stored. **Set this to an absolute path** (e.g. `C:\trf-data\documents`) so the backup and the service account always resolve the same folder. It is part of the backup (see step 6). |
 
 `apps/server/.env` holds the database password and the token secret. It is in
 `.gitignore`. Its permissions should allow only the service account to read it.
@@ -114,6 +115,14 @@ This runs `pg_dump` in custom format and keeps 30 days of copies. Verify one:
 npm run backup:counts -w @trf/server
 ```
 
+**The documents are part of the backup.** Generated TRF PDFs and uploaded result
+PDFs live on disk under `DOCUMENT_DIR`, not in the database, so after a successful
+dump the backup also copies `DOCUMENT_DIR` into a `<database>-<timestamp>-documents`
+folder beside the dump. Both the dumps and the document folders are kept for 30
+days and pruned together. If `DOCUMENT_DIR` does not exist yet (nothing generated),
+the copy is skipped. A failure to copy the documents marks the run as failed, so an
+incomplete backup is never reported as a clean one.
+
 To check a dump is really restorable:
 
 ```powershell
@@ -133,6 +142,11 @@ To restore:
 createdb -h localhost -U trf_app trf_system_restored
 pg_restore -h localhost -U trf_app -d trf_system_restored --no-owner <file>.dump
 ```
+
+Then restore the documents that belong to that dump: copy the matching
+`<database>-<timestamp>-documents` folder's contents back into `DOCUMENT_DIR`
+(the timestamp matches the `.dump` file). Keep the documents and the database from
+the **same** backup, or the PDFs will not line up with the rows.
 
 Restore into a **new** database and check it before putting it into service.
 Restoring over a live database overwrites it.

@@ -6,7 +6,7 @@ import { QueryResult } from 'pg';
 import { pool, withTransaction } from '../db.js';
 import { duplicateError, forbidden, conflict, badRequest } from '../lib/errors.js';
 import { writeAudit } from '../lib/audit.js';
-import { authenticate, currentEmployee, requirePermission, requireTrfLookupEdit, requireArdEdit, validateBody } from '../middleware/auth.js';
+import { authenticate, currentEmployee, requirePermission, requireTrfCreate, requireArdEdit, validateBody } from '../middleware/auth.js';
 import { canAccessAnalytical } from '@trf/shared';
 
 export const lookupsRouter = Router();
@@ -68,7 +68,7 @@ lookupsRouter.get('/customers', requirePermission('trf.view'), async (_req, res,
   } catch (err) { next(err); }
 });
 
-lookupsRouter.post('/customers', requireTrfLookupEdit(), validateBody(customerSchema), async (req, res, next) => {
+lookupsRouter.post('/customers', requireTrfCreate(), validateBody(customerSchema), async (req, res, next) => {
   const admin = currentEmployee(req);
   try {
     const b = req.body as z.infer<typeof customerSchema>;
@@ -105,7 +105,7 @@ lookupsRouter.get('/products', requirePermission('trf.view'), async (_req, res, 
   } catch (err) { next(err); }
 });
 
-lookupsRouter.post('/products', requireTrfLookupEdit(), validateBody(productSchema), async (req, res, next) => {
+lookupsRouter.post('/products', requireTrfCreate(), validateBody(productSchema), async (req, res, next) => {
   const admin = currentEmployee(req);
   try {
     const b = req.body as z.infer<typeof productSchema>;
@@ -273,7 +273,7 @@ lookupsRouter.get('/dosage-forms', requirePermission('trf.view'), async (_req, r
 /**
  * Create a new dosage form option. Requires trf.lookup edit permission (same as creating customers/products).
  */
-lookupsRouter.post('/dosage-forms', requireTrfLookupEdit(), async (req, res, next) => {
+lookupsRouter.post('/dosage-forms', requireTrfCreate(), async (req, res, next) => {
   try {
     const { name } = req.body as { name: string };
     if (!name || typeof name !== 'string' || name.trim().length < 2) {

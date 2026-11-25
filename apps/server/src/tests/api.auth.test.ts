@@ -133,6 +133,32 @@ maybe('repeated failures lock the account and a correct password is then refused
   assert.equal(afterLock.status, 401);
 });
 
+maybe('an expired lock resets the counter so one wrong attempt does not re-lock', async () => {
+  const employee = await createEmployee({ role: 'Viewer' });
+  // Simulate a lock that has expired: the counter is at the threshold and the
+  // lock timestamp is in the past.
+  await pool.query(
+    `UPDATE employees SET failed_login_count = $2, locked_until = now() - interval '1 minute' WHERE id = $1`,
+    [employee.id, 5],
+  );
+
+  // One wrong attempt after expiry must be treated as the first of a new series.
+  const wrong = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: employee.username, password: 'Wrong-Password-1' }) });
+  assert.equal(wrong.status, 401);
+  assert.notEqual(wrong.body.error.message, MESSAGES.ACCOUNT_LOCKED);
+
+  // The counter restarted at 1 and the stale lock was cleared.
+  const row = await pool.query<{ failed_login_count: number; locked_until: Date | null }>(
+    `SELECT failed_login_count, locked_until FROM employees WHERE id = $1`, [employee.id]);
+  assert.equal(row.rows[0].failed_login_count, 1);
+  assert.ok(!row.rows[0].locked_until || new Date(row.rows[0].locked_until) <= new Date(), 'the account must not be locked');
+
+  // A correct password now signs in.
+  const correct = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: employee.username, password: employee.password }) });
+  assert.equal(correct.status, 200, JSON.stringify(correct.body));
+  await pool.query('DELETE FROM employees WHERE id = $1', [employee.id]);
+});
+
 maybe('a deactivated user cannot sign in and their tokens stop working', async () => {
   const employee = await createEmployee({ role: 'Analyst' });
   const login = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ username: employee.username, password: employee.password }) });

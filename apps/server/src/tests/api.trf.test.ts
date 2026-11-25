@@ -1252,6 +1252,24 @@ maybe('POST /:id/document uploads a PDF with raw body, validates magic bytes and
   await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
 });
 
+maybe('the approvals trail is hidden from a caller who cannot see the TRF', async () => {
+  const trf = await createTrf({ batchNumber: `APPROVALS-SCOPE-${Date.now()}` });
+  assert.equal(trf.status, 201, JSON.stringify(trf.body));
+  const trfId = trf.body.id;
+
+  // A plain Analyst does not own this TRF and has no viewAll, so the detail is 403.
+  const analyst = await createAnalyst();
+  const analystToken = await tokenFor(analyst.username, analyst.password);
+  assert.equal((await api(`/api/trfs/${trfId}`, {}, analystToken)).status, 403);
+  // The approval trail must be refused for exactly the same caller.
+  assert.equal((await api(`/api/trfs/${trfId}/approvals`, {}, analystToken)).status, 403);
+
+  // The creator/admin still reads it.
+  assert.equal((await api(`/api/trfs/${trfId}/approvals`, {}, adminToken)).status, 200);
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
 maybe('oversized PDF upload is rejected with 413 and writes nothing to disk', async () => {
   const trf = await createTrf({ batchNumber: `PDF-OVERSIZE-${Date.now()}` });
   assert.equal(trf.status, 201, JSON.stringify(trf.body));

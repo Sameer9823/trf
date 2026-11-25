@@ -126,14 +126,16 @@ authRouter.post('/login', validateBody(loginSchema), async (req, res, next) => {
       if (employeeRow.locked_until && new Date(employeeRow.locked_until) > new Date()) throw unauthorized(MESSAGES.ACCOUNT_LOCKED);
 
       if (!passwordOk) {
-        // Atomically increment failed_login_count and lock if threshold reached
+        // Atomically increment failed_login_count and lock if threshold reached.
+        // A lock that has already expired starts a fresh series at 1 (and clears
+        // the stale timestamp), so one typo after expiry does not re-lock.
         const result = await withTransaction(async (client) => {
           const updated = await client.query<{ failed_login_count: number; locked_until: Date | null }>(
             `UPDATE employees
-               SET failed_login_count = failed_login_count + 1,
-                   locked_until = CASE WHEN failed_login_count + 1 >= $2
+               SET failed_login_count = CASE WHEN locked_until <= now() THEN 1 ELSE failed_login_count + 1 END,
+                   locked_until = CASE WHEN (CASE WHEN locked_until <= now() THEN 1 ELSE failed_login_count + 1 END) >= $2
                                        THEN now() + ($3 || ' minutes')::interval
-                                       ELSE locked_until END
+                                       ELSE NULL END
              WHERE id = $1
              RETURNING failed_login_count, locked_until`,
             [employeeRow.id, config.LOGIN_MAX_ATTEMPTS, String(config.LOGIN_LOCK_MINUTES)],
@@ -180,14 +182,16 @@ authRouter.post('/login', validateBody(loginSchema), async (req, res, next) => {
     if (account.locked_until && new Date(account.locked_until) > new Date()) throw unauthorized(MESSAGES.ACCOUNT_LOCKED);
 
     if (!teamPasswordOk) {
-      // Atomically increment failed_login_count and lock if threshold reached
+      // Atomically increment failed_login_count and lock if threshold reached.
+      // A lock that has already expired starts a fresh series at 1 (and clears
+      // the stale timestamp), so one typo after expiry does not re-lock.
       const result = await withTransaction(async (client) => {
         const updated = await client.query<{ failed_login_count: number; locked_until: Date | null }>(
           `UPDATE team_accounts
-             SET failed_login_count = failed_login_count + 1,
-                 locked_until = CASE WHEN failed_login_count + 1 >= $2
+             SET failed_login_count = CASE WHEN locked_until <= now() THEN 1 ELSE failed_login_count + 1 END,
+                 locked_until = CASE WHEN (CASE WHEN locked_until <= now() THEN 1 ELSE failed_login_count + 1 END) >= $2
                                      THEN now() + ($3 || ' minutes')::interval
-                                     ELSE locked_until END
+                                     ELSE NULL END
            WHERE id = $1
            RETURNING failed_login_count, locked_until`,
           [account.id, config.LOGIN_MAX_ATTEMPTS, String(config.LOGIN_LOCK_MINUTES)],
@@ -395,14 +399,16 @@ authRouter.post('/select-member', authenticate, validateBody(selectMemberSchema)
         const maxAttempts = parseInt(await getSystemSetting('PIN_MAX_ATTEMPTS'), 10) || 5;
         const lockMinutes = parseInt(await getSystemSetting('PIN_LOCK_MINUTES'), 10) || 15;
         
-        // Atomically increment and check PIN lock
+        // Atomically increment and check PIN lock. A PIN lock that has already
+        // expired starts a fresh series at 1 (and clears the stale timestamp),
+        // so one wrong PIN after expiry does not re-lock.
         const result = await withTransaction(async (client) => {
           const updated = await client.query<{ pin_failed_attempts: number; pin_locked_until: Date | null }>(
             `UPDATE employees
-               SET pin_failed_attempts = pin_failed_attempts + 1,
-                   pin_locked_until = CASE WHEN pin_failed_attempts + 1 >= $2
+               SET pin_failed_attempts = CASE WHEN pin_locked_until <= now() THEN 1 ELSE pin_failed_attempts + 1 END,
+                   pin_locked_until = CASE WHEN (CASE WHEN pin_locked_until <= now() THEN 1 ELSE pin_failed_attempts + 1 END) >= $2
                                          THEN now() + ($3 || ' minutes')::interval
-                                         ELSE pin_locked_until END
+                                         ELSE NULL END
              WHERE id = $1
              RETURNING pin_failed_attempts, pin_locked_until`,
             [member.id, maxAttempts, String(lockMinutes)],
@@ -578,13 +584,17 @@ authRouter.post('/reset-password', validateBody(resetPasswordSchema), async (req
     const { token, newPassword } = req.body as z.infer<typeof resetPasswordSchema>;
     const tokenHash = hashToken(token);
 
-    // Atomically check and consume the token in one transaction
+    // Atomically check and consume the token in one statement: only one
+    // concurrent request can move the row from unused to used, so a reset token
+    // cannot be spent twice (the same claim pattern /refresh uses).
     const result = await withTransaction(async (client) => {
-      const tokenResult = await client.query<{ id: number; employee_id: number; expires_at: Date; used_at: Date | null }>(
-        `SELECT id, employee_id, expires_at, used_at FROM password_reset_tokens WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()`,
+      const claimed = await client.query<{ id: number; employee_id: number }>(
+        `UPDATE password_reset_tokens SET used_at = now()
+           WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
+         RETURNING id, employee_id`,
         [tokenHash]
       );
-      const resetToken = tokenResult.rows[0];
+      const resetToken = claimed.rows[0];
       if (!resetToken) {
         throw badRequest('Invalid or expired reset token.');
       }
@@ -607,15 +617,10 @@ authRouter.post('/reset-password', validateBody(resetPasswordSchema), async (req
 
       const passwordHash = await hashPassword(newPassword);
 
-      // Update password and mark token as used
+      // Update password; the token was already marked used by the claim above.
       await client.query(
         `UPDATE employees SET password_hash = $2, must_change_password = FALSE, failed_login_count = 0, locked_until = NULL, version = version + 1 WHERE id = $1`,
         [employee.id, passwordHash]
-      );
-
-      await client.query(
-        `UPDATE password_reset_tokens SET used_at = now() WHERE id = $1`,
-        [resetToken.id]
       );
 
       // Revoke all refresh tokens

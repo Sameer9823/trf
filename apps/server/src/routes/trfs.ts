@@ -23,7 +23,7 @@ import {
   OVERDUE_SQL, ARD_TAT_SQL, TRF_DETAIL_FROM, TRF_DETAIL_SELECT, TRF_FROM, TRF_SELECT, TRF_SORT_SQL,
   TrfRow, toDetail, toListItem, trfListQuerySchema, toFilters,
 } from '../lib/trf-query.js';
-import { authenticate, currentEmployee, requirePermission, requireTrfCreate, requireTrfEdit, requireArdEdit, requireTrfDelete, requireRole, requireAdminApproval, requireAnyApprover, requireLockAdmin, validateBody } from '../middleware/auth.js';
+import { authenticate, currentEmployee, requirePermission, requireTrfCreate, requireTrfEdit, requireArdEdit, requireTrfDelete, requireRole, requireAdminApproval, validateBody } from '../middleware/auth.js';
 import { scopeFor, trfScopeClause, type TrfScope } from '../lib/trf-scope.js';
 import { config, DOCUMENT_DIR } from '../config.js';
 import { readPdfBody } from '../lib/read-pdf-body.js';
@@ -1303,7 +1303,7 @@ const reopenSchema = z.object({
   reason: z.string().trim().min(10, 'The reason must be at least 10 characters.'),
 });
 
-trfsRouter.post('/:id/reopen', requireLockAdmin(), validateBody(reopenSchema), async (req, res, next) => {
+trfsRouter.post('/:id/reopen', requireAdminApproval(), validateBody(reopenSchema), async (req, res, next) => {
   const user = currentEmployee(req);
   try {
     const id = Number(req.params.id);
@@ -1380,7 +1380,7 @@ const decisionSchema = z.object({
   reason: z.string().trim().max(1000).nullable().optional(),
 });
 
-trfsRouter.post('/:id/decision', requireAnyApprover(), validateBody(decisionSchema), async (req, res, next) => {
+trfsRouter.post('/:id/decision', requireAdminApproval(), validateBody(decisionSchema), async (req, res, next) => {
   const admin = currentEmployee(req);
   try {
     const id = Number(req.params.id);
@@ -1514,7 +1514,7 @@ const unlockSchema = z.object({
   reason: z.string().trim().min(10, 'The reason must be at least 10 characters.'),
 });
 
-trfsRouter.post('/:id/unlock', requireLockAdmin(), validateBody(unlockSchema), async (req, res, next) => {
+trfsRouter.post('/:id/unlock', requireAdminApproval(), validateBody(unlockSchema), async (req, res, next) => {
   const admin = currentEmployee(req);
   try {
     const id = Number(req.params.id);
@@ -1738,7 +1738,7 @@ const agmCompleteSchema = z.object({
   reason: z.string().trim().max(1000).nullable().optional(),
 });
 
-trfsRouter.post('/:id/agm-complete', requireLockAdmin(), validateBody(agmCompleteSchema), async (req, res, next) => {
+trfsRouter.post('/:id/agm-complete', requireAdminApproval(), validateBody(agmCompleteSchema), async (req, res, next) => {
   const admin = currentEmployee(req);
   try {
     const id = Number(req.params.id);
@@ -1944,6 +1944,9 @@ trfsRouter.get('/:id/approvals', requirePermission('trf.view'), async (req, res,
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) throw notFound();
+    // Same visibility rule as the TRF detail and /history: a caller who cannot
+    // see the TRF cannot read its approval trail either.
+    await loadVisibleTrf(id, currentEmployee(req));
     const result = await pool.query<{ id: string; track: string; status: string; decided_at: Date | null; reason: string | null; decided_by_name: string | null }>(
       `SELECT a.id, a.track, a.status, a.decided_at, a.reason, d.full_name AS decided_by_name
          FROM trf_approvals a LEFT JOIN employees d ON d.id = a.decided_by

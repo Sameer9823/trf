@@ -91,6 +91,13 @@ async function waitForDatabaseAndMigrate(): Promise<void> {
 async function main() {
   const app = buildApp();
 
+  // A reset link built without FRONTEND_URL points at localhost, which is only
+  // reachable on the server itself. Warn once at startup when email is set up
+  // but the public URL is not, so it is caught before a user is locked out.
+  if (config.EMAIL_USER && !config.FRONTEND_URL) {
+    logger.warn('EMAIL_USER is set but FRONTEND_URL is not: password-reset links will point at http://localhost:5173. Set FRONTEND_URL to the public address.');
+  }
+
   // Start background DB connection retry; do not block server startup
   waitForDatabaseAndMigrate().catch((err) => {
     logger.fatal({ err }, 'Background DB initialization failed');

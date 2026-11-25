@@ -538,6 +538,34 @@ maybe('the ownership matrix: Formulation edits Part A, ARD edits the ARD block',
   await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
 });
 
+maybe('team-wide editing: an ARD Analyst edits the ARD block of a TRF they do not own', async () => {
+  const ardAnalyst = await userInDepartment('Analyst', 'ARD');
+  const created = await createTrf({ batchNumber: `TEAMWIDE-${Date.now()}` });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const id = created.body.id;
+
+  // The TRF is admin-created and not assigned to the analyst, so it is not in
+  // their own list before approval.
+  const list = await api<TrfListPage>('/api/trfs?pageSize=200', {}, ardAnalyst.token);
+  assert.ok(!list.body.items.map((t) => t.id).includes(id), 'the TRF is not in the analyst own list');
+
+  // Approve so the ARD block unlocks.
+  const approve = await api<TrfDetail>(`/api/trfs/${id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+
+  // Department-based (team-wide) editing is intended: an ARD Analyst edits the
+  // ARD block of a TRF they do not own, so the edit route is not blocked by a
+  // visibility check (it would be a 403, not the 200 asserted here).
+  const edit = await api<TrfDetail>(`/api/trfs/${id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: approve.body.version, reportingStatus: 'Draft' }),
+  }, ardAnalyst.token);
+  assert.equal(edit.status, 200, JSON.stringify(edit.body));
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
+});
+
 maybe('an ARD Analyst can set the Final Status without the trf.changeStatus permission', async () => {
   const ardAnalyst = await userInDepartment('Analyst', 'ARD');
   const formulationApprover = await userInDepartment('Manager', 'Formulation');

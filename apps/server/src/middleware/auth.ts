@@ -167,20 +167,11 @@ export function employeePermissions(role: Role) {
   return permissionsForRole(role);
 }
 
-/** Formulation department users (plus Admin and Manager) may create TRFs.
- * ARD-only users are refused: a TRF is a formulation request, so only Part A
- * holders may start one. */
+/** Formulation department users (plus Admin and Manager) may create TRFs and
+ * create/edit customers and products inline while filling in a TRF. ARD-only
+ * users are refused: a TRF is a formulation request, so only Part A holders may
+ * start one. */
 export function requireTrfCreate() {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    if (!req.employee) return next(unauthorized('Sign in to continue.'));
-    if (!canEditTrfPartA(req.employee)) return next(forbidden());
-    next();
-  };
-}
-
-/** Formulation department users (plus Admin and Manager) may create/edit
- * customers and products inline while filling in a TRF. */
-export function requireTrfLookupEdit() {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.employee) return next(unauthorized('Sign in to continue.'));
     if (!canEditTrfPartA(req.employee)) return next(forbidden());
@@ -243,10 +234,6 @@ function requireAdminOnly() {
 }
 
 export const requireAdminApproval = requireAdminOnly;
-export const requireAnyApprover = requireAdminOnly;
-export const requireLockAdmin = requireAdminOnly;
-export const requireFormulationApproval = requireAdminOnly;
-export const requireArdApproval = requireAdminOnly;
 
 /**
  * Assigning ARD tests: requires assignments.manage permission (Admin, Manager).
