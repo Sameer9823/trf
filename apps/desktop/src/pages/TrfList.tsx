@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import type { Customer, Department, Priority, Product, TrfListItem, TrfListPage, TrfSortField, TrfStatus } from '@trf/shared';
+import type { Customer, Department, EmployeeOption, Priority, Product, TrfListItem, TrfListPage, TrfSortField, TrfStatus } from '@trf/shared';
 import { DEFAULT_TRF_FILTERS, PRIORITIES, TRF_STATUSES, LIST_FIELD_ORDER, LIST_HIDDEN_FIELD_KEYS, listFieldLabel, 
 canEditTrfPartA, canEditTrfPartB, canDeleteTrf, bulletList, analystNameList } from '@trf/shared';
 import { messageOf, toQuery } from '../lib/api';
@@ -60,6 +60,7 @@ export function TrfList() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(() => {
     const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('trfListHiddenColumns') : null;
     if (saved) { try { return new Set(JSON.parse(saved) as string[]); } catch { } }
@@ -117,6 +118,7 @@ export function TrfList() {
     priority: (params.get('priority') ? params.get('priority')!.split(',') : []) as Priority[],
     customerId: params.get('customerId') ? Number(params.get('customerId')) : undefined,
     productId: params.get('productId') ? Number(params.get('productId')) : undefined,
+    assignedEmployeeId: params.get('assignedEmployeeId') ? Number(params.get('assignedEmployeeId')) : undefined,
     departmentId: params.get('departmentId') ? Number(params.get('departmentId')) : undefined,
     dateFrom: params.get('dateFrom') ?? undefined,
     dateTo: params.get('dateTo') ?? undefined,
@@ -159,6 +161,7 @@ export function TrfList() {
         setCustomers(data.customers);
         setProducts(data.products);
         setDepartments(data.departments);
+        setEmployees(data.employees ?? []);
       } catch {
         // Cache corrupted, will refetch
       }
@@ -169,15 +172,18 @@ export function TrfList() {
       window.trf.request<{ items: Customer[] }>({ method: 'GET', path: '/api/lookups/customers' }),
       window.trf.request<{ items: Product[] }>({ method: 'GET', path: '/api/lookups/products' }),
       window.trf.request<{ items: Department[] }>({ method: 'GET', path: '/api/departments' }),
-    ]).then(([customersRes, productsRes, departmentsRes]) => {
+      window.trf.request<{ items: EmployeeOption[] }>({ method: 'GET', path: '/api/lookups/employees' }),
+    ]).then(([customersRes, productsRes, departmentsRes, employeesRes]) => {
       if (cancelled) return;
       const customersData = customersRes.ok && customersRes.data ? customersRes.data.items : [];
       const productsData = productsRes.ok && productsRes.data ? productsRes.data.items : [];
       const departmentsData = departmentsRes.ok && departmentsRes.data ? departmentsRes.data.items : [];
+      const employeesData = employeesRes.ok && employeesRes.data ? employeesRes.data.items : [];
 
       setCustomers(customersData);
       setProducts(productsData);
       setDepartments(departmentsData);
+      setEmployees(employeesData);
 
       // Update cache
       if (typeof localStorage !== 'undefined') {
@@ -185,6 +191,7 @@ export function TrfList() {
           customers: customersData,
           products: productsData,
           departments: departmentsData,
+          employees: employeesData,
         }));
         localStorage.setItem(cacheKey + '_time', String(Date.now()));
       }
@@ -225,7 +232,7 @@ export function TrfList() {
   if (state === 'offline') return <div className="page page--wide"><OfflineNotice /></div>;
 
   const activeFilterCount = [
-    filters.search, filters.customerId, filters.productId, filters.departmentId,
+    filters.search, filters.customerId, filters.productId, filters.departmentId, filters.assignedEmployeeId,
     filters.dateFrom, filters.dateTo,
   ].filter(Boolean).length + filters.status.length + filters.priority.length + (filters.overdueOnly ? 1 : 0);
 
@@ -241,6 +248,7 @@ export function TrfList() {
               filters={{
                 search: filters.search,
                 status: filters.status.join(','),
+                assignedEmployeeId: filters.assignedEmployeeId,
                 dateFrom: filters.dateFrom,
                 dateTo: filters.dateTo,
                 overdueOnly: filters.overdueOnly,
@@ -325,6 +333,13 @@ export function TrfList() {
               <select value={filters.departmentId ?? ''} onChange={(e) => setFilter('departmentId', e.target.value)}>
                 <option value="">All</option>
                 {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </label>
+            <label>
+              Assigned employee
+              <select value={filters.assignedEmployeeId ?? ''} onChange={(e) => setFilter('assignedEmployeeId', e.target.value)}>
+                <option value="">All</option>
+                {employees.map((e) => <option key={e.id} value={e.id}>{e.fullName} ({e.employeeCode})</option>)}
               </select>
             </label>
           </div>

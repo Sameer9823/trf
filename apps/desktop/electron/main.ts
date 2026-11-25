@@ -673,7 +673,29 @@ ipcMain.handle('reports:export', async (event, query: string): Promise<ExportOut
     const buffer = Buffer.from(await res.arrayBuffer());
     await fs.promises.writeFile(target, buffer);
     return { ok: true, path: target, meta: meta ? JSON.parse(meta) : null };
-  } catch {
+  } catch (err) {
+    // Log full error for debugging
+    console.error('[Export] Failed:', err);
+    // Provide specific error messages based on error type
+    if (err instanceof TypeError && err.message.includes('fetch')) {
+      return { ok: false, message: 'Network error: Cannot reach the server. Check your network connection and VPN.' };
+    }
+    if (err instanceof Error) {
+      if (err.message.includes('ENOTFOUND') || err.message.includes('EAI_AGAIN')) {
+        return { ok: false, message: 'DNS error: Cannot resolve server address. Check server URL in Settings.' };
+      }
+      if (err.message.includes('ECONNREFUSED')) {
+        return { ok: false, message: 'Connection refused: Server is not running or not accepting connections.' };
+      }
+      if (err.message.includes('ETIMEDOUT') || err.message.includes('timeout')) {
+        return { ok: false, message: 'Connection timed out: Server took too long to respond.' };
+      }
+      if (err.message.includes('CERT') || err.message.includes('SSL') || err.message.includes('TLS')) {
+        return { ok: false, message: 'SSL/TLS error: Certificate problem. Check server URL uses correct protocol (http/https).' };
+      }
+      // Generic error with details
+      return { ok: false, message: `Export failed: ${err.message}` };
+    }
     return { ok: false, message: 'Company server is unavailable. Please connect to the company network.' };
   }
 });

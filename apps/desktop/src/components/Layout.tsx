@@ -25,15 +25,21 @@ const TEAM_LABEL = { FRD: 'Formulation team', ARD: 'Analytical team' } as const;
 /**
  * The modules a signed-in employee should see in the sidebar. ARD team-account
  * members do their work in Assignments, so the main operations dashboard is
- * left out for them; every other account keeps it. The same list decides where
- * the app opens, so the two can never disagree.
+ * left out for them; every other account keeps it. Higher authorities (AGM, GM, Admin)
+ * don't need Assignments in the sidebar — they access employee workload via ARD Team tab.
  */
 export function visibleNav(
   employee: EmployeeProfile | null,
   canAccessModule: (module: string) => boolean,
 ): typeof NAV {
   const hideDashboard = employee?.team === 'ARD';
-  return NAV.filter((n) => canAccessModule(n.module) && !(hideDashboard && n.module === 'dashboard'));
+  const isHigherAuthority = employee?.role === 'Admin' || employee?.designation === 'AGM' || employee?.designation === 'GM';
+  const hideAssignments = isHigherAuthority;
+  return NAV.filter((n) => 
+    canAccessModule(n.module) && 
+    !(hideDashboard && n.module === 'dashboard') &&
+    !(hideAssignments && n.module === 'assignments')
+  );
 }
 
 function StatusBadge() {
