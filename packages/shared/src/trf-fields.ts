@@ -14,10 +14,10 @@
  *   ONCE, right after Stage in the ARD block, and not a second time in the
  *   Part A column group. Their list labels differ ("Remarks / Status",
  *   "ARD Remarks / Status") because the list already has a separate "Status"
- *   column for the TRF status.
+ *   column.
  */
 import { TeamType } from './permissions.js';
-export type TrfFieldOwner = 'formulation' | 'ard' | 'system';
+export type TrfFieldOwner = 'formulation' | 'ard' | 'system' | 'agm';
 
 export interface TrfFieldSpec {
   /** The property name on TrfDetail / TrfListItem. */
@@ -65,7 +65,6 @@ export const PART_A_FIELDS: readonly TrfFieldSpec[] = [
   spec('testRequestedOptionIds', 'Test Requested (Multi-select)', 'formulation'),
   spec('specialInstructions', 'Test Details', 'formulation'),
   spec('analysisPurpose', 'Analysis Required For / Purpose', 'formulation'),
-  spec('requiredCompletionDate', 'Required Completion Date', 'formulation'),
   spec('sampleQuantity', 'Sample Quantity', 'formulation'),
   spec('sampleSubmittedByName', 'Sample Submitted By', 'formulation'),
   spec('remarksStatus', 'Status', 'formulation', { listLabel: 'Remarks / Status' }),
@@ -81,6 +80,7 @@ export const ARD_FIELDS: readonly TrfFieldSpec[] = [
   spec('specialInstructions', 'Test Details', 'system', { carriedForward: true }),
   spec('analystName', 'Analyst Name', 'ard'),
   spec('analysisStartDate', 'Date of Analysis', 'ard'),
+  spec('requiredCompletionDate', 'Required Completion Date', 'agm'),
   spec('reportingStatus', 'Reporting', 'ard'),
   spec('coaStatus', 'COA', 'ard'),
   spec('ardRemarksStatus', 'Status', 'ard', { listLabel: 'ARD Remarks / Status' }),
@@ -181,6 +181,19 @@ export const ARD_EDITABLE_KEYS: readonly string[] = ARD_FIELDS
 export const FORMULATION_EDITABLE_KEYS: readonly string[] = PART_A_FIELDS
   .filter((f) => f.owner === 'formulation')
   .map((f) => f.key);
+
+/** Designations allowed to set the Required Completion Date. Add more here if needed. */
+export const REQUIRED_DATE_EDITORS: readonly string[] = ['AGM'] as const;
+
+/**
+ * Returns true if the employee can set the Required Completion Date.
+ * Checks both current designation and legacy role (AGM role).
+ */
+export function canSetRequiredCompletionDate(employee: { designation: string | null; role?: string | null } | null | undefined): boolean {
+  if (!employee) return false;
+  if (REQUIRED_DATE_EDITORS.includes(employee.designation as any)) return true;
+  return employee.role === 'AGM';
+}
 
 /**
  * An employee as the dropdowns need them: enough to show a name and a

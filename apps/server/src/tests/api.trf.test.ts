@@ -81,6 +81,19 @@ async function createAnalyst(): Promise<{ id: number; username: string; password
   return { id: found.rows[0].id, username: `p3ana${suffix}`, password };
 }
 
+async function createAgm(): Promise<{ id: number; username: string; password: string }> {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const password = 'Agm-Test-Pass-42';
+  await pool.query(
+    `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation)
+     VALUES ($1, $2, $3, $4, $5, 'Admin', 'AGM')
+     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, role = 'Admin', designation = 'AGM'`,
+    [`P3-AGM-${suffix}`, `Phase3 AGM ${suffix}`, `p3agm${suffix}@test.local`, `p3agm${suffix}`, await hashPassword(password)],
+  );
+  const found = await pool.query<{ id: number }>(`SELECT id FROM employees WHERE username = $1`, [`p3agm${suffix}`]);
+  return { id: found.rows[0].id, username: `p3agm${suffix}`, password };
+}
+
 async function tokenFor(username: string, password: string): Promise<string> {
   const res = await api<{ accessToken: string }>('/api/auth/login', {
     method: 'POST', body: JSON.stringify({ username, password }),
@@ -182,7 +195,9 @@ maybe('a TRF with a past required completion date is accepted and starts overdue
     requiredCompletionDate: '2000-01-01',
   });
   assert.equal(res.status, 201, JSON.stringify(res.body));
-  assert.equal(res.body.isOverdue, true);
+  // Required Completion Date is dropped on create (stored as NULL), so not overdue
+  assert.equal(res.body.requiredCompletionDate, null);
+  assert.equal(res.body.isOverdue, false);
   await pool.query('DELETE FROM trfs WHERE id = $1', [res.body.id]);
 });
 
@@ -380,21 +395,26 @@ maybe('a Viewer cannot be assigned work', async () => {
 maybe('overdue is computed from the due date, not stored', async () => {
   const past = '2026-01-15';
   const future = '2099-01-15';
-  const overdueTrf = await createTrf({ requiredCompletionDate: past });
-  assert.equal(overdueTrf.body.isOverdue, true);
+  // Create TRFs without date (dropped on create), then set via SQL for testing overdue logic
+  const overdueTrf = await createTrf({});
+  await pool.query(`UPDATE trfs SET required_completion_date = $1 WHERE id = $2`, [past, overdueTrf.body.id]);
+  const overdueReloaded = await api<TrfDetail>(`/api/trfs/${overdueTrf.body.id}`, {}, adminToken);
+  assert.equal(overdueReloaded.body.isOverdue, true);
 
-  const notOverdue = await createTrf({ requiredCompletionDate: future });
-  assert.equal(notOverdue.body.isOverdue, false);
+  const notOverdue = await createTrf({});
+  await pool.query(`UPDATE trfs SET required_completion_date = $1 WHERE id = $2`, [future, notOverdue.body.id]);
+  const notOverdueReloaded = await api<TrfDetail>(`/api/trfs/${notOverdue.body.id}`, {}, adminToken);
+  assert.equal(notOverdueReloaded.body.isOverdue, false);
 
   const list = await api<TrfListPage>('/api/trfs?overdueOnly=true&pageSize=200', {}, adminToken);
   assert.ok(list.body.items.some((t) => t.id === overdueTrf.body.id));
   assert.equal(list.body.items.some((t) => t.id === notOverdue.body.id), false);
 
-  // A cancelled TRF stops counting as overdue.
-  const cancelled = await api<TrfDetail>(`/api/trfs/${overdueTrf.body.id}/status`, {
-    method: 'POST', body: JSON.stringify({ status: 'Cancelled', version: overdueTrf.body.version }),
+  // A TRF whose ARD Final Status is Cancelled stops counting as overdue.
+  const cancelled = await api<TrfDetail>(`/api/trfs/${overdueTrf.body.id}`, {
+    method: 'PATCH', body: JSON.stringify({ workflowStatus: 'Cancelled', version: overdueReloaded.body.version }),
   }, adminToken);
-  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
   assert.equal(cancelled.body.isOverdue, false);
 
   await pool.query('DELETE FROM trfs WHERE id = ANY($1)', [[overdueTrf.body.id, notOverdue.body.id]]);

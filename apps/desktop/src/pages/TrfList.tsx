@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import type { Customer, Department, EmployeeOption, Priority, Product, TrfListItem, TrfListPage, TrfSortField, TrfStatus } from '@trf/shared';
-import { DEFAULT_TRF_FILTERS, PRIORITIES, TRF_STATUSES, LIST_FIELD_ORDER, LIST_HIDDEN_FIELD_KEYS, listFieldLabel, 
+import type { Customer, Department, EmployeeOption, Priority, Product, TrfListItem, TrfListPage, TrfSortField, TrfStatus, ArdWorkflowStatus } from '@trf/shared';
+import { DEFAULT_TRF_FILTERS, PRIORITIES, TRF_STATUSES, ArdWorkflowStatus as ARD_WORKFLOW_STATUSES, LIST_FIELD_ORDER, LIST_HIDDEN_FIELD_KEYS, listFieldLabel, 
 canEditTrfPartA, canEditTrfPartB, canDeleteTrf, bulletList, analystNameList } from '@trf/shared';
 import { messageOf, toQuery } from '../lib/api';
 import { useTrfSort } from '../lib/api';
@@ -115,6 +115,7 @@ export function TrfList() {
   const filters = useMemo(() => ({
     search: params.get('search') ?? DEFAULT_TRF_FILTERS.search,
     status: (params.get('status') ? params.get('status')!.split(',') : []) as TrfStatus[],
+    workflowStatus: (params.get('workflowStatus') ? params.get('workflowStatus')!.split(',') : []) as ArdWorkflowStatus[],
     priority: (params.get('priority') ? params.get('priority')!.split(',') : []) as Priority[],
     customerId: params.get('customerId') ? Number(params.get('customerId')) : undefined,
     productId: params.get('productId') ? Number(params.get('productId')) : undefined,
@@ -135,7 +136,7 @@ export function TrfList() {
     setParams(next, { replace: true });
   }, [params, setParams]);
 
-  const toggleMulti = (key: 'status' | 'priority', value: string, current: string[]) => {
+  const toggleMulti = (key: 'status' | 'priority' | 'workflowStatus', value: string, current: string[]) => {
     const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
     setFilter(key, next.join(','));
   };
@@ -235,7 +236,7 @@ export function TrfList() {
   const activeFilterCount = [
     filters.search, filters.customerId, filters.productId, filters.departmentId, filters.assignedEmployeeId, filters.createdBy,
     filters.dateFrom, filters.dateTo,
-  ].filter(Boolean).length + filters.status.length + filters.priority.length + (filters.overdueOnly ? 1 : 0);
+  ].filter(Boolean).length + filters.status.length + filters.workflowStatus.length + filters.priority.length + (filters.overdueOnly ? 1 : 0);
 
   return (
     <div className="page page--wide">
@@ -302,6 +303,15 @@ export function TrfList() {
               {TRF_STATUSES.map((s) => (
                 <button key={s} className={`chip ${filters.status.includes(s) ? 'chip--on' : ''}`}
                   onClick={() => toggleMulti('status', s, filters.status)}>{s}</button>
+              ))}
+            </div>
+          </div>
+          <div className="filters__group">
+            <span className="filters__label">Final status</span>
+            <div className="chips">
+              {ARD_WORKFLOW_STATUSES.map((s) => (
+                <button key={s} className={`chip ${filters.workflowStatus.includes(s) ? 'chip--on' : ''}`}
+                  onClick={() => toggleMulti('workflowStatus', s, filters.workflowStatus)}>{s}</button>
               ))}
             </div>
           </div>

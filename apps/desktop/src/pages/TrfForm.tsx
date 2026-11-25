@@ -10,6 +10,7 @@ import type {
 import {
   REMARKS_STATUSES, ARD_COA_STATUSES,
   DEFAULT_ARD_STAGE, canEditTrfPartA, canEditTrfPartB, FINAL_APPROVAL_STATUSES,
+  canSetRequiredCompletionDate,
 } from '@trf/shared';
 import { MESSAGES, ANALYTICAL_DEPARTMENTS, bulletList } from '@trf/shared';
 import { fieldsOf, messageOf } from '../lib/api';
@@ -415,6 +416,7 @@ export function TrfForm() {
   const [loadingAssignments, setLoadingAssignments] = useState(false);
   // An approved TRF is locked for everyone. Only an administrator can unlock it, from the TRF page.
   const locked = !!trfData?.lockedAt;
+  const isApproved = isEdit && trfData ? trfData.remarksStatus === 'Approved' : false;
   const canEditA = canEditAByRole && !locked;
   const canEditB = canEditBByRole && !locked;
   const isAdmin = employee?.role === 'Admin';
@@ -423,6 +425,8 @@ export function TrfForm() {
   const canEditArdApproval = (isAdmin || isAgm) && !locked;
   // ARD analysts can edit: Analyst Name, Date of Analysis, Stage, ARD Remark
   const canEditArdAnalyst = canEditB && !locked;
+  // AGM can set Required Completion Date: shared helper + approved + not locked
+  const canSetRequiredDate = employee ? canSetRequiredCompletionDate(employee) && isApproved && !locked : false;
   // Admin (incl. AGM/GM designations) and Managers hold assignments.manage; the server enforces it too.
   const canManageAssignments = (isAdmin || isAgm || can('assignments.manage')) && !locked;
   const [version, setVersion] = useState<number | null>(null);
@@ -752,13 +756,12 @@ export function TrfForm() {
       body.expiryDate = form.expiryDate || null;
       body.testRequestedOptionIds = form.testRequestedOptionIds;
       body.testRequestedOther = form.testRequestedOther.trim() || null;
-      body.specialInstructions = form.specialInstructions.trim() || null;
-      body.requiredCompletionDate = form.requiredCompletionDate || null;
-      body.sampleQuantity = form.sampleQuantity.trim() || null;
-      body.sampleSubmittedById = form.sampleSubmittedById ? Number(form.sampleSubmittedById) : null;
-      body.remarks = form.remarks.trim() || null;
-      body.signatureDate = form.signatureDate || null;
-      if (isAdmin) {
+body.specialInstructions = form.specialInstructions.trim() || null;
+       body.sampleQuantity = form.sampleQuantity.trim() || null;
+       body.sampleSubmittedById = form.sampleSubmittedById ? Number(form.sampleSubmittedById) : null;
+       body.remarks = form.remarks.trim() || null;
+       body.signatureDate = form.signatureDate || null;
+       if (isAdmin) {
         body.remarksStatus = form.remarksStatus;
         body.formulationApprovalStatus = form.formulationApprovalStatus;
         body.ardApprovalStatus = form.ardApprovalStatus;
@@ -781,6 +784,10 @@ export function TrfForm() {
       body.analysisStartDate = form.analysisStartDate || null;
       body.ardRemarks = form.ardRemarks.trim() || null;
     }
+    // AGM can set Required Completion Date: only when allowed, approved, not locked, and value changed
+    if (isEdit && canSetRequiredDate && trfData && form.requiredCompletionDate !== trfData.requiredCompletionDate) {
+      body.requiredCompletionDate = form.requiredCompletionDate || null;
+    }
 
     const res = isEdit
       ? await window.trf.request<TrfDetail>({
@@ -802,7 +809,6 @@ export function TrfForm() {
   if (!isEdit && !canEditA) return <div className="page"><p className="error-text">Only Formulation department users can create TRFs.</p></div>;
 
   // The lock is shown on every field the signed-in user may not change.
-  const isApproved = isEdit && trfData ? trfData.remarksStatus === 'Approved' : false;
   const partALock: FieldOwner | undefined = (canEditA && !isApproved) ? undefined : 'Formulation';
   // AGM/Admin lock for Reporting, COA, ARD Remarks Status, Final Status
   const ardApprovalLock: FieldOwner | undefined = canEditArdApproval ? undefined : 'ARD';
@@ -1140,11 +1146,6 @@ export function TrfForm() {
                 onChange={(e) => set('analysisPurpose', e.target.value)} />
             </Field>
 
-            <Field htmlFor="trf-due" label="Required Completion Date" lockOwner={partALock} error={fields.requiredCompletionDate}>
-              <input id="trf-due" type="date" disabled={!canEditA} value={form.requiredCompletionDate}
-                onChange={(e) => set('requiredCompletionDate', e.target.value)} />
-            </Field>
-
             <Field htmlFor="trf-qty" label="Sample Quantity" lockOwner={partALock}>
               <input id="trf-qty" disabled={!canEditA} value={form.sampleQuantity} placeholder="e.g. 2 kg"
                 onChange={(e) => set('sampleQuantity', e.target.value)} />
@@ -1253,6 +1254,16 @@ export function TrfForm() {
             <Field htmlFor="trf-analysis-start" label="Date of Analysis" lockOwner={ardAnalystLock} error={fields.analysisStartDate}>
               <input id="trf-analysis-start" type="date" disabled={!canEditArdAnalyst} value={form.analysisStartDate}
                 onChange={(e) => set('analysisStartDate', e.target.value)} />
+            </Field>
+
+            <Field htmlFor="trf-required-completion" label="Required Completion Date" lockOwner={canSetRequiredDate ? undefined : 'AGM'} error={fields.requiredCompletionDate}>
+              <input id="trf-required-completion" type="date" disabled={!canSetRequiredDate} value={form.requiredCompletionDate}
+                onChange={(e) => set('requiredCompletionDate', e.target.value)} />
+              {!canSetRequiredDate && (
+                <p className="field-hint">
+                  {isApproved ? 'Set by the AGM' : 'Opens once the Formulation team approves this TRF'}
+                </p>
+              )}
             </Field>
 
             <Field htmlFor="trf-coa" label="COA" lockOwner={ardApprovalLock}>

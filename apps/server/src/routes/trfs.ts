@@ -10,6 +10,7 @@ import {
    ArdWorkflowStatus, ArdRemarksStatus, ARD_REMARKS_STATUSES,
    FINAL_APPROVAL_STATUSES,
    isAdminDesignation,
+   canSetRequiredCompletionDate,
 } from '@trf/shared';
 import { PoolClient } from 'pg';
 import { pool, withTransaction } from '../db.js';
@@ -23,6 +24,7 @@ import {
   TrfRow, toDetail, toListItem, trfListQuerySchema, toFilters,
 } from '../lib/trf-query.js';
 import { authenticate, currentEmployee, requirePermission, requireTrfCreate, requireTrfEdit, requireArdEdit, requireTrfDelete, requireRole, requireAdminApproval, requireAnyApprover, requireLockAdmin, validateBody } from '../middleware/auth.js';
+import { scopeFor, trfScopeClause, type TrfScope } from '../lib/trf-scope.js';
 import { config, DOCUMENT_DIR } from '../config.js';
 import { readPdfBody } from '../lib/read-pdf-body.js';
 
@@ -136,15 +138,9 @@ async function assertTrfNotLocked(client: PoolClient, trfId: number) {
   return row;
 }
 
-interface Scope { employeeId: number; includeApproved?: boolean }
-
 /** Roles without trf.viewAll only ever see their own TRFs, applied inside the query.
- *  ARD team members additionally see TRFs that Formulation has approved and locked_at
- *  is still NULL — i.e. waiting for ARD action — so they can pick up new work. */
-function scopeFor(employee: EmployeeProfile): Scope | null {
-  if (roleHasPermission(employee.role, 'trf.viewAll')) return null;
-  return { employeeId: employee.id, includeApproved: canEditTrfPartB(employee) };
-}
+ *  The rule itself lives in lib/trf-scope.ts so the dashboard uses exactly the
+ *  same scope (including the ARD approved-remarks rule). */
 
 /**
  * Part A fields an ordinary edit may touch. The Formulation team owns all of
@@ -178,6 +174,13 @@ const EDITABLE_ARD_ANALYST = [
 const EDITABLE_ARD_APPROVAL = [
   'reportingStatus', 'coaStatus', 'ardRemarksStatus', 'workflowStatus',
 ] as const;
+
+/**
+ * Required Completion Date - only AGM may edit via PATCH.
+ * This is separate from EDITABLE_ARD_APPROVAL because the Admin bypass
+ * for the ARD gate must NOT apply here.
+ */
+const EDITABLE_AGM_REQUIRED_DATE = ['requiredCompletionDate'] as const;
 
 const COLUMN: Record<string, string> = {
   trfDate: 'trf_date',
@@ -233,22 +236,15 @@ const normalise = (value: unknown): unknown => {
   return value ?? null;
 };
 
-function buildWhere(filters: ReturnType<typeof toFilters>, params: unknown[], scope: Scope | null): string {
+function buildWhere(filters: ReturnType<typeof toFilters>, params: unknown[], scope: TrfScope | null): string {
   const clauses: string[] = [];
 
   // Soft-deleted rows are invisible.
   clauses.push('t.deleted_at IS NULL');
 
   // Applied in SQL, so a restricted user never receives rows they must not see.
-  if (scope) {
-    params.push(scope.employeeId);
-    const own = `(t.assigned_employee_id = $${params.length} OR t.created_by = $${params.length})`;
-    if (scope.includeApproved) {
-      clauses.push(`(${own} OR (t.remarks_status = 'Approved' AND t.locked_at IS NULL))`);
-    } else {
-      clauses.push(own);
-    }
-  }
+  const scopeSql = trfScopeClause(scope, params);
+  if (scopeSql) clauses.push(scopeSql);
 
   if (filters.search) {
     // One parameter, nine comparisons: PostgreSQL can reuse the one plan.
@@ -511,7 +507,7 @@ trfsRouter.post('/', requireTrfCreate(), validateBody(createSchema), async (req,
         }
       }
       
-      const inserted = await client.query<{ id: number }>(
+const inserted = await client.query<{ id: number }>(
          `INSERT INTO trfs (trf_number, trf_date, customer_id, product_id, batch_number, sample_quantity,
              sample_received_date, required_completion_date, priority, requested_analysis,
              special_instructions, department_id, remarks, batch_size, dosage_form,
@@ -519,18 +515,18 @@ trfsRouter.post('/', requireTrfCreate(), validateBody(createSchema), async (req,
              storage_period, manufacturing_date, expiry_date, analysis_purpose,
              sample_given_by, sample_submitted_by_id, signature_date, created_by, remarks_status, ard_remarks_status, locked_at, locked_by,
               generic_name, formulation_approval_status, ard_approval_status, test_requested_other, dosage_form_other)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-              $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, ${initialLockedAt}, ${initialLockedBy}, $31, $32, $33, $34, $35)
-            RETURNING id`,
-          [trfNumber, body.trfDate, body.customerId, body.productId,
-            body.batchNumber ?? null, body.sampleQuantity ?? null, body.sampleReceivedDate ?? null,
-            body.requiredCompletionDate ?? null, body.priority, body.requestedAnalysis ?? null,
-            body.specialInstructions ?? null, body.departmentId ?? user.departmentId ?? null,
-            body.remarks ?? null, body.batchSize ?? null, body.dosageForm ?? null,
-            body.manufacturingLocation ?? null, body.labelClaim ?? null, body.packSize ?? null,
-            body.packType ?? null, body.storageCondition ?? null, body.storagePeriod ?? null,
-            body.manufacturingDate ?? null, body.expiryDate ?? null, body.analysisPurpose ?? null,
-            body.sampleGivenBy ?? null, body.sampleSubmittedById ?? null, body.signatureDate ?? null, user.id,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+             $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, ${initialLockedAt}, ${initialLockedBy}, $31, $32, $33, $34, $35)
+           RETURNING id`,
+         [trfNumber, body.trfDate, body.customerId, body.productId,
+           body.batchNumber ?? null, body.sampleQuantity ?? null, body.sampleReceivedDate ?? null,
+           null, body.priority, body.requestedAnalysis ?? null,
+           body.specialInstructions ?? null, body.departmentId ?? user.departmentId ?? null,
+           body.remarks ?? null, body.batchSize ?? null, body.dosageForm ?? null,
+           body.manufacturingLocation ?? null, body.labelClaim ?? null, body.packSize ?? null,
+           body.packType ?? null, body.storageCondition ?? null, body.storagePeriod ?? null,
+           body.manufacturingDate ?? null, body.expiryDate ?? null, body.analysisPurpose ?? null,
+           body.sampleGivenBy ?? null, body.sampleSubmittedById ?? null, body.signatureDate ?? null, user.id,
             'Pending', body.ardRemarksStatus ?? 'Pending',
             genericName, body.formulationApprovalStatus ?? 'None', body.ardApprovalStatus ?? 'None', body.testRequestedOther ?? null, body.dosageFormOther ?? null],
        );
@@ -643,6 +639,21 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
         }
       }
 
+      // Required Completion Date: only AGM may set/change it.
+      // Check permission helper FIRST, then approval gate, then locked_at.
+      // Admin bypass does NOT apply - plain Admin, GM, COO, Manager get 403.
+      const requiredDateRequested = body.requiredCompletionDate !== undefined;
+      const requiredDateChanged = requiredDateRequested && body.requiredCompletionDate !== current.required_completion_date;
+      if (requiredDateChanged) {
+        if (!canSetRequiredCompletionDate(user)) {
+          throw forbidden('Only the AGM can set the Required Completion Date.');
+        }
+        if (!isApproved) {
+          throw new AppError(409, 'ARD_LOCKED', 'Required Completion Date can only be set after Formulation approves the TRF.');
+        }
+        // locked_at already checked above via assertNotLocked
+      }
+
       // Approving or rejecting is an administrator's decision. The team that made the request never makes it.
       if (body.remarksStatus !== undefined && body.remarksStatus !== current.remarks_status && user.role !== 'Admin') {
         throw forbidden('Only an administrator can approve or reject a TRF.');
@@ -658,6 +669,7 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
       const formFields = EDITABLE_FORMULATION.filter((key) => body[key] !== undefined);
       const ardAnalystFields = EDITABLE_ARD_ANALYST.filter((key) => body[key] !== undefined);
       const ardApprovalFields = EDITABLE_ARD_APPROVAL.filter((key) => body[key] !== undefined);
+      const agmRequiredDateFields = EDITABLE_AGM_REQUIRED_DATE.filter((key) => body[key] !== undefined);
 
       if (formFields.length && !canEditTrfPartA(user)) {
         throw forbidden('You do not have formulation department access to edit these fields.');
@@ -760,7 +772,7 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
         }
       }
 
-      const fields = [...formFields, ...ardAnalystFields, ...ardApprovalFields];
+      const fields = [...formFields, ...ardAnalystFields, ...ardApprovalFields, ...agmRequiredDateFields];
       if (!fields.length) throw badRequest('There is nothing to update.');
 
       // Handle testRequestedOptionIds separately - it updates the junction table
@@ -820,6 +832,41 @@ if (workflowChanged) {
       // Somebody else saved between the client reading the record and this save.
       if (result.rowCount === 0) throw versionConflict();
 
+      // Backfill assignment due dates when AGM sets/changes Required Completion Date.
+      // Update open assignments (not Completed/Cancelled) where due_date IS NULL
+      // OR due_date equals the previous TRF required_completion_date.
+      // Leave hand-set due dates (different from old TRF date) alone.
+      if (requiredDateChanged) {
+        const newDueDate = body.requiredCompletionDate ?? null;
+        const oldDueDate = current.required_completion_date;
+        const backfillResult = await client.query<{ id: number; due_date: string | null }>(
+          `UPDATE ard_test_assignments
+             SET due_date = $1, version = version + 1
+           WHERE trf_id = $2
+             AND status NOT IN ('Completed', 'Cancelled')
+             AND (due_date IS NULL OR due_date = $3)
+           RETURNING id, due_date`,
+          [newDueDate, id, oldDueDate]
+        );
+        if (backfillResult.rowCount && backfillResult.rowCount > 0) {
+          const changedAssignments = backfillResult.rows.map(r => ({
+            assignmentId: r.id,
+            oldDueDate: r.due_date,
+            newDueDate,
+          }));
+          await writeAudit(client, {
+            userId: user.id,
+            userName: user.fullName,
+            action: 'trf.required_date_backfill',
+            module: 'trf',
+            recordType: 'TRF',
+            recordRef: current.trf_number,
+            oldValue: { requiredCompletionDate: oldDueDate, changedAssignments: changedAssignments.map(a => ({ id: a.assignmentId, oldDueDate: a.oldDueDate })) },
+            newValue: { requiredCompletionDate: newDueDate, changedAssignments: changedAssignments.map(a => ({ id: a.assignmentId, newDueDate: a.newDueDate })) },
+          });
+        }
+      }
+
       // Update test requested options if provided
       if (hasTestRequestedOptionIds && testRequestedOptionIds !== null) {
         const optionIds = testRequestedOptionIds as number[];
@@ -862,7 +909,7 @@ if (workflowChanged) {
 
       // One audit row per changed field. The comparison is against the locked row,
       // so it records what really changed.
-      const auditFields = [...formFields, ...ardAnalystFields, ...ardApprovalFields];
+      const auditFields = [...formFields, ...ardAnalystFields, ...ardApprovalFields, ...agmRequiredDateFields];
       for (const key of auditFields) {
         const col = COLUMN[key];
         const oldRaw = (current as unknown as Record<string, unknown>)[col];

@@ -20,6 +20,7 @@ import { writeAudit } from '../lib/audit.js';
 import { createNotification, notifyEmployee } from '../lib/notifications.js';
 import { authenticate, currentEmployee, requirePermission, requireAssignmentsManage, validateBody } from '../middleware/auth.js';
 import { DOCUMENT_DIR } from '../config.js';
+import { testOverdueSql, TEST_OVERDUE_SQL } from '../lib/ard-workload-sql.js';
 import { readPdfBody } from '../lib/read-pdf-body.js';
 import { dateOnly, today as todayLocal } from '../lib/dates.js';
 
@@ -1286,15 +1287,6 @@ res.json({ items: result.rows.map(row => ({
     })) });
   } catch (err) { next(err); }
 });
-
-/**
- * Overdue test: the due date has passed and the assignment is not terminal.
- * Shared by the team list and the employee detail summary so the two always
- * agree. `todayParam` is the placeholder bound to today (todayLocal()).
- */
-const testOverdueSql = (todayParam: string) =>
-  `(ata.due_date IS NOT NULL AND ata.due_date < ${todayParam} AND ata.status <> 'Completed' AND ata.status <> 'Cancelled')`;
-const TEST_OVERDUE_SQL = testOverdueSql('$1');
 
 /**
  * GET /api/ard-assignments/team-workload - per-employee assignment counts for

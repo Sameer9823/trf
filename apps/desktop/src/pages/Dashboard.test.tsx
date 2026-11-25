@@ -38,23 +38,21 @@ function auth(overrides: Partial<AuthSessionState> = {}): AuthSessionState {
 function payload(overrides: Partial<DashboardPayload> = {}): DashboardPayload {
   return {
     scope: 'all',
+    showCoa: false,
     totals: {
-      trfTotal: 40, trfNew: 5, trfAssigned: 8, trfInProgress: 10, trfAnalysisCompleted: 4,
-      trfCoaPending: 3, trfCompleted: 25, trfCancelled: 1, trfOverdue: 6,
-      analysisOpenTests: 12, analysisDelayedTests: 4, coaAwaitingIssue: 3, coaIssued: 20,
+      trfTotal: 40, trfCompleted: 25, trfOverdue: 6,
+      analysisOpenTests: 12, analysisDelayedTests: 4, coaAwaitingIssue: 0, coaIssued: 0,
     },
     trfStatus: [
-      { status: 'New', count: 5 }, { status: 'Assigned', count: 8 }, { status: 'In Progress', count: 10 },
-      { status: 'Analysis Completed', count: 4 }, { status: 'COA Pending', count: 3 },
-      { status: 'Completed', count: 25 }, { status: 'Cancelled', count: 1 },
+      { status: 'Received', count: 5 }, { status: 'In Progress', count: 10 },
+      { status: 'Completed', count: 25 }, { status: 'Cancelled', count: 0 },
     ],
     analysisStatus: [
-      { status: 'Assigned', count: 6 }, { status: 'In Progress', count: 6 },
-      { status: 'Completed', count: 30 }, { status: 'Re-test Required', count: 2 },
+      { status: 'Pending Assignment', count: 2 }, { status: 'Assigned', count: 6 },
+      { status: 'In Progress', count: 6 }, { status: 'Completed', count: 30 },
+      { status: 'Re-test Required', count: 2 }, { status: 'Cancelled', count: 0 },
     ],
-    coaStatus: [
-      { status: 'Draft', count: 2 }, { status: 'Under Review', count: 1 }, { status: 'Issued', count: 20 },
-    ],
+    coaStatus: [],
     monthlyTrfs: [
       { month: '2026-01', label: 'Jan', count: 2 }, { month: '2026-02', label: 'Feb', count: 3 },
       { month: '2026-03', label: 'Mar', count: 1 }, { month: '2026-04', label: 'Apr', count: 4 },
@@ -64,8 +62,8 @@ function payload(overrides: Partial<DashboardPayload> = {}): DashboardPayload {
       { month: '2026-11', label: 'Nov', count: 3 }, { month: '2026-12', label: 'Dec', count: 5 },
     ],
     workload: [
-      { employeeId: 1, employeeName: 'Asha Rao', assigned: 5, inProgress: 3, passed: 10, failed: 1, delayed: 2 },
-      { employeeId: 2, employeeName: 'Ben Roy', assigned: 4, inProgress: 2, passed: 8, failed: 0, delayed: 1 },
+      { employeeId: 1, employeeName: 'Asha Rao', assigned: 5, inProgress: 3, submitted: 2, approved: 10, rejected: 1, passed: 10, failed: 1, delayed: 2 },
+      { employeeId: 2, employeeName: 'Ben Roy', assigned: 4, inProgress: 2, submitted: 1, approved: 8, rejected: 0, passed: 8, failed: 0, delayed: 1 },
     ],
     trfByEmployee: [
       { employeeId: 1, employeeName: 'Asha Rao', completed: 12, total: 20 },
@@ -98,12 +96,12 @@ test('shows the server-counted headline figures, scope and banner', async () => 
   mount(payload());
   // Banner greeting uses the first name and names the role.
   expect(await screen.findByText(/Good (morning|afternoon|evening), Ketan/)).toBeTruthy();
-  expect(screen.getByText(/Every TRF, test and certificate in the system\./)).toBeTruthy();
+  expect(screen.getByText(/Every TRF and test in the system\./)).toBeTruthy();
   expect(screen.getByText('TRFs in scope')).toBeTruthy();
   // The completion ring is trfCompleted / trfTotal = 25/40 = 63%.
   expect(screen.getByText('63%')).toBeTruthy();
-  // KPI labels are present.
-  expect(screen.getByText('Certificates to issue')).toBeTruthy();
+  // COA is not in use, so the Certificates card is hidden.
+  expect(screen.queryByText('Certificates to issue')).toBeNull();
   expect(screen.getAllByText('Overdue').length).toBeGreaterThan(0);
 });
 
@@ -113,15 +111,15 @@ test('every card links to the filtered list behind it', async () => {
   expect(screen.getByTitle('Show the trfs list').getAttribute('href')).toBe('/trf');
   // Both the Completed KPI and the Completed pipeline stage point at the same filtered list.
   expect(screen.getAllByTitle('Show the completed list')
-    .some((a) => a.getAttribute('href') === '/trf?status=Completed')).toBe(true);
+    .some((a) => a.getAttribute('href') === '/trf?workflowStatus=Completed')).toBe(true);
   // Attention deep-links with the same filter the list reads.
   expect(screen.getByRole('link', { name: /Overdue TRFs/ }).getAttribute('href')).toBe('/trf?overdueOnly=true');
 });
 
-test('the pipeline shows every TRF stage with counts', async () => {
+test('the pipeline shows every ARD Final Status stage with counts', async () => {
   mount(payload());
   await screen.findByText('TRFs in scope');
-  for (const label of ['New', 'Assigned', 'In Progress', 'Analysis Completed', 'COA Pending', 'Completed']) {
+  for (const label of ['Received', 'In Progress', 'Completed', 'Cancelled']) {
     expect(screen.getAllByText(label).length).toBeGreaterThan(0);
   }
 });
@@ -130,8 +128,14 @@ test('status charts expose a keyboard/AT-friendly legend that opens the list', a
   mount(payload());
   await screen.findByText('TRFs in scope');
   // The chart is aria-hidden; the legend button carries the number and the link.
-  expect(screen.getByRole('button', { name: 'New: 5. Show the list.' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Received: 5. Show the list.' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Completed: 25. Show the list.' })).toBeTruthy();
+});
+
+test('the Certificates card and panel appear only when SHOW_COA is on', async () => {
+  mount(payload({ showCoa: true, totals: { ...payload().totals, coaAwaitingIssue: 3 }, coaStatus: [{ status: 'Draft', count: 3 }] }));
+  expect(await screen.findByText('Certificates to issue')).toBeTruthy();
+  expect(screen.getByText('Certificate status')).toBeTruthy();
 });
 
 test('completed-by-employee is ranked with progress bars', async () => {
@@ -144,7 +148,7 @@ test('completed-by-employee is ranked with progress bars', async () => {
 
 test('the own-scope wording is used for a personal dashboard', async () => {
   mount(payload({ scope: 'own' }));
-  expect(await screen.findByText(/Your team's TRFs, tests and certificates\./)).toBeTruthy();
+  expect(await screen.findByText(/Your team's TRFs and tests\./)).toBeTruthy();
   expect(screen.getByText('Your analyst results')).toBeTruthy();
   expect(screen.getByText('Your TRFs completed')).toBeTruthy();
 });

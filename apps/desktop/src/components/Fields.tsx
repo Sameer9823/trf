@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
 
-export type FieldOwner = 'Formulation' | 'ARD' | 'System';
+export type FieldOwner = 'Formulation' | 'ARD' | 'System' | 'AGM';
 
 const OWNER_HINT: Record<FieldOwner, string> = {
   Formulation: 'Owned by the Formulation team.',
   ARD: 'Owned by the ARD team.',
   System: 'Set automatically by the system.',
+  AGM: 'Set by the AGM.',
 };
 
 /**

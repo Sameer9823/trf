@@ -106,9 +106,12 @@ export const TRF_SORT_SQL: Record<string, string> = {
   stage: 't.ard_stage',
 };
 
-/** Overdue is always this expression: due date passed and status not terminal. Never stored. */
+/** Overdue is always this expression: due date passed and the ARD Final Status
+ *  is not terminal. Never stored. The ARD workflow (workflow_status) is the
+ *  source of truth, so a TRF is overdue until its Final Status is Completed or
+ *  Cancelled, regardless of the legacy status column. */
 export const OVERDUE_SQL = `(t.required_completion_date IS NOT NULL AND t.required_completion_date < CURRENT_DATE
-  AND t.status NOT IN ('Completed', 'Cancelled'))`;
+  AND t.workflow_status NOT IN ('Completed', 'Cancelled'))`;
 
 /**
  * TAT for the ARD workflow: calendar days from the Date of Analysis to the day

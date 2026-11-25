@@ -1,62 +1,35 @@
 import { Router } from 'express';
 import type {
-  AnalysisStatus, AnalystResultRow, CoaStatus, DashboardPayload, EmployeeProfile, StatusSlice, TrfEmployeeRow, TrfStatus,
+  AnalystResultRow, ArdTestAssignmentStatus, DashboardPayload, EmployeeProfile, StatusSlice, TrfEmployeeRow,
 } from '@trf/shared';
-import { ANALYSIS_STATUSES, COA_STATUSES, TRF_STATUSES, roleHasPermission } from '@trf/shared';
+import { ARD_TEST_ASSIGNMENT_STATUSES, ArdWorkflowStatus, COA_STATUSES, roleHasPermission } from '@trf/shared';
 import { pool } from '../db.js';
-import { OUTCOME_SQL } from '../lib/analysis-query.js';
+import { today as todayLocal } from '../lib/dates.js';
+import { OVERDUE_SQL } from '../lib/trf-query.js';
+import { scopeFor, trfScopeClause } from '../lib/trf-scope.js';
+import { ARD_IN_PROGRESS_SQL, ARD_OPEN_SQL, TEST_OVERDUE_SQL } from '../lib/ard-workload-sql.js';
 import { authenticate, currentEmployee, requirePermission } from '../middleware/auth.js';
 
 export const dashboardRouter = Router();
 dashboardRouter.use(authenticate);
 
 /**
- * Everything a dashboard shows is counted here, in SQL, over the same scope the
- * matching list uses. A role that cannot see a record must not be able to count
- * it either, so the scope is applied to every query rather than to the result.
+ * COA is not in use yet. The certificate code stays, but the dashboard hides the
+ * Certificates card, the Certificate status panel and the COA Pending stage
+ * behind this one constant.
+ */
+const SHOW_COA = false;
+
+/**
+ * Everything a dashboard shows is counted here, in SQL. TRF figures use exactly
+ * the TRF list's scope (created/assigned, plus the ARD approved-remarks rule);
+ * test and analyst figures use the ARD assignment scope (analyst_id = me). A
+ * role that cannot see a record must not be able to count it either.
  */
 interface Scope { employeeId: number }
 
-function scopeFor(employee: EmployeeProfile): Scope | null {
+function scopeForDashboard(employee: EmployeeProfile): Scope | null {
   return roleHasPermission(employee.role, 'trf.viewAll') ? null : { employeeId: employee.id };
-}
-
-/** Same overdue expression the TRF list uses, so a card and a list always agree. */
-const TRF_OVERDUE = `(t.required_completion_date IS NOT NULL AND t.required_completion_date < CURRENT_DATE
-  AND t.status NOT IN ('Completed', 'Cancelled'))`;
-
-/** Delayed is computed the same way as in the analysis list. */
-const TEST_DELAYED = `(a.due_date IS NOT NULL AND a.due_date < CURRENT_DATE
-  AND a.status NOT IN ('Completed', 'Cancelled'))`;
-
-const TEST_OPEN = `(a.status NOT IN ('Completed', 'Cancelled'))`;
-
-/**
- * Each helper returns the WHERE fragment together with the values it needs.
- * Returning them as a pair is deliberate: a fragment whose `$1` is never bound
- * fails at run time, not at compile time.
- */
-type Fragment = { sql: string; params: unknown[] };
-
-function whereTrf(scope: Scope | null): Fragment {
-  // Deleted TRFs are hidden from the TRF list, so the dashboard must not count
-  // them either: the headline number and the list always agree.
-  if (!scope) return { sql: 'WHERE t.deleted_at IS NULL', params: [] };
-  return { sql: 'WHERE t.deleted_at IS NULL AND (t.assigned_employee_id = $1 OR t.created_by = $1)', params: [scope.employeeId] };
-}
-
-function whereTest(scope: Scope | null): Fragment {
-  if (!scope) return { sql: '', params: [] };
-  return { sql: 'WHERE a.assigned_employee_id = $1', params: [scope.employeeId] };
-}
-
-function whereCoa(scope: Scope | null): Fragment {
-  if (!scope) return { sql: '', params: [] };
-  // A certificate is "mine" only if this person drafted or approved it.
-  return {
-    sql: 'WHERE (c.prepared_by = $1 OR c.approved_by = $1)',
-    params: [scope.employeeId],
-  };
 }
 
 /** Zero-filled so the client never has to fill gaps, and every status is present once. */
@@ -71,38 +44,60 @@ function fillSlices<T extends string>(
 dashboardRouter.get('/', requirePermission('dashboard.view'), async (req, res, next) => {
   const employee = currentEmployee(req);
   try {
-    const scope = scopeFor(employee);
-    const trfScope = whereTrf(scope);
-    const testScope = whereTest(scope);
-    const coaScope = whereCoa(scope);
+    const scope = scopeForDashboard(employee);
+    const trfScope = scopeFor(employee);
+
+    // TRF figures: identical scope to the TRF list (buildWhere in routes/trfs.ts).
+    const trfParams: unknown[] = [];
+    const trfScopeSql = trfScopeClause(trfScope, trfParams);
+    const trfWhere = `WHERE t.deleted_at IS NULL${trfScopeSql ? ` AND ${trfScopeSql}` : ''}`;
 
     const totalsResult = await pool.query<Record<string, string>>(
       `SELECT
          count(*)::text AS trf_total,
-         count(*) FILTER (WHERE t.status = 'New')::text AS trf_new,
-         count(*) FILTER (WHERE t.status = 'Assigned')::text AS trf_assigned,
-         count(*) FILTER (WHERE t.status = 'In Progress')::text AS trf_in_progress,
-         count(*) FILTER (WHERE t.status = 'Analysis Completed')::text AS trf_analysis_completed,
-         count(*) FILTER (WHERE t.status = 'COA Pending')::text AS trf_coa_pending,
-         count(*) FILTER (WHERE t.status = 'Completed')::text AS trf_completed,
-         count(*) FILTER (WHERE t.status = 'Cancelled')::text AS trf_cancelled,
-         count(*) FILTER (WHERE ${TRF_OVERDUE})::text AS trf_overdue
-       FROM trfs t ${trfScope.sql}`, trfScope.params);
+         count(*) FILTER (WHERE t.workflow_status = 'Completed')::text AS trf_completed,
+         count(*) FILTER (WHERE ${OVERDUE_SQL})::text AS trf_overdue
+       FROM trfs t ${trfWhere}`, trfParams);
+
+    // ARD test figures: analyst scope only (never a colleague's tests).
+    const testParams: unknown[] = [todayLocal()];
+    const testScope = scope ? (testParams.push(scope.employeeId), `WHERE ataa.analyst_id = $${testParams.length}`) : '';
+    const testFrom = `
+      FROM ard_test_assignment_analysts ataa
+      JOIN ard_test_assignments ata ON ata.id = ataa.assignment_id
+      LEFT JOIN ard_assignment_results r ON r.assignment_id = ata.id`;
 
     const testResult = await pool.query<Record<string, string>>(
       `SELECT
-         count(*) FILTER (WHERE ${TEST_OPEN})::text AS open_tests,
-         count(*) FILTER (WHERE ${TEST_DELAYED})::text AS delayed_tests
-       FROM analysis_tests a ${testScope.sql}`, testScope.params);
+         count(*) FILTER (WHERE ${ARD_OPEN_SQL})::text AS open_tests,
+         count(*) FILTER (WHERE ${TEST_OVERDUE_SQL})::text AS delayed_tests
+       ${testFrom} ${testScope}`, testParams);
 
-    const coaResult = await pool.query<Record<string, string>>(
-      `SELECT
-         count(*) FILTER (WHERE c.status IN ('Draft', 'Under Review', 'Approved'))::text AS awaiting_issue,
-         count(*) FILTER (WHERE c.status = 'Issued')::text AS issued
-       FROM coas c ${coaScope.sql}`, coaScope.params);
+    // Certificate figures are zero while SHOW_COA is false; the code path stays.
+    let coaAwaitingIssue = 0;
+    let coaIssued = 0;
+    let coaSlices: StatusSlice<(typeof COA_STATUSES)[number]>[] = [];
+    if (SHOW_COA) {
+      const coaParams: unknown[] = [];
+      const coaScope = scope
+        ? (coaParams.push(scope.employeeId), `WHERE (c.prepared_by = $${coaParams.length} OR c.approved_by = $${coaParams.length})`)
+        : '';
+      const coaResult = await pool.query<Record<string, string>>(
+        `SELECT
+           count(*) FILTER (WHERE c.status IN ('Draft', 'Under Review', 'Approved'))::text AS awaiting_issue,
+           count(*) FILTER (WHERE c.status = 'Issued')::text AS issued
+         FROM coas c ${coaScope}`, coaParams);
+      coaAwaitingIssue = Number(coaResult.rows[0].awaiting_issue);
+      coaIssued = Number(coaResult.rows[0].issued);
+      const coaRows = await pool.query<{ status: (typeof COA_STATUSES)[number]; count: string }>(
+        `SELECT c.status, count(*)::text AS count FROM coas c ${coaScope} GROUP BY c.status`, coaParams);
+      coaSlices = fillSlices(coaRows.rows, COA_STATUSES);
+    }
 
     // generate_series gives exactly twelve months including the ones with no work.
     // The scope sits in the JOIN, not the WHERE, so an empty month still appears.
+    const monthParams: unknown[] = [];
+    const monthScopeSql = trfScopeClause(trfScope, monthParams);
     const monthlyResult = await pool.query<{ month: string; count: string }>(
       `SELECT to_char(m.month, 'YYYY-MM') AS month, count(t.id)::text AS count
        FROM generate_series(
@@ -110,74 +105,72 @@ dashboardRouter.get('/', requirePermission('dashboard.view'), async (req, res, n
          date_trunc('month', CURRENT_DATE),
          INTERVAL '1 month') AS m(month)
        LEFT JOIN trfs t ON date_trunc('month', t.trf_date) = m.month
-         ${scope ? 'AND (t.assigned_employee_id = $1 OR t.created_by = $1)' : ''}
-       GROUP BY m.month ORDER BY m.month ASC`, scope ? [scope.employeeId] : []);
+         AND t.deleted_at IS NULL${monthScopeSql ? ` AND ${monthScopeSql}` : ''}
+       GROUP BY m.month ORDER BY m.month ASC`, monthParams);
 
-    const trfSlices = await pool.query<{ status: TrfStatus; count: string }>(
-      `SELECT t.status, count(*)::text AS count FROM trfs t
-       ${trfScope.sql} GROUP BY t.status`, trfScope.params);
+    const trfSlices = await pool.query<{ status: ArdWorkflowStatus; count: string }>(
+      `SELECT t.workflow_status AS status, count(*)::text AS count FROM trfs t
+       ${trfWhere} GROUP BY t.workflow_status`, trfParams);
 
-    const analysisSlices = await pool.query<{ status: AnalysisStatus; count: string }>(
-      `SELECT a.status, count(*)::text AS count FROM analysis_tests a
-       ${testScope.sql} GROUP BY a.status`, testScope.params);
+    // The status mix needs only the analyst scope, not today.
+    const mixParams: unknown[] = [];
+    const mixScope = scope ? (mixParams.push(scope.employeeId), `WHERE ataa.analyst_id = $${mixParams.length}`) : '';
+    const analysisSlices = await pool.query<{ status: ArdTestAssignmentStatus; count: string }>(
+      `SELECT ata.status AS status, count(*)::text AS count
+       ${testFrom} ${mixScope} GROUP BY ata.status`, mixParams);
 
-    const coaSlices = await pool.query<{ status: CoaStatus; count: string }>(
-      `SELECT c.status, count(*)::text AS count FROM coas c
-       ${coaScope.sql} GROUP BY c.status`, coaScope.params);
-
-    // Workload is per analyst. A scoped viewer sees only their own row rather
-    // than the whole laboratory, which would otherwise leak what colleagues do.
+    // Workload is per analyst from the ARD tables. A scoped viewer sees only
+    // their own row rather than the whole laboratory.
     const workload = await pool.query<AnalystResultRow>(
       `SELECT e.id AS "employeeId", e.full_name AS "employeeName",
-         count(*) FILTER (WHERE a.status = 'Assigned')::int AS assigned,
-         count(*) FILTER (WHERE a.status = 'In Progress')::int AS "inProgress",
-         count(*) FILTER (WHERE a.status = 'Completed' AND (${OUTCOME_SQL}) = 'Pass')::int AS passed,
-         count(*) FILTER (WHERE a.status = 'Completed' AND (${OUTCOME_SQL}) = 'Fail')::int AS failed,
-         count(*) FILTER (WHERE ${TEST_DELAYED})::int AS delayed
-       FROM analysis_tests a
-       JOIN employees e ON e.id = a.assigned_employee_id
-       LEFT JOIN analysis_results r ON r.analysis_test_id = a.id
-       ${testScope.sql}
+         count(*) FILTER (WHERE ata.status = 'Assigned')::int AS assigned,
+         count(*) FILTER (WHERE ${ARD_IN_PROGRESS_SQL})::int AS "inProgress",
+         count(*) FILTER (WHERE r.review_status = 'Submitted')::int AS submitted,
+         count(*) FILTER (WHERE r.review_status = 'Approved')::int AS approved,
+         count(*) FILTER (WHERE r.review_status = 'Rejected')::int AS rejected,
+         count(*) FILTER (WHERE r.review_status = 'Approved' AND r.outcome = 'Pass')::int AS passed,
+         count(*) FILTER (WHERE r.review_status = 'Approved' AND r.outcome = 'Fail')::int AS failed,
+         count(*) FILTER (WHERE ${TEST_OVERDUE_SQL})::int AS delayed
+       FROM ard_test_assignment_analysts ataa
+       JOIN employees e ON e.id = ataa.analyst_id
+       JOIN ard_test_assignments ata ON ata.id = ataa.assignment_id
+       LEFT JOIN ard_assignment_results r ON r.assignment_id = ata.id
+       ${testScope}
        GROUP BY e.id, e.full_name
-       ORDER BY count(*) FILTER (WHERE ${TEST_OPEN}) DESC, e.full_name ASC`, testScope.params);
+       ORDER BY count(*) FILTER (WHERE ${ARD_OPEN_SQL}) DESC, e.full_name ASC`, testParams);
 
-    // Per-employee TRF completion. A scoped viewer sees only their own row, and
-    // only TRFs assigned to them (not merely created by them), so a colleague's
-    // counts never leak.
+    // Per-analyst TRF completion: distinct TRFs the analyst works on, and how
+    // many of those reached Completed (ARD Final Status).
     const trfByEmployee = await pool.query<TrfEmployeeRow>(
       `SELECT e.id AS "employeeId", e.full_name AS "employeeName",
-         count(*) FILTER (WHERE t.status = 'Completed')::int AS completed,
-         count(*)::int AS total
-       FROM trfs t
-       JOIN employees e ON e.id = t.assigned_employee_id
-       WHERE t.deleted_at IS NULL${scope ? ' AND t.assigned_employee_id = $1' : ''}
+         count(DISTINCT ata.trf_id) FILTER (WHERE t.workflow_status = 'Completed')::int AS completed,
+         count(DISTINCT ata.trf_id)::int AS total
+       FROM ard_test_assignment_analysts ataa
+       JOIN employees e ON e.id = ataa.analyst_id
+       JOIN ard_test_assignments ata ON ata.id = ataa.assignment_id
+       JOIN trfs t ON t.id = ata.trf_id
+       WHERE ata.status <> 'Cancelled' AND t.deleted_at IS NULL${scope ? ` AND ataa.analyst_id = $${1}` : ''}
        GROUP BY e.id, e.full_name
        ORDER BY completed DESC, e.full_name ASC`, scope ? [scope.employeeId] : []);
 
     const trf = totalsResult.rows[0];
     const tests = testResult.rows[0];
-    const coas = coaResult.rows[0];
 
     const payload: DashboardPayload = {
       scope: scope ? 'own' : 'all',
       totals: {
         trfTotal: Number(trf.trf_total),
-        trfNew: Number(trf.trf_new),
-        trfAssigned: Number(trf.trf_assigned),
-        trfInProgress: Number(trf.trf_in_progress),
-        trfAnalysisCompleted: Number(trf.trf_analysis_completed),
-        trfCoaPending: Number(trf.trf_coa_pending),
         trfCompleted: Number(trf.trf_completed),
-        trfCancelled: Number(trf.trf_cancelled),
         trfOverdue: Number(trf.trf_overdue),
         analysisOpenTests: Number(tests.open_tests),
         analysisDelayedTests: Number(tests.delayed_tests),
-        coaAwaitingIssue: Number(coas.awaiting_issue),
-        coaIssued: Number(coas.issued),
+        coaAwaitingIssue,
+        coaIssued,
       },
-      trfStatus: fillSlices(trfSlices.rows, TRF_STATUSES),
-      analysisStatus: fillSlices(analysisSlices.rows, ANALYSIS_STATUSES),
-      coaStatus: fillSlices(coaSlices.rows, COA_STATUSES),
+      trfStatus: fillSlices(trfSlices.rows, ArdWorkflowStatus),
+      analysisStatus: fillSlices(analysisSlices.rows, ARD_TEST_ASSIGNMENT_STATUSES),
+      coaStatus: coaSlices,
+      showCoa: SHOW_COA,
       monthlyTrfs: monthlyResult.rows.map((r) => ({
         month: r.month,
         label: monthLabel(r.month),
@@ -200,4 +193,3 @@ function monthLabel(month: string): string {
   const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return `${names[Number(m) - 1] ?? m} ${year}`;
 }
-

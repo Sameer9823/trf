@@ -19,7 +19,7 @@ import { Icons } from '../components/Icons';
  */
 export function Dashboard() {
   const { state, health, serverUrl, lastChecked } = useServerStatus();
-  const { employee, can } = useAuth();
+  const { employee, can, canAccessModule } = useAuth();
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,13 +88,13 @@ export function Dashboard() {
   const firstName = employee?.fullName.split(' ')[0] ?? 'there';
   const greeting = greetingFor(new Date());
   const scopeText = data.scope === 'own'
-    ? "Your team's TRFs, tests and certificates."
-    : 'Every TRF, test and certificate in the system.';
+    ? (data.showCoa ? "Your team's TRFs, tests and certificates." : "Your team's TRFs and tests.")
+    : (data.showCoa ? 'Every TRF, test and certificate in the system.' : 'Every TRF and test in the system.');
   const statusKind = state === 'connected' ? 'connected' : 'checking';
 
   const heroes: HeroKpi[] = [
     { label: 'TRFs', value: t.trfTotal, tone: 'info', to: '#/trf', hint: 'All requests' },
-    { label: 'Completed', value: t.trfCompleted, tone: 'ok', to: cardLink('trf', { status: 'Completed' }), hint: 'Closed out', ringPct: completionPct },
+    { label: 'Completed', value: t.trfCompleted, tone: 'ok', to: cardLink('trf', { workflowStatus: 'Completed' }), hint: 'Closed out', ringPct: completionPct },
     {
       label: 'Overdue',
       value: t.trfOverdue,
@@ -102,22 +102,19 @@ export function Dashboard() {
       to: cardLink('trf', { overdueOnly: 'true' }),
       hint: t.trfOverdue > 0 ? 'Past due date' : 'Nothing overdue',
     },
-    {
-      label: 'Certificates to issue',
-      value: t.coaAwaitingIssue,
-      tone: t.coaAwaitingIssue > 0 ? 'warn' : 'neutral',
-      to: cardLink('coa', { status: 'Draft,Under Review,Approved' }),
-      hint: 'Awaiting issue',
-    },
+    ...(data.showCoa
+      ? [{ label: 'Certificates to issue', value: t.coaAwaitingIssue, tone: (t.coaAwaitingIssue > 0 ? 'warn' : 'neutral') as Tone, to: cardLink('coa', { status: 'Draft,Under Review,Approved' }), hint: 'Awaiting issue' }]
+      : []),
   ];
 
+  // The pipeline is the ARD Final Status (workflow_status), the same stages the
+  // TRF list filters on, so every stage card opens the list with the same rows.
+  const wfCount = (s: string) => data.trfStatus.find((x) => x.status === s)?.count ?? 0;
   const pipeline: StageCard[] = [
-    { label: 'New', value: t.trfNew, tone: 'neutral', to: cardLink('trf', { status: 'New' }) },
-    { label: 'Assigned', value: t.trfAssigned, tone: 'info', to: cardLink('trf', { status: 'Assigned' }) },
-    { label: 'In Progress', value: t.trfInProgress, tone: 'info', to: cardLink('trf', { status: 'In Progress' }) },
-    { label: 'Analysis Completed', value: t.trfAnalysisCompleted, tone: 'neutral', to: cardLink('trf', { status: 'Analysis Completed' }) },
-    { label: 'COA Pending', value: t.trfCoaPending, tone: t.trfCoaPending > 0 ? 'warn' : 'neutral', to: cardLink('trf', { status: 'COA Pending' }) },
-    { label: 'Completed', value: t.trfCompleted, tone: 'ok', to: cardLink('trf', { status: 'Completed' }) },
+    { label: 'Received', value: wfCount('Received'), tone: 'neutral', to: cardLink('trf', { workflowStatus: 'Received' }) },
+    { label: 'In Progress', value: wfCount('In Progress'), tone: 'info', to: cardLink('trf', { workflowStatus: 'In Progress' }) },
+    { label: 'Completed', value: t.trfCompleted, tone: 'ok', to: cardLink('trf', { workflowStatus: 'Completed' }) },
+    { label: 'Cancelled', value: wfCount('Cancelled'), tone: 'neutral', to: cardLink('trf', { workflowStatus: 'Cancelled' }) },
   ];
 
   const attention: AttentionItem[] = [
@@ -125,9 +122,9 @@ export function Dashboard() {
       ? [{ label: 'Overdue TRFs', count: t.trfOverdue, tone: 'danger' as const, to: cardLink('trf', { overdueOnly: 'true' }), icon: Icons.trf }]
       : []),
     ...(t.analysisDelayedTests > 0
-      ? [{ label: 'Delayed tests', count: t.analysisDelayedTests, tone: 'warn' as const, to: cardLink('analysis', { delayedOnly: 'true' }), icon: Icons.ard }]
+      ? [{ label: 'Delayed tests', count: t.analysisDelayedTests, tone: 'warn' as const, to: canAccessModule('ard') ? '#/ard' : '', icon: Icons.ard }]
       : []),
-    ...(t.coaAwaitingIssue > 0
+    ...(data.showCoa && t.coaAwaitingIssue > 0
       ? [{ label: 'Certificates awaiting issue', count: t.coaAwaitingIssue, tone: 'warn' as const, to: cardLink('coa', { status: 'Draft,Under Review,Approved' }), icon: Icons.approvals }]
       : []),
   ];
@@ -190,18 +187,29 @@ export function Dashboard() {
           <section className="attention" aria-label="Needs attention">
             <span className="attention__title">Needs attention</span>
             <div className="attention__items">
-              {attention.map((item) => (
-                <Link
-                  key={item.label}
-                  className={`attention__item attention__item--${item.tone}`}
-                  to={item.to.replace('#', '')}
-                  title={`Show all ${item.label.toLowerCase()}`}
-                >
-                  <span aria-hidden="true">{item.icon}</span>
-                  <strong>{item.count.toLocaleString()}</strong>
-                  <span>{item.label}</span>
-                </Link>
-              ))}
+              {attention.map((item) => {
+                const inner = (
+                  <>
+                    <span aria-hidden="true">{item.icon}</span>
+                    <strong>{item.count.toLocaleString()}</strong>
+                    <span>{item.label}</span>
+                  </>
+                );
+                return item.to ? (
+                  <Link
+                    key={item.label}
+                    className={`attention__item attention__item--${item.tone}`}
+                    to={item.to.replace('#', '')}
+                    title={`Show all ${item.label.toLowerCase()}`}
+                  >
+                    {inner}
+                  </Link>
+                ) : (
+                  <span key={item.label} className={`attention__item attention__item--${item.tone}`}>
+                    {inner}
+                  </span>
+                );
+              })}
             </div>
           </section>
         )}
@@ -236,15 +244,15 @@ export function Dashboard() {
 
           <Panel title="TRF status">
             <StatusBars data={data.trfStatus} palette={TRF_PALETTE} animate={chartAnim}
-              linkFor={(s) => cardLink('trf', { status: s })} />
+              linkFor={(s) => cardLink('trf', { workflowStatus: s })} />
           </Panel>
 
           <Panel title="Analysis status">
             <StatusBars data={data.analysisStatus} palette={ANALYSIS_PALETTE} animate={chartAnim}
-              linkFor={(s) => cardLink('analysis', { status: s })} />
+              linkFor={canAccessModule('ard') ? () => '#/ard' : undefined} />
           </Panel>
 
-          {can('coa.view') && (
+          {data.showCoa && can('coa.view') && (
             <Panel title="Certificate status">
               <StatusBars data={data.coaStatus} palette={COA_PALETTE} animate={chartAnim}
                 linkFor={(s) => cardLink('coa', { status: s })} />
@@ -340,11 +348,10 @@ const CHART = {
 } as const;
 
 const TRF_PALETTE: Record<string, string> = {
-  New: CHART.primarySoft, Assigned: CHART.blue, 'In Progress': CHART.primary,
-  'Analysis Completed': CHART.clay, 'COA Pending': CHART.amber, Completed: CHART.green, Cancelled: CHART.mist,
+  Received: CHART.primarySoft, 'In Progress': CHART.primary, Completed: CHART.green, Cancelled: CHART.mist,
 };
 const ANALYSIS_PALETTE: Record<string, string> = {
-  Pending: CHART.primarySoft, Assigned: CHART.blue, 'In Progress': CHART.primary,
+  'Pending Assignment': CHART.primarySoft, Assigned: CHART.blue, 'In Progress': CHART.primary,
   Completed: CHART.green, 'Re-test Required': CHART.amber, Cancelled: CHART.mist,
 };
 const COA_PALETTE: Record<string, string> = {
@@ -414,7 +421,7 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 function StatusBars<T extends string>({ data, palette, linkFor, animate }: {
   data: StatusSlice<T>[];
   palette: Record<string, string>;
-  linkFor: (status: T) => string;
+  linkFor?: (status: T) => string;
   animate: boolean;
 }) {
   const navigate = useNavigate();
@@ -438,16 +445,24 @@ function StatusBars<T extends string>({ data, palette, linkFor, animate }: {
       <ul className="breakdown__legend">
         {rows.map((row) => (
           <li key={row.status}>
-            <button
-              type="button"
-              className="breakdown__key"
-              onClick={() => navigate(linkFor(row.status))}
-              aria-label={`${row.status}: ${row.count}. Show the list.`}
-            >
-              <span className="breakdown__dot" style={{ background: palette[row.status] ?? CHART.primarySoft }} aria-hidden="true" />
-              <span className="breakdown__label">{row.status}</span>
-              <span className="breakdown__count">{row.count}</span>
-            </button>
+            {linkFor ? (
+              <button
+                type="button"
+                className="breakdown__key"
+                onClick={() => navigate(linkFor(row.status))}
+                aria-label={`${row.status}: ${row.count}. Show the list.`}
+              >
+                <span className="breakdown__dot" style={{ background: palette[row.status] ?? CHART.primarySoft }} aria-hidden="true" />
+                <span className="breakdown__label">{row.status}</span>
+                <span className="breakdown__count">{row.count}</span>
+              </button>
+            ) : (
+              <span className="breakdown__key">
+                <span className="breakdown__dot" style={{ background: palette[row.status] ?? CHART.primarySoft }} aria-hidden="true" />
+                <span className="breakdown__label">{row.status}</span>
+                <span className="breakdown__count">{row.count}</span>
+              </span>
+            )}
           </li>
         ))}
       </ul>

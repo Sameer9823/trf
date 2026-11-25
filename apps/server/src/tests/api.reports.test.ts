@@ -25,6 +25,9 @@ function maybe(name: string, fn: (t: TestContext) => Promise<void>) {
 before(async () => {
   if (!(await dbReachable)) return;
   await runMigrations();
+  // Keep the audit log under the export row cap (50k) by removing entries older
+  // than a day; the export tests need the whole sheet to fit under the limit.
+  await pool.query(`DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL '1 day'`);
   server = buildApp().listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -253,10 +256,10 @@ maybe('the TRF Master sheet uses the same field order as the TRF screen', async 
     'TRF No.', 'Date of Request', 'Product Name', 'Generic Name', 'Batch Number', 'Batch Size', 'Market/Customer',
     'Dosage Form', 'Manufacturing Location', 'Label Claim', 'Pack Size', 'Pack Type',
     'Storage Condition', 'Storage Period', 'Manufacturing Date', 'Expiry Date',
-    'Analysis Required For / Purpose', 'Required Completion Date',
+    'Analysis Required For / Purpose',
     'Sample Quantity', 'Sample Submitted By', 'Remarks / Status', 'Remarks', 'Signature / Date',
     'A.R. No.', 'Stage', 'Test Requested', 'Test Details', 'Analyst Name', 'Date of Analysis',
-    'COA', 'ARD Remark',
+    'Required Completion Date', 'COA', 'ARD Remark',
     'Final Status', 'Sample Received Date', 'Sample Received By',
   ];
   assert.deepEqual(headers.slice(0, expected.length), expected,

@@ -40,6 +40,7 @@ export function toQuery(filters: Partial<TrfFilters> & { page?: number }): strin
   if (merged.dateTo) params.set('dateTo', merged.dateTo);
   if (merged.dueFrom) params.set('dueFrom', merged.dueFrom);
   if (merged.dueTo) params.set('dueTo', merged.dueTo);
+  if (merged.workflowStatus?.length) params.set('workflowStatus', merged.workflowStatus.join(','));
   if (merged.overdueOnly) params.set('overdueOnly', 'true');
   params.set('sortBy', merged.sortBy);
   params.set('sortDir', merged.sortDir);

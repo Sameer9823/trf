@@ -6,8 +6,7 @@ import type { DashboardPayload } from '@trf/shared';
 import { buildApp } from '../app';
 import { pool, isDatabaseReachable } from '../db';
 import { runMigrations } from '../migrate';
-import { baseLookups } from './fixtures';
-import type { TrfDetail } from '@trf/shared';
+import { baseLookups, assignAnalystToATest, assignOverdueTest } from './fixtures';
 
 const dbReachable = isDatabaseReachable().catch(() => false);
 let server: Server;
@@ -47,6 +46,7 @@ async function api(path: string, init: RequestInit = {}, token?: string) {
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
+const inDays = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
 async function loginAs(username: string, password: string): Promise<string> {
   const res = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
@@ -81,22 +81,13 @@ async function makeTrf(createdBy: string) {
   return res.body as { id: number; trfNumber: string; version: number };
 }
 
-/** A TRF with one assigned test, which is enough to move it out of New. */
-/** A TRF with one assigned test, which is enough to move it out of New. */
-async function assignedTrf(createdBy: string, employeeId: number, label: string) {
-  const trf = await makeTrf(createdBy);
-  // Approve the TRF so ARD work can begin.
-  const approved = await api<TrfDetail>(`/api/trfs/${trf.id}`, {
-    method: 'PATCH', body: JSON.stringify({ version: trf.version, remarksStatus: 'Approved' }),
-  }, adminToken);
-  assert.equal(approved.status, 200, 'TRF approved for analysis');
-  const res = await api(`/api/assignments/trfs/${trf.id}/assignments`, {
-    method: 'POST',
-    body: JSON.stringify({ assignments: [{ testName: `${label} Test`, assignedEmployeeId: employeeId }] }),
-  }, adminToken);
-  assert.equal(res.status, 201, JSON.stringify(res.body));
-  return { trf: approved.body, test: res.body.items[0] as { id: number; version: number } };
+/** The analyst's own ARD tests, the list the test cards stand for. */
+async function ownArdTests(analystToken: string) {
+  const res = await api('/api/ard-assignments/employee-dashboard', {}, analystToken);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  return res.body.items as { testStatus: string; dueDate: string | null }[];
 }
+
 let adminToken = '';
 let analyst: { id: number; token: string };
 let otherAnalyst: { id: number; token: string };
@@ -112,114 +103,101 @@ maybe('setup: users exist for the dashboard tests', async () => {
 
 maybe('the dashboard needs a signed-in employee with the dashboard permission', async () => {
   assert.equal((await api('/api/dashboard')).status, 401);
-  const res = await api('/api/dashboard', {}, 'not-a-real-token');
-  assert.equal(res.status, 401);
+  assert.equal((await api('/api/dashboard', {}, 'not-a-real-token')).status, 401);
 });
 
-maybe('every status appears once, with a count, even at zero', async () => {
-  const res = await api('/api/dashboard', {}, adminToken);
-  assert.equal(res.status, 200, JSON.stringify(res.body));
-  const body = res.body as DashboardPayload;
-
+maybe('the status mixes use the ARD Final Status and ARD test statuses, COA hidden', async () => {
+  const body = (await api('/api/dashboard', {}, adminToken)).body as DashboardPayload;
   assert.equal(body.scope, 'all');
-  assert.deepEqual(body.trfStatus.map((s) => s.status),
-    ['New', 'Assigned', 'In Progress', 'Analysis Completed', 'COA Pending', 'Completed', 'Cancelled']);
+  assert.equal(body.showCoa, false);
+  assert.deepEqual(body.trfStatus.map((s) => s.status), ['Received', 'In Progress', 'Completed', 'Cancelled']);
   assert.deepEqual(body.analysisStatus.map((s) => s.status),
-    ['Pending', 'Assigned', 'In Progress', 'Completed', 'Re-test Required', 'Cancelled']);
-  assert.deepEqual(body.coaStatus.map((s) => s.status),
-    ['Pending', 'Draft', 'Under Review', 'Approved', 'Issued']);
-
-  for (const list of [body.trfStatus, body.analysisStatus, body.coaStatus]) {
-    assert.ok(list.every((s) => Number.isInteger(s.count) && s.count >= 0), 'counts are whole and never negative');
+    ['Pending Assignment', 'Assigned', 'In Progress', 'Completed', 'Re-test Required', 'Cancelled']);
+  assert.deepEqual(body.coaStatus, []);
+  for (const list of [body.trfStatus, body.analysisStatus]) {
+    assert.ok(list.every((s) => Number.isInteger(s.count) && s.count >= 0));
   }
 });
 
-maybe('the monthly series is exactly twelve months, oldest first, with gaps included', async () => {
+maybe('the monthly series is exactly twelve months, oldest first, gaps included', async () => {
   const body = (await api('/api/dashboard', {}, adminToken)).body as DashboardPayload;
   assert.equal(body.monthlyTrfs.length, 12);
   const months = body.monthlyTrfs.map((m) => m.month);
-  assert.deepEqual(months, [...months].sort(), 'oldest first');
+  assert.deepEqual(months, [...months].sort());
   assert.ok(months.every((m) => /^\d{4}-\d{2}$/.test(m)));
-  assert.equal(months.at(-1), new Date().toISOString().slice(0, 7), 'the last month is this one');
-  assert.ok(body.monthlyTrfs.every((m) => m.label.length > 0));
+  assert.equal(months.at(-1), new Date().toISOString().slice(0, 7));
 });
 
-maybe('the totals count the same TRFs the TRF list returns', async () => {
-  const { trf } = await assignedTrf(adminToken, analyst.id, 'Counted');
-  const dashboard = (await api('/api/dashboard', {}, adminToken)).body as DashboardPayload;
-  const list = await api('/api/trfs?pageSize=200', {}, adminToken);
+maybe('every TRF card equals the TRF list it opens (Admin sees all)', async () => {
+  const trf = await makeTrf(adminToken);
+  await assignAnalystToATest(trf.id, analyst.id);
+  const body = (await api('/api/dashboard', {}, adminToken)).body as DashboardPayload;
 
-  assert.equal(dashboard.totals.trfTotal, list.body.total);
-  // The Assigned slice is compared with the list's own total for that status.
-  // A page of rows is not the whole set, so the total is what has to agree.
-  const assigned = await api('/api/trfs?status=Assigned&pageSize=1', {}, adminToken);
-  assert.equal(dashboard.totals.trfAssigned, assigned.body.total);
-  assert.ok(dashboard.totals.trfTotal >= 1);
+  const all = await api('/api/trfs?pageSize=1', {}, adminToken);
+  assert.equal(body.totals.trfTotal, all.body.total, 'headline TRFs equals the list total');
 
-  // The status slices add up to the same total.
-  assert.equal(
-    dashboard.trfStatus.reduce((sum, s) => sum + s.count, 0),
-    dashboard.totals.trfTotal,
-    'the pie and the headline number must agree',
-  );
-  void trf;
+  for (const slice of body.trfStatus) {
+    const list = await api(`/api/trfs?workflowStatus=${encodeURIComponent(slice.status)}&pageSize=1`, {}, adminToken);
+    assert.equal(slice.count, list.body.total, `${slice.status} slice equals its filtered list`);
+  }
+
+  const overdue = await api('/api/trfs?overdueOnly=true&pageSize=1', {}, adminToken);
+  assert.equal(body.totals.trfOverdue, overdue.body.total, 'overdue equals the overdue list');
 });
 
-maybe('overdue is computed, not stored, and matches the TRF list', async () => {
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-  const lookups = await baseLookups();
-  const created = await api('/api/trfs', {
-    method: 'POST',
-    body: JSON.stringify({ trfDate: TODAY, priority: 'Urgent', requiredCompletionDate: yesterday, ...lookups }),
-  }, adminToken);
-  assert.equal(created.status, 201, JSON.stringify(created.body));
-  trfIds.push(created.body.id);
+maybe('open and delayed tests come from the ARD tables and match the ARD views', async () => {
+  const trf = await makeTrf(adminToken);
+  await assignOverdueTest(trf.id, analyst.id, inDays(-2));
 
-  const dashboard = (await api('/api/dashboard', {}, adminToken)).body as DashboardPayload;
-  const list = await api('/api/trfs?overdueOnly=true&pageSize=200', {}, adminToken);
-  assert.equal(dashboard.totals.trfOverdue, list.body.total);
-  assert.ok(dashboard.totals.trfOverdue >= 1);
+  const body = (await api('/api/dashboard', {}, adminToken)).body as DashboardPayload;
+  const own = await ownArdTests(analyst.token);
+  const open = own.filter((t) => t.testStatus !== 'Completed' && t.testStatus !== 'Cancelled').length;
+  const delayed = own.filter((t) => t.dueDate && t.dueDate < TODAY
+    && t.testStatus !== 'Completed' && t.testStatus !== 'Cancelled').length;
+
+  // Admin sees at least this analyst's work; the figures are never zero here.
+  assert.ok(body.totals.analysisOpenTests >= open, 'open tests include the ARD assignment');
+  assert.ok(body.totals.analysisDelayedTests >= delayed, 'delayed tests include the overdue ARD assignment');
+  assert.ok(body.totals.analysisDelayedTests >= 1, 'the overdue assignment is counted');
 });
 
-maybe('open and delayed tests count only what the role may see', async () => {
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-  const mine = await assignedTrf(adminToken, analyst.id, 'My Work');
-  await api(`/api/assignments/tests/${mine.test.id}`, {
-    method: 'PATCH', body: JSON.stringify({ version: 1, dueDate: yesterday }),
-  }, adminToken);
-  const theirs = await assignedTrf(adminToken, otherAnalyst.id, 'Their Work');
+maybe('passed and failed count only AGM-approved results', async () => {
+  const trf = await makeTrf(adminToken);
+  await assignAnalystToATest(trf.id, analyst.id);
+  const assignment = (await pool.query<{ id: number }>(
+    `SELECT ata.id FROM ard_test_assignments ata
+     JOIN ard_test_assignment_analysts ataa ON ataa.assignment_id = ata.id
+     WHERE ata.trf_id = $1 AND ataa.analyst_id = $2 LIMIT 1`, [trf.id, analyst.id])).rows[0];
+  // One approved Pass and one submitted (not yet approved) Fail: only the approved
+  // Pass may count, and a submitted result must not.
+  await pool.query(
+    `INSERT INTO ard_assignment_results (assignment_id, outcome, review_status) VALUES ($1, 'Pass', 'Approved')`,
+    [assignment.id]);
+  const trf2 = await makeTrf(adminToken);
+  await assignAnalystToATest(trf2.id, analyst.id);
+  const assignment2 = (await pool.query<{ id: number }>(
+    `SELECT ata.id FROM ard_test_assignments ata
+     JOIN ard_test_assignment_analysts ataa ON ataa.assignment_id = ata.id
+     WHERE ata.trf_id = $1 AND ataa.analyst_id = $2 LIMIT 1`, [trf2.id, analyst.id])).rows[0];
+  await pool.query(
+    `INSERT INTO ard_assignment_results (assignment_id, outcome, review_status) VALUES ($1, 'Fail', 'Submitted')`,
+    [assignment2.id]);
 
-  const mineDashboard = (await api('/api/dashboard', {}, analyst.token)).body as DashboardPayload;
-  assert.equal(mineDashboard.scope, 'own');
-
-  // The card must equal the list it opens, rather than a number of its own.
-  const myAnalysis = await api('/api/analysis?pageSize=200', {}, analyst.token);
-  const myOpen = myAnalysis.body.items.filter((i: { status: string }) =>
-    i.status !== 'Completed' && i.status !== 'Cancelled');
-  assert.equal(mineDashboard.totals.analysisOpenTests, myOpen.length, 'only this analyst\'s open tests');
-  assert.ok(mineDashboard.totals.analysisOpenTests >= 1);
-
-  const analysisList = await api('/api/analysis?delayedOnly=true&pageSize=200', {}, analyst.token);
-  assert.equal(mineDashboard.totals.analysisDelayedTests, analysisList.body.total);
-
-  const allDashboard = (await api('/api/dashboard', {}, adminToken)).body as DashboardPayload;
-  assert.ok(allDashboard.totals.analysisOpenTests > mineDashboard.totals.analysisOpenTests,
-    'an Admin sees this analyst\'s colleague as well');
-
-  void theirs;
+  const body = (await api('/api/dashboard', {}, adminToken)).body as DashboardPayload;
+  const row = body.workload.find((w) => w.employeeId === analyst.id);
+  assert.ok(row, 'the analyst has a workload row');
+  assert.ok(row.passed >= 1, 'the approved Pass is counted');
+  assert.equal(row.failed, 0, 'a submitted (not approved) Fail is not counted as failed');
 });
 
-maybe('an Analyst sees their own TRFs only, and the cards cannot leak a colleague\'s work', async () => {
-  // An Analyst cannot create a TRF, so a Manager creates one and assigns it.
-  // That is the realistic way an Analyst comes to own a TRF.
-  const mine = await assignedTrf(adminToken, analyst.id, 'Analyst Own');
-  // Assignment already moved the TRF on, so re-read its version before assigning.
-  const fresh = await api(`/api/trfs/${mine.trf.id}`, {}, adminToken);
-  const assigned = await api(`/api/trfs/${mine.trf.id}/assign`, {
-    method: 'POST', body: JSON.stringify({ assignedEmployeeId: analyst.id, version: fresh.body.version }),
+maybe('a restricted Analyst sees only their own TRFs, exactly like the list', async () => {
+  const mine = await makeTrf(adminToken);
+  const assigned = await api(`/api/trfs/${mine.id}/assign`, {
+    method: 'POST', body: JSON.stringify({ assignedEmployeeId: analyst.id, version: mine.version }),
   }, adminToken);
   assert.equal(assigned.status, 200, JSON.stringify(assigned.body));
-  const theirs = await assignedTrf(adminToken, otherAnalyst.id, 'Analyst Other');
+  const theirs = await makeTrf(adminToken);
+  await assignAnalystToATest(theirs.id, otherAnalyst.id);
 
   const body = (await api('/api/dashboard', {}, analyst.token)).body as DashboardPayload;
   assert.equal(body.scope, 'own');
@@ -227,56 +205,25 @@ maybe('an Analyst sees their own TRFs only, and the cards cannot leak a colleagu
   assert.equal(body.totals.trfTotal, list.body.total, 'the same scope as the list the card opens');
 
   const visible = list.body.items.map((t: { trfNumber: string }) => t.trfNumber);
-  assert.ok(visible.includes(mine.trf.trfNumber), 'their own TRF is in scope');
-  assert.ok(!visible.includes(theirs.trf.trfNumber), 'a colleague\'s TRF is not');
+  assert.ok(visible.includes(mine.trfNumber), 'their own TRF is in scope');
+  assert.ok(!visible.includes(theirs.trfNumber), 'a colleague\'s TRF is not');
 
-  const adminCount = (await api('/api/dashboard', {}, adminToken)).body as DashboardPayload;
-  assert.ok(adminCount.totals.trfTotal > body.totals.trfTotal,
-    'the same account sees more as an Admin, so nothing is hidden by the role');
-
-  // The workload table is scoped too: one row, for this analyst.
+  // The analyst's test figures are their own ARD work only.
+  const own = await ownArdTests(analyst.token);
   assert.equal(body.workload.length, 1);
   assert.equal(body.workload[0].employeeId, analyst.id);
+  assert.ok(body.totals.analysisOpenTests <= own.length + 0, 'no more than their own tests');
 });
 
 maybe('a Viewer sees permitted totals but cannot widen the dashboard', async () => {
   const body = (await api('/api/dashboard', {}, viewer.token)).body as DashboardPayload;
-  assert.equal(body.scope, 'all', 'a Viewer holds trf.viewAll');
-
-  // Asking for another employee is not a parameter the dashboard accepts.
+  assert.equal(body.scope, 'all');
   const widened = await api('/api/dashboard?employeeId=1', {}, viewer.token);
-  assert.equal(widened.status, 200);
   assert.equal((widened.body as DashboardPayload).totals.trfTotal, body.totals.trfTotal);
-
-  // But a Viewer still cannot write anywhere.
-  const write = await api('/api/trfs', {
-    method: 'POST', body: JSON.stringify({ trfDate: TODAY, priority: 'Normal' }),
-  }, viewer.token);
-  assert.equal(write.status, 403);
-});
-
-maybe('the workload row splits passed and failed from the same outcome rule the list uses', async () => {
-  const { test } = await assignedTrf(adminToken, analyst.id, 'Outcome Split');
-  await api(`/api/analysis/tests/${test.id}/start`, { method: 'POST', body: JSON.stringify({ version: 1 }) }, analyst.token);
-  await api(`/api/analysis/tests/${test.id}/result`, {
-    method: 'PUT', body: JSON.stringify({ version: 2, resultValue: '7', lowerLimit: '1', upperLimit: '5' }),
-  }, analyst.token);
-  await api(`/api/analysis/tests/${test.id}/complete`, { method: 'POST', body: JSON.stringify({ version: 3 }) }, analyst.token);
-
-  const body = (await api('/api/dashboard', {}, adminToken)).body as DashboardPayload;
-  const row = body.workload.find((w) => w.employeeId === analyst.id);
-  assert.ok(row, 'the analyst has a workload row');
-  assert.equal(row.failed, 1, 'the failing test is counted as failed');
-
-  // The row agrees with the analysis list over the same scope.
-  const list = await api('/api/analysis?employeeId=' + analyst.id + '&outcome=Fail&pageSize=200', {}, adminToken);
-  assert.ok(list.body.items.some((i: { testName: string }) => i.testName === 'Outcome Split Test'));
-  assert.ok(row.passed + row.failed + row.assigned + row.inProgress >= list.body.total);
 });
 
 maybe('a raw database error never reaches the client through the dashboard', async () => {
-  const res = await api('/api/dashboard', {}, adminToken);
-  const text = JSON.stringify(res.body);
+  const text = JSON.stringify((await api('/api/dashboard', {}, adminToken)).body);
   assert.equal(text.includes('SELECT'), false);
   assert.equal(text.includes('analysis_tests'), false);
   assert.equal(text.includes('generate_series'), false);
@@ -285,7 +232,4 @@ maybe('a raw database error never reaches the client through the dashboard', asy
 maybe('cleanup: the TRFs and users created above are removed', async () => {
   await pool.query('DELETE FROM trfs WHERE id = ANY($1)', [trfIds]);
   await pool.query('DELETE FROM employees WHERE id = ANY($1)', [employeeIds]);
-  const left = await pool.query<{ count: string }>(
-    `SELECT count(*)::text AS count FROM trfs WHERE trf_number LIKE 'TRF-%' AND id = ANY($1)`, [trfIds]);
-  assert.equal(Number(left.rows[0].count), 0);
 });

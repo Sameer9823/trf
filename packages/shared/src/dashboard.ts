@@ -1,4 +1,5 @@
-import type { AnalysisStatus, CoaStatus, TrfStatus } from './core.js';
+import type { ArdWorkflowStatus, CoaStatus } from './core.js';
+import type { ArdTestAssignmentStatus } from './trf.js';
 
 /**
  * Dashboard figures are counted in SQL on the server. Nothing here is derived by
@@ -13,19 +14,15 @@ export interface StatusSlice<T extends string> {
 /** The headline numbers across the top of the dashboard. */
 export interface DashboardTotals {
   trfTotal: number;
-  trfNew: number;
-  trfAssigned: number;
-  trfInProgress: number;
-  trfAnalysisCompleted: number;
-  trfCoaPending: number;
+  /** TRFs whose ARD Final Status (workflow_status) is Completed. */
   trfCompleted: number;
-  trfCancelled: number;
-  /** Due date passed and not finished. Computed, never stored. */
+  /** Due date passed and the ARD Final Status is not terminal. Computed, never stored. */
   trfOverdue: number;
-  /** Tests that are assigned but not finished, across every analyst. */
+  /** ARD test assignments that are not finished, across every analyst. */
   analysisOpenTests: number;
+  /** ARD test assignments past their due date and still open. */
   analysisDelayedTests: number;
-  /** Certificates drafted but not yet issued. */
+  /** Certificates drafted but not yet issued (always 0 while SHOW_COA is false). */
   coaAwaitingIssue: number;
   coaIssued: number;
 }
@@ -38,17 +35,22 @@ export interface MonthlyPoint {
 }
 
 /**
- * One analyst's results for the chart. Named apart from the assignment
- * workload view, which counts open work rather than outcomes.
+ * One analyst's ARD results for the chart. The chart draws the five open-work
+ * series (assigned, inProgress, delayed, passed, failed); submitted/approved/
+ * rejected are carried for the payload and tests. Passed and failed count only
+ * results the AGM approved.
  */
 export interface AnalystResultRow {
   employeeId: number;
   employeeName: string;
   assigned: number;
   inProgress: number;
-  /** Completed test that passed its specification. */
+  submitted: number;
+  approved: number;
+  rejected: number;
+  /** Approved result whose Outcome is Pass. */
   passed: number;
-  /** Completed test outside its specification. */
+  /** Approved result whose Outcome is Fail. */
   failed: number;
   /** Due date passed and the test is still open. */
   delayed: number;
@@ -56,8 +58,9 @@ export interface AnalystResultRow {
 
 /**
  * One employee's TRF completion, for the "completed by employee" breakdown.
- * `completed` counts the TRFs assigned to them that reached Completed; `total`
- * is every non-deleted TRF assigned to them.
+ * `total` is the distinct non-cancelled TRFs the analyst is assigned to (through
+ * ard_test_assignment_analysts); `completed` is those whose ARD Final Status is
+ * Completed.
  */
 export interface TrfEmployeeRow {
   employeeId: number;
@@ -70,9 +73,14 @@ export interface DashboardPayload {
   /** What the numbers actually mean for this role, so the UI can label them honestly. */
   scope: 'all' | 'own';
   totals: DashboardTotals;
-  trfStatus: StatusSlice<TrfStatus>[];
-  analysisStatus: StatusSlice<AnalysisStatus>[];
+  /** ARD Final Status mix (workflow_status), the same stages the pipeline shows. */
+  trfStatus: StatusSlice<ArdWorkflowStatus>[];
+  /** ARD test-assignment status mix. */
+  analysisStatus: StatusSlice<ArdTestAssignmentStatus>[];
+  /** Certificate mix; empty while SHOW_COA is false. */
   coaStatus: StatusSlice<CoaStatus>[];
+  /** When false the client hides the Certificates card, panel and COA stage. */
+  showCoa: boolean;
   monthlyTrfs: MonthlyPoint[];
   workload: AnalystResultRow[];
   trfByEmployee: TrfEmployeeRow[];
