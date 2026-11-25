@@ -620,3 +620,190 @@ maybe('the ARD number is generated once and never changes', async () => {
 
   await pool.query('DELETE FROM trfs WHERE id = $1', [created.body.id]);
 });
+
+/* ---------------------------------------------------------------------------
+ * Reassigning the ARD analyst (absent / unavailable), single and bulk.
+ * ------------------------------------------------------------------------- */
+
+async function userAgm(): Promise<{ token: string; id: number; fullName: string }> {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const password = 'Trf-Ard-User-42';
+  const username = `trfardagm${suffix}`;
+  const fullName = `TRF ARD AGM ${suffix}`;
+  await pool.query(
+    `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation)
+     VALUES ($1, $2, $3, $4, $5, 'Admin', 'AGM')`,
+    [`TRF-AGM-${suffix}`, fullName, `${username}@test.local`, username, await hashPassword(password)],
+  );
+  const res = await api<{ accessToken: string }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+  const found = await pool.query<{ id: number }>(`SELECT id FROM employees WHERE username = $1`, [username]);
+  return { token: res.body.accessToken, id: found.rows[0].id, fullName };
+}
+
+async function assignTest(trfId: number, analystIds: number[], testOptionId = 1, token = adminToken) {
+  return api<{ assignmentId: number; version: number }>('/api/ard-assignments', {
+    method: 'POST',
+    body: JSON.stringify({ trfId, testRequestedOptionId: testOptionId, testName: 'Assay', analystIds }),
+  }, token);
+}
+
+maybe('an AGM reassigns a test with a reason and the TRF list follows the new analyst', async () => {
+  const agm = await userAgm();
+  const oldA = await userInDepartment('Analyst', 'ARD');
+  const newA = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `REASSIGN-${Date.now()}` });
+  const trfId = trf.body.id;
+  const created = await assignTest(trfId, [oldA.id]);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+
+  const patch = await api<{ analystIds: number[] }>(`/api/ard-assignments/${created.body.assignmentId}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, analystIds: [newA.id], reason: 'Absent' }),
+  }, agm.token);
+  assert.equal(patch.status, 200, JSON.stringify(patch.body));
+  assert.deepEqual(patch.body.analystIds, [newA.id]);
+
+  // The list "Analyst Name" is derived from the per-test analysts, so it follows.
+  const list = await api<TrfListPage>(`/api/trfs?search=${encodeURIComponent(trf.body.trfNumber)}`, {}, adminToken);
+  const item = list.body.items.find((t) => t.trfNumber === trf.body.trfNumber);
+  assert.ok(item, 'the TRF is in the list');
+  assert.ok((item!.assignedAnalystNames ?? '').includes(newA.fullName), 'the list shows the new analyst');
+  assert.ok(!(item!.assignedAnalystNames ?? '').includes(oldA.fullName), 'the old analyst is gone');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
+maybe('an ARD analyst cannot reassign (403)', async () => {
+  const analyst = await userInDepartment('Analyst', 'ARD');
+  const other = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `REASSIGN-403-${Date.now()}` });
+  const created = await assignTest(trf.body.id, [analyst.id]);
+  const patch = await api(`/api/ard-assignments/${created.body.assignmentId}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, analystIds: [other.id], reason: 'Absent' }),
+  }, analyst.token);
+  assert.equal(patch.status, 403, 'an analyst may not reassign');
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trf.body.id]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trf.body.id]);
+});
+
+maybe('a reason is required when the analyst changes (400 with a field message)', async () => {
+  const agm = await userAgm();
+  const oldA = await userInDepartment('Analyst', 'ARD');
+  const newA = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `REASSIGN-NO-REASON-${Date.now()}` });
+  const created = await assignTest(trf.body.id, [oldA.id]);
+  const patch = await api<{ error: { fields?: Record<string, string> } }>(`/api/ard-assignments/${created.body.assignmentId}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, analystIds: [newA.id] }),
+  }, agm.token);
+  assert.equal(patch.status, 400, 'a reason is required');
+  assert.ok(patch.body.error.fields?.reason, 'the reason field carries the message');
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trf.body.id]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trf.body.id]);
+});
+
+maybe('picking the same analyst is a no-op (no history, still assigned)', async () => {
+  const agm = await userAgm();
+  const a = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `REASSIGN-SAME-${Date.now()}` });
+  const created = await assignTest(trf.body.id, [a.id]);
+  const before = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM ard_test_assignment_history WHERE assignment_id = $1 AND action = 'REASSIGNED'`, [created.body.assignmentId]);
+  const patch = await api<{ analystIds: number[] }>(`/api/ard-assignments/${created.body.assignmentId}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, analystIds: [a.id], reason: 'Absent' }),
+  }, agm.token);
+  assert.equal(patch.status, 200);
+  assert.deepEqual(patch.body.analystIds, [a.id]);
+  const after = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM ard_test_assignment_history WHERE assignment_id = $1 AND action = 'REASSIGNED'`, [created.body.assignmentId]);
+  assert.equal(after.rows[0].count, before.rows[0].count, 'no reassignment history was written');
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trf.body.id]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trf.body.id]);
+});
+
+maybe('bulk reassign is all-or-nothing and rolls back on a version conflict', async () => {
+  const agm = await userAgm();
+  const oldA = await userInDepartment('Analyst', 'ARD');
+  const newA = await userInDepartment('Analyst', 'ARD');
+  const opts = await pool.query<{ id: number }>(`SELECT id FROM test_requested_options ORDER BY id LIMIT 2`);
+  const optA = opts.rows[0].id;
+  const optB = opts.rows[1].id;
+  const trf = await createTrf({ batchNumber: `REASSIGN-BULK-${Date.now()}`, testRequestedOptionIds: [optA, optB] });
+  const t1 = await assignTest(trf.body.id, [oldA.id], optA);
+  // A second test on the same TRF.
+  const t2 = await api<{ assignmentId: number; version: number }>('/api/ard-assignments', {
+    method: 'POST', body: JSON.stringify({ trfId: trf.body.id, testRequestedOptionId: optB, testName: 'Moisture', analystIds: [oldA.id] }),
+  }, adminToken);
+  assert.equal(t2.status, 201, JSON.stringify(t2.body));
+
+  // Stale version on the second row forces a rollback of the whole batch.
+  const bulk = await api(`/api/ard-assignments/reassign-bulk`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: 'On leave', items: [
+      { assignmentId: Number(t1.body.assignmentId), version: t1.body.version, analystIds: [newA.id] },
+      { assignmentId: Number(t2.body.assignmentId), version: t2.body.version + 5, analystIds: [newA.id] },
+    ] }),
+  }, agm.token);
+  assert.equal(bulk.status, 409, `a version conflict fails the batch: ${JSON.stringify(bulk.body)}`);
+
+  // The first row must be unchanged (rolled back).
+  const row1 = await pool.query<{ analyst_ids: number[] }>(
+    `SELECT ARRAY(SELECT analyst_id FROM ard_test_assignment_analysts WHERE assignment_id = $1) AS analyst_ids`, [Number(t1.body.assignmentId)]);
+  assert.deepEqual(row1.rows[0].analyst_ids, [oldA.id], 'the first row was rolled back');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trf.body.id]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trf.body.id]);
+});
+
+maybe('the old analyst cannot submit a result after being reassigned', async () => {
+  const agm = await userAgm();
+  const oldA = await userInDepartment('Analyst', 'ARD');
+  const newA = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `REASSIGN-SUBMIT-${Date.now()}` });
+  const created = await assignTest(trf.body.id, [oldA.id]);
+  const patch = await api(`/api/ard-assignments/${created.body.assignmentId}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, analystIds: [newA.id], reason: 'Absent' }),
+  }, agm.token);
+  assert.equal(patch.status, 200);
+
+  const submit = await api(`/api/ard-assignments/${created.body.assignmentId}/result`, {
+    method: 'POST',
+    body: JSON.stringify({ version: patch.body.version, resultMode: 'text', resultValue: '1.0', outcome: 'Pass' }),
+  }, oldA.token);
+  assert.equal(submit.status, 403, 'the old analyst can no longer submit');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trf.body.id]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trf.body.id]);
+});
+
+maybe('reassigning removes the TRF from the previous analyst and shows it to the new one', async () => {
+  const agm = await userAgm();
+  const oldA = await userInDepartment('Analyst', 'ARD');
+  const newA = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `REASSIGN-VIEW-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  // The TRF is assigned to the old analyst, so it is in their list.
+  const assign = await api<{ version: number }>(`/api/trfs/${trfId}/assign`, {
+    method: 'POST', body: JSON.stringify({ assignedEmployeeId: oldA.id, version: trf.body.version }),
+  }, adminToken);
+  assert.equal(assign.status, 200, JSON.stringify(assign.body));
+  const created = await assignTest(trfId, [oldA.id]);
+
+  const before = await api<TrfListPage>(`/api/trfs?search=${encodeURIComponent(trf.body.trfNumber)}`, {}, oldA.token);
+  assert.ok(before.body.items.some((t) => t.trfNumber === trf.body.trfNumber), 'the old analyst sees it before');
+
+  // Reassign to the new analyst with a reason.
+  const patch = await api(`/api/ard-assignments/${created.body.assignmentId}`, {
+    method: 'PATCH', body: JSON.stringify({ version: created.body.version, analystIds: [newA.id], reason: 'Absent' }),
+  }, agm.token);
+  assert.equal(patch.status, 200, JSON.stringify(patch.body));
+
+  // The old analyst no longer sees it; the new analyst does.
+  const afterOld = await api<TrfListPage>(`/api/trfs?search=${encodeURIComponent(trf.body.trfNumber)}`, {}, oldA.token);
+  assert.ok(!afterOld.body.items.some((t) => t.trfNumber === trf.body.trfNumber), 'the TRF left the old analyst\'s list');
+  const afterNew = await api<TrfListPage>(`/api/trfs?search=${encodeURIComponent(trf.body.trfNumber)}`, {}, newA.token);
+  assert.ok(afterNew.body.items.some((t) => t.trfNumber === trf.body.trfNumber), 'the new analyst sees it');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});

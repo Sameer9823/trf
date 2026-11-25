@@ -5,6 +5,7 @@ import { useServerStatus } from '../lib/server-status';
 import { OfflineNotice } from '../components/OfflineNotice';
 import { EmptyState, SkeletonRows, initials } from '../components/StatStrip';
 import { Icons } from '../components/Icons';
+import { BulkReassignDialog } from './ArdEmployeeDetail';
 
 interface ArdEmployeeRow {
   employeeId: number;
@@ -48,6 +49,7 @@ export function ArdWorkspace() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'overdue', dir: 'desc' });
+  const [reassign, setReassign] = useState<ArdEmployeeRow | null>(null);
 
   const isManager = can('assignments.manage');
 
@@ -142,8 +144,8 @@ export function ArdWorkspace() {
         {loading && (
           <div className="table-wrap">
             <table className="table table--striped">
-              <thead><tr>{COLUMNS.map((c) => <th key={c.key}>{c.label}</th>)}<th aria-label="Open" /></tr></thead>
-              <tbody><SkeletonRows cols={COLUMNS.length + 1} rows={3} /></tbody>
+              <thead><tr>{COLUMNS.map((c) => <th key={c.key}>{c.label}</th>)}<th aria-label="Open" /><th aria-label="Reassign" /></tr></thead>
+              <tbody><SkeletonRows cols={COLUMNS.length + 2} rows={3} /></tbody>
             </table>
           </div>
         )}
@@ -175,6 +177,7 @@ export function ArdWorkspace() {
                     </th>
                   ))}
                   <th aria-label="Open" />
+                  <th aria-label="Reassign" />
                 </tr>
               </thead>
               <tbody>
@@ -205,6 +208,14 @@ export function ArdWorkspace() {
                       <td className="num">{r.overdue > 0 ? <span className="badge badge--danger">{r.overdue}</span> : 0}</td>
                       <td><a className="link" href={`#/ard/employee/${r.employeeId}`}
                         onClick={(e) => e.stopPropagation()}>View work →</a></td>
+                      <td>
+                        {r.testsAssigned > 0 && (
+                          <button type="button" className="btn btn--sm btn--ghost"
+                            onClick={(e) => { e.stopPropagation(); setReassign(r); }}>
+                            Reassign
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -213,6 +224,15 @@ export function ArdWorkspace() {
           </div>
         )}
       </section>
+
+      {reassign && (
+        <BulkReassignDialog
+          employeeId={reassign.employeeId}
+          employeeName={reassign.fullName}
+          onClose={() => setReassign(null)}
+          onSaved={async () => { setReassign(null); await load(); }}
+        />
+      )}
     </div>
   );
 }

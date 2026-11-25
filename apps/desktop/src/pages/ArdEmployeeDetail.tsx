@@ -15,6 +15,7 @@ interface ArdSummary {
   submitted: number; approved: number; rejected: number; overdue: number; completedTests: number;
 }
 interface ArdTestRow {
+  assignmentId: number; assignmentVersion: number;
   trfId: number; trfNumber: string; arNumber: string | null; productName: string | null;
   testName: string; testStatus: string; reviewStatus: string | null;
   assignedDate: string | null; dueDate: string | null; isDelayed: boolean;
@@ -22,6 +23,9 @@ interface ArdTestRow {
 interface DetailResponse {
   summary: ArdSummary; items: ArdTestRow[]; total: number; page: number; pageSize: number; pageCount: number;
 }
+
+const REASSIGN_REASONS = ['Absent', 'On leave', 'Overloaded', 'Other'] as const;
+interface EmployeeOption { id: number; fullName: string }
 
 /** One ARD employee's workload: summary counts and a paginated test list. */
 export function ArdEmployeeDetail() {
@@ -35,6 +39,7 @@ export function ArdEmployeeDetail() {
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!Number.isInteger(employeeId) || employeeId <= 0) { setNotFound(true); setLoading(false); return; }
@@ -100,6 +105,11 @@ export function ArdEmployeeDetail() {
           </select>
           <input placeholder="Search TRF, A.R. no., product or test" value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }} aria-label="Search tests" />
+          {summary && summary.testsAssigned > 0 && (
+            <button type="button" className="btn btn--primary" onClick={() => setBulkOpen(true)}>
+              Reassign all open tests
+            </button>
+          )}
         </div>
       </div>
 
@@ -166,6 +176,94 @@ export function ArdEmployeeDetail() {
       {summary && (
         <p><a className="link" href={cardLink('assignments', { employeeId: summary.employeeId })}>Open in Assignments →</a></p>
       )}
+
+      {bulkOpen && summary && (
+        <BulkReassignDialog
+          employeeId={summary.employeeId}
+          employeeName={summary.fullName}
+          onClose={() => setBulkOpen(false)}
+          onSaved={async () => { setBulkOpen(false); await load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Move every open test of an absent analyst to one replacement, in one call. */
+export function BulkReassignDialog({ employeeId, employeeName, onClose, onSaved }: {
+  employeeId: number; employeeName: string; onClose: () => void; onSaved: () => Promise<void>;
+}) {
+  const [items, setItems] = useState<ArdTestRow[] | null>(null);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [toId, setToId] = useState('');
+  const [reasonKind, setReasonKind] = useState('');
+  const [reasonText, setReasonText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.trf.request<DetailResponse>({
+      method: 'GET', path: `/api/ard-assignments/employees/${employeeId}?pageSize=200`,
+    }).then((r) => {
+      if (cancelled || !r.ok || !r.data) return;
+      setItems(r.data.items.filter((t) => t.testStatus !== 'Completed' && t.testStatus !== 'Cancelled'));
+    });
+    void window.trf.request<{ items: EmployeeOption[] }>({ method: 'GET', path: '/api/lookups/ard-analysts' }).then((r) => {
+      if (!cancelled && r.ok && r.data) setEmployees(r.data.items.filter((e) => e.id !== employeeId));
+    });
+    return () => { cancelled = true; };
+  }, [employeeId]);
+
+  const reason = reasonKind === 'Other' ? reasonText.trim() : reasonKind;
+  const canSubmit = !!toId && !!reason && !busy && items !== null && items.length > 0;
+
+  const submit = async () => {
+    if (!canSubmit || !items) return;
+    setBusy(true);
+    setError(null);
+    const res = await window.trf.request({
+      method: 'POST', path: '/api/ard-assignments/reassign-bulk',
+      body: { reason, items: items.map((t) => ({ assignmentId: t.assignmentId, version: t.assignmentVersion, analystIds: [Number(toId)] })) },
+    });
+    setBusy(false);
+    if (!res.ok) { setError(res.error || 'The tests could not be reassigned.'); return; }
+    await onSaved();
+  };
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Reassign all open tests">
+      <div className="modal">
+        <div className="modal__head">
+          <h3>Reassign all open tests from {employeeName}</h3>
+          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal__body">
+          <p className="muted">{items === null ? 'Loading open tests…' : `${items.length} open test(s) will move to the replacement below.`}</p>
+          <label htmlFor="bulk-to">Replacement analyst</label>
+          <select id="bulk-to" value={toId} disabled={busy} onChange={(e) => setToId(e.target.value)}>
+            <option value="">Select an analyst…</option>
+            {employees.map((e) => <option key={e.id} value={e.id}>{e.fullName}</option>)}
+          </select>
+          <label htmlFor="bulk-reason">Reason (required)</label>
+          <div className="row" style={{ gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+            {REASSIGN_REASONS.map((r) => (
+              <button key={r} type="button" className={`btn btn--sm ${reasonKind === r ? 'btn--primary' : 'btn--ghost'}`}
+                onClick={() => setReasonKind(r)}>{r}</button>
+            ))}
+          </div>
+          {reasonKind === 'Other'
+            ? <textarea id="bulk-reason" rows={2} value={reasonText} disabled={busy} onChange={(e) => setReasonText(e.target.value)} placeholder="Tell the team why." />
+            : <input id="bulk-reason" value={reasonKind} disabled readOnly placeholder="Choose a reason above." />}
+          {error && <p className="field-error" role="alert">{error}</p>}
+        </div>
+        <div className="modal__foot">
+          <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="btn btn--primary" onClick={submit} disabled={!canSubmit}>
+            {busy ? 'Reassigning…' : 'Reassign all'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

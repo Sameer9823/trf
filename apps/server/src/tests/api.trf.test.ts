@@ -1320,3 +1320,31 @@ maybe('document download sanitizes filename and prevents path traversal', async 
 
   await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
 });
+
+maybe('both approval paths record formulation_decided_at', async () => {
+  // Path 1: PATCH /:id with remarksStatus = Approved.
+  const viaPatch = await createTrf({ batchNumber: `FDT-PATCH-${Date.now()}` });
+  assert.equal(viaPatch.status, 201, JSON.stringify(viaPatch.body));
+  const patchId = viaPatch.body.id;
+  const patchApprove = await api(`/api/trfs/${patchId}`, {
+    method: 'PATCH', body: JSON.stringify({ version: viaPatch.body.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(patchApprove.status, 200, JSON.stringify(patchApprove.body));
+  const patchRow = await pool.query<{ formulation_decided_at: Date | null }>(
+    'SELECT formulation_decided_at FROM trfs WHERE id = $1', [patchId]);
+  assert.ok(patchRow.rows[0].formulation_decided_at, 'PATCH approval must set formulation_decided_at');
+
+  // Path 2: POST /:id/decision with track = FORMULATION on a fresh TRF.
+  const viaDecision = await createTrf({ batchNumber: `FDT-DECISION-${Date.now()}` });
+  assert.equal(viaDecision.status, 201, JSON.stringify(viaDecision.body));
+  const decisionId = viaDecision.body.id;
+  const decisionApprove = await api(`/api/trfs/${decisionId}/decision`, {
+    method: 'POST', body: JSON.stringify({ track: 'FORMULATION', decision: 'Approved', version: viaDecision.body.version }),
+  }, adminToken);
+  assert.equal(decisionApprove.status, 200, JSON.stringify(decisionApprove.body));
+  const decisionRow = await pool.query<{ formulation_decided_at: Date | null }>(
+    'SELECT formulation_decided_at FROM trfs WHERE id = $1', [decisionId]);
+  assert.ok(decisionRow.rows[0].formulation_decided_at, 'decision-route approval must set formulation_decided_at');
+
+  await pool.query('DELETE FROM trfs WHERE id = ANY($1)', [[patchId, decisionId]]);
+});

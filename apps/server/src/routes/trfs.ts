@@ -1980,7 +1980,37 @@ trfsRouter.get('/:id/ard-history', requirePermission('trf.view'), async (req, re
       id: r.id, oldStatus: r.old_status, newStatus: r.new_status,
       changedByName: r.changed_by_name, changedAt: new Date(r.changed_at).toISOString(), note: r.note,
     }));
-    res.json({ items });
+
+    // Analyst reassignments, phrased for the history tab: who moved the test, from
+    // whom to whom, and why. The names are resolved from the stored id arrays.
+    const reassignResult = await pool.query<{
+      id: number; test_name: string; old_ids: number[]; new_ids: number[];
+      changed_by_name: string | null; changed_at: Date; reason: string | null;
+    }>(
+      `SELECT h.id, a.test_name, h.old_analyst_ids AS old_ids, h.new_analyst_ids AS new_ids,
+              e.full_name AS changed_by_name, h.changed_at, h.reason
+         FROM ard_test_assignment_history h
+         JOIN ard_test_assignments a ON a.id = h.assignment_id
+         LEFT JOIN employees e ON e.id = h.changed_by
+        WHERE a.trf_id = $1 AND h.action = 'REASSIGNED'
+        ORDER BY h.changed_at DESC, h.id DESC`,
+      [id],
+    );
+    const nameMap = new Map<number, string>();
+    const idRows = await pool.query<{ id: number; full_name: string }>(`SELECT id, full_name FROM employees`);
+    for (const r of idRows.rows) nameMap.set(r.id, r.full_name);
+    const names = (ids: number[]) => ids.map((i) => nameMap.get(i) ?? `#${i}`).join(', ');
+    const reassignments = reassignResult.rows.map((r) => ({
+      id: r.id,
+      testName: r.test_name,
+      fromNames: names(r.old_ids),
+      toNames: names(r.new_ids),
+      changedByName: r.changed_by_name,
+      changedAt: new Date(r.changed_at).toISOString(),
+      reason: r.reason,
+      note: `Reassigned from ${names(r.old_ids)} to ${names(r.new_ids)} by ${r.changed_by_name ?? 'an AGM'}${r.reason ? ` because ${r.reason}` : ''}.`,
+    }));
+    res.json({ items, reassignments });
   } catch (err) {
     next(err);
   }

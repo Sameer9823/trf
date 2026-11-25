@@ -18,7 +18,7 @@ import { pool, withTransaction } from '../db.js';
 import { AppError, badRequest, conflict, forbidden, notFound, versionConflict } from '../lib/errors.js';
 import { writeAudit } from '../lib/audit.js';
 import { createNotification, notifyEmployee } from '../lib/notifications.js';
-import { authenticate, currentEmployee, requirePermission, requireAssignmentsManage, validateBody } from '../middleware/auth.js';
+import { authenticate, currentEmployee, requirePermission, requireAssignmentsManage, requireReassign, validateBody } from '../middleware/auth.js';
 import { DOCUMENT_DIR } from '../config.js';
 import { testOverdueSql, TEST_OVERDUE_SQL } from '../lib/ard-workload-sql.js';
 import { readPdfBody } from '../lib/read-pdf-body.js';
@@ -59,12 +59,24 @@ const updateAssignmentSchema = z.object({
   analystIds: z.array(z.number().int().positive()).optional(),
   dueDate: ISO_DATE.nullable().optional(),
   reason: z.string().trim().max(500).nullable().optional(),
+  /** AGM confirmation to reassign a test whose result is already awaiting review. */
+  confirm: z.boolean().optional(),
 });
 
 const statusUpdateSchema = z.object({
   version: z.number().int().positive(),
   status: z.enum(ARD_TEST_ASSIGNMENT_STATUSES),
   reason: z.string().trim().max(500).nullable().optional(),
+});
+
+const reassignBulkSchema = z.object({
+  reason: z.string().trim().max(500).nullable().optional(),
+  confirm: z.boolean().optional(),
+  items: z.array(z.object({
+    assignmentId: z.number().int().positive(),
+    version: z.number().int().positive(),
+    analystIds: z.array(z.number().int().positive()),
+  })).min(1, 'At least one test is required.'),
 });
 
 /** Verify analyst is active and not a Viewer */
@@ -83,6 +95,114 @@ async function assertValidAnalyst(analystId: number, client?: { query: (sql: str
 /** Check if user can manage ARD assignments (Admin or Manager with assignments.manage) */
 function canManageArdAssignments(role: string): boolean {
   return roleHasPermission(role as any, 'assignments.manage');
+}
+
+/** The subset of a transaction client the reassign helper needs. */
+type QueryRunner = { query: <T = any>(sql: string, params?: unknown[]) => Promise<{ rows: T[]; rowCount: number | null }> };
+
+const REASSIGN_REASON_REQUIRED = 'A reason is required when the analyst changes. Choose Absent, On leave, Overloaded or Other.';
+const REASSIGN_CONFIRM_REQUIRED = 'A result for this test is already waiting for review. Reassign only if you are sure, and confirm.';
+
+/**
+ * The one place an analyst set is swapped, shared by PATCH, the bulk upsert and
+ * the bulk-reassign endpoint so the history, notifications, the TRF's primary
+ * analyst and the "result awaiting review" guard can never drift apart.
+ *
+ * Enforces: a reason when someone is removed (the absent/unavailable case), an
+ * explicit confirm when a result is already awaiting review, and valid analysts.
+ * Never touches the entered result or the uploaded file - the history keeps them.
+ */
+async function applyAnalystChange(client: QueryRunner, params: {
+  assignmentId: number;
+  trfId: number;
+  trfNumber: string;
+  testName: string;
+  currentAnalystIds: number[];
+  newAnalystIds: number[];
+  reason: string | null;
+  changedBy: number;
+  confirmAwaitingReview?: boolean;
+}): Promise<{ addedIds: number[]; removedIds: number[]; changed: boolean }> {
+  const { assignmentId, trfId, trfNumber, testName, currentAnalystIds } = params;
+  const newAnalystIds = params.newAnalystIds;
+  const reason = params.reason?.trim() ? params.reason.trim() : null;
+  const addedIds = newAnalystIds.filter((id) => !currentAnalystIds.includes(id));
+  const removedIds = currentAnalystIds.filter((id) => !newAnalystIds.includes(id));
+  if (addedIds.length === 0 && removedIds.length === 0) return { addedIds, removedIds, changed: false };
+
+  // A change that replaces the current analyst (someone is absent/unavailable and
+  // a replacement is named) must say why. A pure addition (extra help) or a pure
+  // removal (unassign) does not, so the inline add/remove quick actions still work.
+  if (removedIds.length > 0 && addedIds.length > 0 && !reason) {
+    throw badRequest(REASSIGN_REASON_REQUIRED, { reason: 'A reason is required when the analyst changes.' });
+  }
+
+  // A result already submitted and waiting for review is not silently moved:
+  // the AGM must confirm, because the new analyst cannot resubmit until it is reviewed.
+  if (!params.confirmAwaitingReview) {
+    const pending = await client.query(
+      `SELECT 1 FROM ard_assignment_results WHERE assignment_id = $1 AND review_status = 'Submitted'`, [assignmentId]);
+    if (pending.rowCount) {
+      throw badRequest(REASSIGN_CONFIRM_REQUIRED, { confirm: 'Confirm that the result awaiting review should stay with this test.' });
+    }
+  }
+
+  // Validate the incoming analysts (active, not a Viewer).
+  await Promise.all(newAnalystIds.map((id) => assertValidAnalyst(id, client as any)));
+
+  await client.query(
+    `INSERT INTO ard_test_assignment_history (assignment_id, action, old_analyst_ids, new_analyst_ids, changed_by, reason) VALUES ($1, 'REASSIGNED', $2, $3, $4, $5)`,
+    [assignmentId, currentAnalystIds, newAnalystIds, params.changedBy, reason]);
+  await client.query(`DELETE FROM ard_test_assignment_analysts WHERE assignment_id = $1`, [assignmentId]);
+  for (const analystId of newAnalystIds) {
+    await client.query(
+      `INSERT INTO ard_test_assignment_analysts (assignment_id, analyst_id, assigned_by) VALUES ($1, $2, $3)`,
+      [assignmentId, analystId, params.changedBy]);
+  }
+
+  // Notifications: the new analyst gains the test, the old one loses it.
+  for (const analystId of addedIds) {
+    await createNotification(client as any, {
+      recipientEmployeeId: analystId, type: 'ARD_TEST_ASSIGNED', title: 'New ARD Test Assigned',
+      body: `You have been assigned a new analysis test: ${testName} for TRF ${trfNumber}.`,
+      trfId, link: `/trfs/${trfNumber}`,
+    });
+  }
+  for (const analystId of removedIds) {
+    await createNotification(client as any, {
+      recipientEmployeeId: analystId, type: 'ARD_TEST_REASSIGNED', title: 'ARD Test Reassigned',
+      body: `You have been unassigned from the analysis test: ${testName} for TRF ${trfNumber}.`,
+      trfId, link: `/trfs/${trfNumber}`,
+    });
+  }
+
+  // The TRF follows the new person and leaves the previous analyst's view. If the
+  // TRF's assigned employee or primary analyst was just removed and no longer has
+  // any test on this TRF, move it to the replacement (or clear it). The list scope
+  // matches on assigned_employee_id, so this is what drops the TRF from the old
+  // analyst's list. created_by (ownership) is left untouched.
+  const stillAssigned = await client.query<{ analyst_id: number }>(
+    `SELECT DISTINCT ataa.analyst_id
+       FROM ard_test_assignment_analysts ataa
+       JOIN ard_test_assignments ata ON ata.id = ataa.assignment_id
+      WHERE ata.trf_id = $1`, [trfId]);
+  const remaining = new Set(stillAssigned.rows.map((r) => r.analyst_id));
+  const trf = (await client.query<{ assigned_employee_id: number | null; ard_analyst_id: number | null }>(
+    `SELECT assigned_employee_id, ard_analyst_id FROM trfs WHERE id = $1`, [trfId])).rows[0];
+  if (trf) {
+    const gone = removedIds.filter((id) => !remaining.has(id));
+    const replacement = newAnalystIds[0] ?? null;
+    const assigned = trf.assigned_employee_id;
+    const ardAnalyst = trf.ard_analyst_id;
+    const newAssigned = assigned != null && gone.includes(assigned) ? replacement : assigned;
+    const newArd = ardAnalyst != null && gone.includes(ardAnalyst) ? replacement : ardAnalyst;
+    if (newAssigned !== assigned || newArd !== ardAnalyst) {
+      await client.query(`UPDATE trfs SET assigned_employee_id = $2, ard_analyst_id = $3 WHERE id = $1`,
+        [trfId, newAssigned, newArd]);
+    }
+  }
+
+  return { addedIds, removedIds, changed: true };
 }
 
 /** Map snake_case DB row to camelCase ArdTestAssignment */
@@ -461,8 +581,60 @@ ardAssignmentsRouter.post('/bulk', requireAssignmentsManage(), validateBody(bulk
   } catch (err) { next(err); }
 });
 
+/**
+ * POST /api/ard-assignments/reassign-bulk - move the open tests of an absent
+ * analyst to a replacement (one for all, or one per test) in ONE transaction.
+ * All-or-nothing: a per-row version check returns 409 if someone else changed a
+ * row, and any error rolls the whole batch back. Reuses applyAnalystChange.
+ */
+ardAssignmentsRouter.post('/reassign-bulk', requireReassign(), validateBody(reassignBulkSchema), async (req, res, next) => {
+  const assigner = currentEmployee(req);
+  try {
+    const body = req.body as z.infer<typeof reassignBulkSchema>;
+    const items = await withTransaction(async (client) => {
+      const out: { assignmentId: number; changed: boolean; version: number }[] = [];
+      for (const item of body.items) {
+        const existing = await client.query<{ id: number; version: number; trf_id: number; status: ArdTestAssignmentStatus; test_name: string }>(
+          `SELECT id, version, trf_id, status, test_name FROM ard_test_assignments WHERE id = $1 FOR UPDATE`, [item.assignmentId]);
+        const assignment = existing.rows[0];
+        if (!assignment) throw notFound('A test in this reassignment no longer exists. It may have been deleted.');
+        if (assignment.version !== item.version) {
+          throw new AppError(409, 'VERSION_CONFLICT',
+            `"${assignment.test_name}" was changed by someone else. Reload and try again.`);
+        }
+        if (assignment.status === 'Completed' || assignment.status === 'Cancelled') {
+          throw conflict(`"${assignment.test_name}" is ${assignment.status.toLowerCase()} and cannot be reassigned.`);
+        }
+        const trf = (await client.query<{ locked_at: string | null; trf_number: string }>(
+          `SELECT locked_at, trf_number FROM trfs WHERE id = $1`, [assignment.trf_id])).rows[0];
+        if (trf?.locked_at) throw conflict('A TRF in this reassignment is locked and cannot be edited.');
+
+        const current = await client.query<{ analyst_id: number }>(
+          `SELECT analyst_id FROM ard_test_assignment_analysts WHERE assignment_id = $1`, [item.assignmentId]);
+        const change = await applyAnalystChange(client, {
+          assignmentId: assignment.id, trfId: assignment.trf_id,
+          trfNumber: trf?.trf_number ?? String(assignment.trf_id), testName: assignment.test_name,
+          currentAnalystIds: current.rows.map((r) => r.analyst_id), newAnalystIds: item.analystIds,
+          reason: body.reason ?? null, changedBy: assigner.id, confirmAwaitingReview: body.confirm,
+        });
+        if (change.changed) {
+          await client.query(`UPDATE ard_test_assignments SET version = version + 1 WHERE id = $1`, [assignment.id]);
+          await writeAudit(client, {
+            userId: assigner.id, userName: assigner.fullName, action: 'assignment.reassign_bulk', module: 'assignments',
+            recordType: 'ArdTestAssignment', recordRef: String(assignment.id),
+            newValue: { analystIds: item.analystIds, reason: body.reason ?? null },
+          });
+        }
+        out.push({ assignmentId: assignment.id, changed: change.changed, version: assignment.version + (change.changed ? 1 : 0) });
+      }
+      return out;
+    });
+    res.json({ items });
+  } catch (err) { next(err); }
+});
+
 /** PATCH /api/ard-assignments/:id - Update status, reassign analysts, or add a reason */
-ardAssignmentsRouter.patch('/:id', requireAssignmentsManage(), validateBody(updateAssignmentSchema), async (req, res, next) => {
+ardAssignmentsRouter.patch('/:id', requireReassign(), validateBody(updateAssignmentSchema), async (req, res, next) => {
   const assigner = currentEmployee(req);
   try {
     const assignmentId = Number(req.params.id);
@@ -520,51 +692,12 @@ ardAssignmentsRouter.patch('/:id', requireAssignmentsManage(), validateBody(upda
       }
 
       if (body.analystIds !== undefined) {
-        const newAnalystIds = body.analystIds;
-        const addedIds = newAnalystIds.filter(id => !currentAnalystIds.includes(id));
-        const removedIds = currentAnalystIds.filter(id => !newAnalystIds.includes(id));
-
-        if (addedIds.length > 0 || removedIds.length > 0) {
-          // Validate new analysts
-          await Promise.all(newAnalystIds.map(id => assertValidAnalyst(id, client)));
-
-          await client.query(
-            `INSERT INTO ard_test_assignment_history (assignment_id, action, old_analyst_ids, new_analyst_ids, changed_by, reason) VALUES ($1, $2, $3, $4, $5, $6)`,
-            [assignmentId, 'REASSIGNED', currentAnalystIds, newAnalystIds, assigner.id, body.reason ?? null],
-          );
-
-          await client.query(`DELETE FROM ard_test_assignment_analysts WHERE assignment_id = $1`, [assignmentId]);
-          for (const analystId of newAnalystIds) {
-            await client.query(
-              `INSERT INTO ard_test_assignment_analysts (assignment_id, analyst_id, assigned_by) VALUES ($1, $2, $3)`,
-              [assignmentId, analystId, assigner.id],
-            );
-          }
-
-          // Notifications for added
-          for (const analystId of addedIds) {
-            await createNotification(client, {
-              recipientEmployeeId: analystId,
-              type: 'ARD_TEST_ASSIGNED',
-              title: 'New ARD Test Assigned',
-              body: `You have been assigned a new analysis test: ${assignment.test_name} for TRF ${trfNumber}.`,
-              trfId: assignment.trf_id,
-              link: `/trfs/${trfNumber}`,
-            });
-          }
-          // Notifications for removed
-          for (const analystId of removedIds) {
-            await createNotification(client, {
-              recipientEmployeeId: analystId,
-              type: 'ARD_TEST_REASSIGNED',
-              title: 'ARD Test Reassigned',
-              body: `You have been unassigned from the analysis test: ${assignment.test_name} for TRF ${trfNumber}.`,
-              trfId: assignment.trf_id,
-              link: `/trfs/${trfNumber}`,
-            });
-          }
-          newVersion++;
-        }
+        const change = await applyAnalystChange(client, {
+          assignmentId, trfId: assignment.trf_id, trfNumber, testName: assignment.test_name,
+          currentAnalystIds, newAnalystIds: body.analystIds, reason: body.reason ?? null,
+          changedBy: assigner.id, confirmAwaitingReview: body.confirm,
+        });
+        if (change.changed) newVersion++;
       }
 
       // Audit
@@ -1475,11 +1608,11 @@ ardAssignmentsRouter.get('/employees/:id', requireAssignmentsManage(), async (re
     const offset = (q.page - 1) * pageSize;
 
     const listResult = await pool.query<{
-      trf_id: number; trf_number: string; ard_number: string | null; product_name: string | null;
+      assignment_id: number; assignment_version: number; trf_id: number; trf_number: string; ard_number: string | null; product_name: string | null;
       test_name: string; test_status: ArdTestAssignmentStatus; review_status: string | null;
       assigned_at: Date | string | null; due_date: string | null; is_delayed: boolean;
     }>(
-      `SELECT ata.trf_id, t.trf_number, t.ard_number, p.name AS product_name,
+      `SELECT ata.id AS assignment_id, ata.version AS assignment_version, ata.trf_id, t.trf_number, t.ard_number, p.name AS product_name,
         ata.test_name, ata.status AS test_status, r.review_status,
         ataa.assigned_at, ata.due_date, (${TEST_OVERDUE_SQL}) AS is_delayed
        ${fromSql} ${whereSql}
@@ -1491,6 +1624,8 @@ ardAssignmentsRouter.get('/employees/:id', requireAssignmentsManage(), async (re
     res.json({
       summary,
       items: listResult.rows.map((row) => ({
+        assignmentId: Number(row.assignment_id),
+        assignmentVersion: Number(row.assignment_version),
         trfId: row.trf_id,
         trfNumber: row.trf_number,
         arNumber: row.ard_number,

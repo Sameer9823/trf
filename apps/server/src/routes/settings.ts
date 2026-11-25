@@ -47,12 +47,21 @@ settingsRouter.get('/form', requirePermission('trf.view'), async (_req, res, nex
       `SELECT key, value FROM system_settings WHERE key IN ('FORM_SOP_NO', 'FORM_REVISION', 'FORM_EFFECTIVE_DATE', 'FORM_ISSUED_BY', 'FORM_DEPARTMENT')`
     );
     const map = Object.fromEntries(result.rows.map((r) => [r.key, r.value]));
+    // The name printed in the "Approved by" box is the GM, read from the server
+    // (never the client). If more than one active GM exists, the lowest id wins
+    // so the printed name is deterministic; with none, the box prints empty.
+    const gm = await pool.query<{ full_name: string }>(
+      `SELECT full_name FROM employees
+        WHERE designation = 'GM' AND is_active = TRUE
+        ORDER BY id ASC LIMIT 1`
+    );
     res.json({
       sopNo: map.FORM_SOP_NO ?? 'QAQN-003:F1',
       revision: map.FORM_REVISION ?? '00',
       effectiveDate: map.FORM_EFFECTIVE_DATE ?? '',
       issuedBy: map.FORM_ISSUED_BY ?? '',
       department: map.FORM_DEPARTMENT ?? 'Quality Assurance',
+      approvedByName: gm.rows[0]?.full_name ?? '',
     });
   } catch (err) { next(err); }
 });

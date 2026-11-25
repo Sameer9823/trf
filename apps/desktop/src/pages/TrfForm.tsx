@@ -414,6 +414,10 @@ export function TrfForm() {
   const [testAssignments, setTestAssignments] = useState<ArdTestAssignment[]>([]);
   const [ardEmployees, setArdEmployees] = useState<EmployeeOption[]>([]);
   const [loadingAssignments, setLoadingAssignments] = useState(false);
+  // Open-test counts per ARD employee (for the Change analyst picker) and the
+  // test currently being reassigned.
+  const [workload, setWorkload] = useState<Record<number, number>>({});
+  const [changeTarget, setChangeTarget] = useState<ArdTestAssignment | null>(null);
   // An approved TRF is locked for everyone. Only an administrator can unlock it, from the TRF page.
   const locked = !!trfData?.lockedAt;
   const isApproved = isEdit && trfData ? trfData.remarksStatus === 'Approved' : false;
@@ -613,6 +617,22 @@ export function TrfForm() {
   }, [id, isEdit]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Open-test counts per ARD employee, for the Change analyst picker. Best-effort:
+  // a failure just leaves the counts blank.
+  useEffect(() => {
+    if (!canManageAssignments) return;
+    let cancelled = false;
+    void window.trf.request<{ items: { employeeId: number; assigned: number; inProgress: number; submitted: number }[] }>({
+      method: 'GET', path: '/api/ard-assignments/team-workload',
+    }).then((r) => {
+      if (cancelled || !r.ok || !r.data) return;
+      const map: Record<number, number> = {};
+      for (const w of r.data.items) map[w.employeeId] = w.assigned + w.inProgress + w.submitted;
+      setWorkload(map);
+    });
+    return () => { cancelled = true; };
+  }, [canManageAssignments]);
 
   // Test assignment helper functions. All of them reload from the server afterwards, so the
   // screen always shows the stored state and the current version number.
@@ -917,6 +937,13 @@ body.specialInstructions = form.specialInstructions.trim() || null;
                         }}>
                           {assignmentStatus === 'Completed' ? '●' : isAssigned ? '●' : '○'} {assignmentStatus === 'Completed' ? 'Completed' : isAssigned ? 'Assigned' : 'Unassigned'}
                         </span>
+                        {canManageAssignments && isAssigned
+                          && assignmentStatus !== 'Completed' && assignmentStatus !== 'Cancelled' && (
+                          <button type="button" className="btn btn--ghost btn--sm" style={{ marginLeft: '8px' }}
+                            onClick={() => setChangeTarget(existingAssignment ?? null)}>
+                            Change analyst
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1331,6 +1358,106 @@ body.specialInstructions = form.specialInstructions.trim() || null;
           </div>
         </div>
       </form>
+      {changeTarget && (
+        <ChangeAnalystDialog
+          assignment={changeTarget}
+          employees={ardEmployees.filter((e) => !(changeTarget.analystIds ?? []).includes(e.id))}
+          workload={workload}
+          onClose={() => setChangeTarget(null)}
+          onSaved={async () => { setChangeTarget(null); await reloadAssignments(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+const REASSIGN_REASONS = ['Absent', 'On leave', 'Overloaded', 'Other'] as const;
+
+/** Change the analyst on one ARD test: a replacement, a required reason, and the
+ *  same-person guard. The server enforces the reason and the awaiting-review confirm. */
+function ChangeAnalystDialog({ assignment, employees, workload, onClose, onSaved }: {
+  assignment: ArdTestAssignment;
+  employees: EmployeeOption[];
+  workload: Record<number, number>;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const currentIds = assignment.analystIds ?? [];
+  const [toId, setToId] = useState('');
+  const [reasonKind, setReasonKind] = useState<string>('');
+  const [reasonText, setReasonText] = useState('');
+  const [confirmReview, setConfirmReview] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const awaitingReview = assignment.reviewStatus === 'Submitted';
+
+  const reason = reasonKind === 'Other' ? reasonText.trim() : reasonKind;
+  const samePerson = toId !== '' && currentIds.includes(Number(toId));
+  const canSubmit = !!toId && !samePerson && !!reason && (!awaitingReview || confirmReview) && !busy;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setBusy(true);
+    setError(null);
+    const res = await window.trf.request({
+      method: 'PATCH', path: `/api/ard-assignments/${assignment.id}`,
+      body: {
+        version: assignment.version,
+        analystIds: [Number(toId)],
+        reason,
+        confirm: confirmReview,
+      },
+    });
+    setBusy(false);
+    if (!res.ok) { setError(messageOf(res.data, 'The analyst could not be changed.')); return; }
+    await onSaved();
+  };
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Change analyst">
+      <div className="modal">
+        <div className="modal__head">
+          <h3>Change analyst — {assignment.testName}</h3>
+          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal__body">
+          <Field htmlFor="reassign-to" label="New analyst">
+            <select id="reassign-to" value={toId} disabled={busy} onChange={(e) => setToId(e.target.value)}>
+              <option value="">Select an analyst…</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id} disabled={samePerson && String(e.id) === toId}>
+                  {e.fullName} — {workload[e.id] ?? 0} open
+                </option>
+              ))}
+            </select>
+          </Field>
+          {samePerson && <p className="field-error">That is already the assigned analyst. Pick someone else.</p>}
+          <Field htmlFor="reassign-reason" label="Reason (required)">
+            <div className="row" style={{ gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+              {REASSIGN_REASONS.map((r) => (
+                <button key={r} type="button" className={`btn btn--sm ${reasonKind === r ? 'btn--primary' : 'btn--ghost'}`}
+                  onClick={() => setReasonKind(r)}>{r}</button>
+              ))}
+            </div>
+            {reasonKind === 'Other'
+              ? <textarea id="reassign-reason" rows={2} value={reasonText} disabled={busy} onChange={(e) => setReasonText(e.target.value)} placeholder="Tell the team why." />
+              : <input id="reassign-reason" value={reasonKind} disabled readOnly placeholder="Choose a reason above." />}
+          </Field>
+          {awaitingReview && (
+            <label className="checkbox">
+              <input type="checkbox" checked={confirmReview} disabled={busy} onChange={(e) => setConfirmReview(e.target.checked)} />
+              A result is already waiting for review. I confirm the new analyst should take over this test.
+            </label>
+          )}
+          {error && <p className="field-error" role="alert">{error}</p>}
+        </div>
+        <div className="modal__foot">
+          <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="btn btn--primary" onClick={submit} disabled={!canSubmit}>
+            {busy ? 'Changing…' : 'Change analyst'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -800,7 +800,10 @@ h2 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
 .trf-form__footer { display: grid; grid-template-columns: 1fr 1fr; margin-top: 4mm; }
 .trf-form__footer > div { padding: 1.5mm 2mm; min-width: 0; overflow-wrap: anywhere; }
 .trf-form__footer .head { text-align: center; font-weight: 700; }
-.trf-form__sign { min-height: 18mm; display: flex; align-items: flex-end; gap: 2mm; flex-wrap: wrap; }
+.trf-form__sign { min-height: 18mm; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 2mm; }
+.trf-form__sign-top { display: flex; flex-direction: column; gap: 0.5mm; }
+.trf-form__name { font-weight: 700; overflow-wrap: anywhere; }
+.trf-form__date { overflow-wrap: anywhere; }
 .trf-form__page { text-align: right; }
 
 .trf-print__printed-note { font-size: 7pt; text-align: center; margin: 1mm 0 0; color: #333; font-family: 'Times New Roman', 'Liberation Serif', serif; }

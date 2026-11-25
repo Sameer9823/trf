@@ -14,9 +14,19 @@ interface PrintSettings {
   effectiveDate: string;
   issuedBy: string;
   department: string;
+  /** The GM's name printed in the "Approved by" box, read from the server. */
+  approvedByName: string;
 }
 
-const DEFAULT_SETTINGS: PrintSettings = { sopNo: 'QAQN-003:F1', revision: '00', effectiveDate: '', issuedBy: '', department: 'Quality Assurance' };
+const DEFAULT_SETTINGS: PrintSettings = { sopNo: 'QAQN-003:F1', revision: '00', effectiveDate: '', issuedBy: '', department: 'Quality Assurance', approvedByName: '' };
+
+/** One row of GET /api/trfs/:id/approvals, used only for the legacy approval-date fallback. */
+interface ApprovalItem {
+  id: number;
+  track: string;
+  status: string;
+  decidedAt: string | null;
+}
 
 /** A date-only value is a calendar day, so it must not move with the time zone. Returns dd-mm-yyyy, or '' when there is none. */
 function ddMMyyyy(value: string | null | undefined): string {
@@ -40,6 +50,10 @@ export function TrfPrint() {
   const { employee } = useAuth();
   const [trf, setTrf] = useState<TrfDetail | null>(null);
   const [settings, setSettings] = useState<PrintSettings | null>(null);
+  // The approval trail, read only to fill the Approved by date for TRFs approved
+  // before formulation_decided_at was recorded.
+  const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
+  const [approvalsLoaded, setApprovalsLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [logoLoaded, setLogoLoaded] = useState(false);
@@ -72,7 +86,30 @@ export function TrfPrint() {
     });
   }, []);
 
+  // The approval trail fills the Approved by date only when formulation_decided_at
+  // is empty (a TRF approved before that column was recorded). Best-effort: a
+  // failure leaves the fallback empty, and the page still prints.
+  useEffect(() => {
+    if (!id) return;
+    if (state === 'offline') { setApprovalsLoaded(true); return; }
+    let cancelled = false;
+    void window.trf.request<{ items: ApprovalItem[] }>({ method: 'GET', path: `/api/trfs/${id}/approvals` }).then((res) => {
+      if (cancelled) return;
+      if (res.ok && res.data) setApprovals(res.data.items ?? []);
+    }).finally(() => { if (!cancelled) setApprovalsLoaded(true); });
+    return () => { cancelled = true; };
+  }, [id, state]);
+
   const canPrint = !!trf && !!trf.lockedAt && trf.finalApprovalStatus === 'Approved';
+
+  // The Approved by date: the recorded formulation decision, or, for a TRF
+  // approved before that column existed, the latest FORMULATION Approved row.
+  const approvedDate = useMemo(() => {
+    if (!trf || trf.formulationApprovalStatus !== 'Approved') return '';
+    if (trf.formulationDecidedAt) return ddMMyyyy(trf.formulationDecidedAt);
+    const latest = approvals.find((a) => a.track === 'FORMULATION' && a.status === 'Approved');
+    return latest?.decidedAt ? ddMMyyyy(latest.decidedAt) : '';
+  }, [trf, approvals]);
 
   // Tells the Electron main process (which makes the PDF from a hidden window) when the form is completely drawn,
   // or that it failed. Must stay above the early returns below.
@@ -81,13 +118,13 @@ export function TrfPrint() {
     if (error) {
       root.dataset.printError = error;
       root.dataset.printState = 'error';
-    } else if (trf && settings && (logoLoaded || logoError)) {
+    } else if (trf && settings && approvalsLoaded && (logoLoaded || logoError)) {
       root.dataset.printState = 'ready';
     } else {
       root.dataset.printState = 'loading';
     }
     return () => { delete root.dataset.printState; delete root.dataset.printError; };
-  }, [trf, settings, logoLoaded, logoError, error]);
+  }, [trf, settings, approvalsLoaded, logoLoaded, logoError, error]);
 
   /** Records the print in the audit trail and waits for the logo, so it is never missing from a copy. */
   async function prepare(format: 'print' | 'pdf'): Promise<boolean> {
@@ -222,9 +259,17 @@ export function TrfPrint() {
           <div className="head">Prepared by</div>
           <div className="head">Approved by</div>
           <div className="trf-form__sign">
+            <span className="trf-form__sign-top">
+              <span className="trf-form__name">{trf.sampleSubmittedByName ?? ''}</span>
+              <span className="trf-form__date">{ddMMyyyy(trf.createdAt)}</span>
+            </span>
             <span className="trf-form__label">Signature/ Date</span>
           </div>
           <div className="trf-form__sign">
+            <span className="trf-form__sign-top">
+              <span className="trf-form__name">{settings.approvedByName}</span>
+              <span className="trf-form__date">{approvedDate}</span>
+            </span>
             <span className="trf-form__label">Signature/ Date</span>
           </div>
           <div><span className="trf-form__label">Department:</span> {settings.department}</div>

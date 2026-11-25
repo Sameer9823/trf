@@ -9,6 +9,13 @@ import { ServerStatusContext } from '../lib/server-status';
 import type { AuthSessionState } from '../lib/auth';
 import { TrfPrint } from './TrfPrint';
 
+/** Mirrors ddMMyyyy in TrfPrint.tsx so the expected strings are computed the same way (in whatever TZ is active). */
+function ddMMyyyy(value: string | null | undefined): string {
+  if (!value) return '';
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-GB').replace(/\//g, '-');
+}
+
 /**
  * The printed TRF reproduces the company's paper form. It prints only once the TRF is approved and
  * locked, every print is recorded before it happens, and the form names the administrator who gave
@@ -39,6 +46,7 @@ function trf(overrides: Partial<TrfDetail> = {}): TrfDetail {
     manufacturingDate: '2026-09-01', expiryDate: '2028-09-01', remarks: 'Keep cold', sampleGivenBy: 'Stores', sampleSubmittedByName: 'Bhavin Patel',
     sampleReceivedByName: 'Ketan Sharma', ardNumber: 'ARD/2026/0004', createdByName: 'Bhavin Patel', createdAt: '2026-10-23T05:00:00Z',
     ardDecidedByName: 'Meena Rao', finalDecidedByName: 'Meena Rao', finalDecidedAt: '2026-10-26T10:30:00Z', finalApprovalStatus: 'Approved', lockedAt: '2026-10-26T10:30:00Z',
+    formulationApprovalStatus: 'Approved', formulationDecidedByName: 'Meena Rao', formulationDecidedAt: '2026-10-26T10:30:00Z',
     ...overrides,
   } as TrfDetail;
 }
@@ -49,9 +57,10 @@ function mount(record: TrfDetail, bridge: Partial<Record<string, unknown>> = {})
       calls.push(req);
       if (req.method === 'GET' && req.path === '/api/trfs/1') return { ok: true, status: 200, data: record };
       if (req.method === 'GET' && req.path === '/api/settings/form') {
-        return { ok: true, status: 200, data: { sopNo: 'QAQN-003:F1', revision: '00', effectiveDate: '20/01/26', issuedBy: 'Quality Head', department: 'Quality Assurance' } };
+        return { ok: true, status: 200, data: { sopNo: 'QAQN-003:F1', revision: '00', effectiveDate: '20/01/26', issuedBy: 'Quality Head', department: 'Quality Assurance', approvedByName: 'Ramesh Iyer' } };
       }
       if (req.method === 'POST' && req.path === '/api/trfs/1/print-log') return { ok: true, status: 200, data: { ok: true } };
+      if (req.method === 'GET' && req.path === '/api/trfs/1/approvals') return { ok: true, status: 200, data: { items: [] } };
       return { ok: false, status: 404 };
     },
     printTrf: vi.fn(async () => ({ ok: true })),
@@ -154,7 +163,7 @@ test('the entry form keeps its own .trf-form class and the printed form does not
   expect(root?.querySelector('.trf-form')).toBeFalsy();
 });
 
-test('the values come from the TRF, the dates keep their calendar day, and Approved by is the final approver', async () => {
+test('the values come from the TRF, the dates keep their calendar day, Prepared by is the sampler and Approved by is the GM', async () => {
   mount(trf());
   await screen.findByText('Test Request Form');
   const body = document.body.textContent ?? '';
@@ -175,10 +184,97 @@ test('the values come from the TRF, the dates keep their calendar day, and Appro
   expect((footer.match(/Signature\/ Date/g) ?? []).length).toBe(2);
   expect(footer).toContain('Department:');
   expect(footer).not.toContain('Quality Head');        // who issued the form is not who approved the TRF
-  expect(footer).not.toContain('Meena Rao');            // the approver is signed by hand, not printed
-  expect(footer).not.toContain('Bhavin Patel');         // the creator is signed by hand, not printed
-  expect(footer).not.toContain('26-10-2026');           // the approval date is signed by hand, not printed
-  expect(footer).not.toContain('23-10-2026');           // the creation date is signed by hand, not printed
+  expect(footer).toContain('Bhavin Patel');            // Prepared by prints the sampler's name
+  expect(footer).toContain('Ramesh Iyer');             // Approved by prints the GM's name from the server
+  expect(footer).not.toContain('Meena Rao');            // the final approver signs by hand, not printed
+  expect(footer).toContain(ddMMyyyy('2026-10-23T05:00:00Z'));  // Prepared by prints the creation date
+  expect(footer).toContain(ddMMyyyy('2026-10-26T10:30:00Z'));  // Approved by prints the formulation approval date
+});
+
+test('Prepared by shows the sampler name and creation date, Approved by the GM name and approval date', async () => {
+  mount(trf());
+  await screen.findByText('Test Request Form');
+  const footer = document.querySelector('.trf-form__footer')!;
+  const signs = footer.querySelectorAll('.trf-form__sign');
+  expect(signs.length).toBe(2);
+  // Each cell: name and date at the top, then the Signature/ Date label at the bottom.
+  expect(signs[0].querySelector('.trf-form__name')?.textContent).toBe('Bhavin Patel');
+  expect(signs[0].querySelector('.trf-form__date')?.textContent).toBe(ddMMyyyy('2026-10-23T05:00:00Z'));
+  expect(signs[0].querySelector('.trf-form__label')?.textContent).toBe('Signature/ Date');
+  expect(signs[1].querySelector('.trf-form__name')?.textContent).toBe('Ramesh Iyer');
+  expect(signs[1].querySelector('.trf-form__date')?.textContent).toBe(ddMMyyyy('2026-10-26T10:30:00Z'));
+  expect(signs[1].querySelector('.trf-form__label')?.textContent).toBe('Signature/ Date');
+  // The name and date sit before the label, so the label stays at the bottom.
+  const firstCell = signs[0].textContent ?? '';
+  expect(firstCell.indexOf('Bhavin Patel')).toBeLessThan(firstCell.indexOf('Signature/ Date'));
+  expect(firstCell.indexOf(ddMMyyyy('2026-10-23T05:00:00Z'))).toBeLessThan(firstCell.indexOf('Signature/ Date'));
+});
+
+test('the Approved by date is empty when the TRF is not formulation-approved', async () => {
+  mount(trf({ formulationApprovalStatus: 'Pending', formulationDecidedAt: null }));
+  await screen.findByText('Test Request Form');
+  const signs = document.querySelectorAll('.trf-form__footer .trf-form__sign');
+  expect(signs[1].querySelector('.trf-form__date')?.textContent).toBe('');
+  // Prepared by still shows the creation date.
+  expect(signs[0].querySelector('.trf-form__date')?.textContent).toBe(ddMMyyyy('2026-10-23T05:00:00Z'));
+});
+
+test('a timestamp after 18:30 UTC prints the next day in Asia/Calcutta', async () => {
+  // 19:30Z is 01:00 the next day in India, so the day must be 25, not 24. Set the
+  // zone only for this test so the timestamp is formatted in India time.
+  const previous = process.env.TZ;
+  process.env.TZ = 'Asia/Calcutta';
+  try {
+    mount(trf({ createdAt: '2026-11-24T19:30:00Z' }));
+    await screen.findByText('Test Request Form');
+    const signs = document.querySelectorAll('.trf-form__footer .trf-form__sign');
+    expect(signs[0].querySelector('.trf-form__date')?.textContent).toBe('25-11-2026');
+  } finally {
+    process.env.TZ = previous;
+  }
+});
+
+test('the Approved by date falls back to the latest FORMULATION approval when formulationDecidedAt is empty', async () => {
+  mount(trf({ formulationDecidedAt: null }), {
+    request: async (req: Call) => {
+      if (req.method === 'GET' && req.path === '/api/trfs/1') return { ok: true, status: 200, data: trf({ formulationDecidedAt: null }) };
+      if (req.method === 'GET' && req.path === '/api/settings/form') {
+        return { ok: true, status: 200, data: { sopNo: 'QAQN-003:F1', revision: '00', effectiveDate: '', issuedBy: '', department: 'Quality Assurance', approvedByName: 'Ramesh Iyer' } };
+      }
+      if (req.method === 'GET' && req.path === '/api/trfs/1/approvals') {
+        return { ok: true, status: 200, data: { items: [
+          { id: 3, track: 'ARD', status: 'Approved', decidedAt: '2026-10-27T09:00:00Z' },
+          { id: 2, track: 'FORMULATION', status: 'Approved', decidedAt: '2026-10-26T10:30:00Z' },
+          { id: 1, track: 'FORMULATION', status: 'Rejected', decidedAt: '2026-10-25T08:00:00Z' },
+        ] } };
+      }
+      return { ok: false, status: 404 };
+    },
+  });
+  await screen.findByText('Test Request Form');
+  const signs = document.querySelectorAll('.trf-form__footer .trf-form__sign');
+  // The latest FORMULATION Approved row's date, not the ARD one and not the Rejected one.
+  expect(signs[1].querySelector('.trf-form__date')?.textContent).toBe(ddMMyyyy('2026-10-26T10:30:00Z'));
+});
+
+test('Prepared by and Approved by are empty-safe when the names are missing', async () => {
+  mount(trf({ sampleSubmittedByName: null }), {
+    request: async (req: Call) => {
+      if (req.method === 'GET' && req.path === '/api/trfs/1') return { ok: true, status: 200, data: trf({ sampleSubmittedByName: null }) };
+      if (req.method === 'GET' && req.path === '/api/settings/form') {
+        return { ok: true, status: 200, data: { sopNo: 'QAQN-003:F1', revision: '00', effectiveDate: '', issuedBy: '', department: 'Quality Assurance', approvedByName: '' } };
+      }
+      return { ok: false, status: 404 };
+    },
+  });
+  await screen.findByText('Test Request Form');
+  const footer = document.querySelector('.trf-form__footer')!;
+  const signs = footer.querySelectorAll('.trf-form__sign');
+  // No sampler and no GM print empty name cells.
+  expect(signs[0].querySelector('.trf-form__name')?.textContent).toBe('');
+  expect(signs[1].querySelector('.trf-form__name')?.textContent).toBe('');
+  // Both signature labels are still present so there is room to sign.
+  expect(((footer.textContent ?? '').match(/Signature\/ Date/g) ?? []).length).toBe(2);
 });
 
 test('the logo is found relative to the page, so it still loads from the packaged app', async () => {
