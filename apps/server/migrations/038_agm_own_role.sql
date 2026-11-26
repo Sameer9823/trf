@@ -16,6 +16,19 @@ ALTER TABLE employees ADD CONSTRAINT employees_role_check
 
 -- 2. AGM designation holders with role Admin become role AGM.
 --    Exclude shared team accounts explicitly.
+DO $$
+DECLARE
+  rec RECORD;
+BEGIN
+  FOR rec IN
+    SELECT username, role AS old_role FROM employees
+    WHERE designation = 'AGM' AND role = 'Admin' AND is_active = TRUE
+      AND account_type <> 'SHARED_TEAM'
+  LOOP
+    RAISE NOTICE 'Migration 038: % role Admin -> AGM', rec.username;
+  END LOOP;
+END $$;
+
 UPDATE employees
 SET role = 'AGM'
 WHERE designation = 'AGM'
@@ -26,6 +39,19 @@ WHERE designation = 'AGM'
 -- 3. GM and COO designation holders whose role is not Admin become Admin.
 --    This covers legacy role 'GM' and any other non-Admin role.
 --    Exclude shared team accounts explicitly.
+DO $$
+DECLARE
+  rec RECORD;
+BEGIN
+  FOR rec IN
+    SELECT username, role AS old_role FROM employees
+    WHERE designation IN ('GM', 'COO') AND role <> 'Admin' AND is_active = TRUE
+      AND account_type <> 'SHARED_TEAM'
+  LOOP
+    RAISE NOTICE 'Migration 038: % role % -> Admin', rec.username, rec.old_role;
+  END LOOP;
+END $$;
+
 UPDATE employees
 SET role = 'Admin'
 WHERE designation IN ('GM', 'COO')

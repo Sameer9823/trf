@@ -44,6 +44,38 @@ The migration runner (`migrate.ts`) tracks applied migrations in the `schema_mig
   migration 038 only after ensuring at least one active Admin exists (it aborts
   otherwise).
 
+### Before deploying 038
+
+Run these read-only queries against the production database and review the rows
+they return before applying the migration:
+
+**GM/COO employees not at Admin role** (will be promoted to Admin by step 3):
+
+```sql
+SELECT username, role, designation FROM employees
+WHERE is_active AND designation IN ('GM','COO') AND role <> 'Admin';
+```
+
+**Inactive AGM employees at role Admin** (would come back as Admin with AGM designation;
+step 2 only touches active rows, so these are not changed by the migration):
+
+```sql
+SELECT username, role, designation FROM employees
+WHERE NOT is_active AND designation = 'AGM' AND role = 'Admin';
+```
+
+**Count of active Admins** (the migration aborts if this would be 0 after changes):
+
+```sql
+SELECT count(*) FROM employees WHERE is_active AND role = 'Admin';
+```
+
+If the first query returns rows you did not intend to promote, correct their role
+or designation before running 038. If the second query returns rows, decide whether
+they should remain inactive or be corrected before reactivation. If the third query
+returns 0 or 1, ensure at least one other active Admin exists first (038 aborts
+when no active Admin would remain).
+
 ## Rollback
 
 Migrations do not include automatic rollback. To rollback:

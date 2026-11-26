@@ -519,12 +519,30 @@ employeesRouter.post('/:id/activate', requirePermission('employees.manage'), asy
     const updated = await withTransaction(async (client) => {
       const before = await loadEmployee(id, client);
       if (!before) throw notFound();
+
+      // On reactivation, derive the role from the designation exactly as on create:
+      // GM/COO -> Admin, AGM -> AGM, other designations keep their role.
+      const access = resolveAccess({
+        designation: before.designation,
+        role: before.role,
+        accountType: before.account_type,
+        team: before.team,
+      });
+      if ((access.role === 'Admin' || access.role === 'AGM') && access.accountType === 'SHARED_TEAM') {
+        throw badRequest('An administrator cannot be a shared team member.', {
+          accountType: 'Administrators (AGM, GM, COO) use their own sign-in.',
+        });
+      }
+
       const result = await client.query('UPDATE employees SET is_active = TRUE, version = version + 1 WHERE id = $1 RETURNING id', [id]);
       if (result.rowCount === 0) throw notFound();
+      if (access.role !== before.role) {
+        await client.query('UPDATE employees SET role = $1 WHERE id = $2', [access.role, id]);
+      }
       await writeAudit(client, {
         userId: admin.id, userName: admin.fullName, action: 'employee.activated', module: 'employees',
         recordType: 'Employee', recordRef: before.employee_code,
-        oldValue: { isActive: false }, newValue: { isActive: true },
+        oldValue: { isActive: false, role: before.role }, newValue: { isActive: true, role: access.role },
       });
       return loadEmployee(id, client);
     });

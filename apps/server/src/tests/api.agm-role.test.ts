@@ -300,3 +300,30 @@ maybe('AGM and Admin get the same company-wide dashboard totals', async () => {
   assert.deepEqual(adminDash.body.totals, agmDash.body.totals);
   await pool.query('DELETE FROM trfs WHERE id IN (SELECT id FROM trfs)');
 });
+
+maybe('reactivating an inactive AGM with role Admin derives role AGM from designation', async () => {
+  const hashed = await hashPassword('Reactivation-Pass-42');
+  const inserted = await pool.query<{ id: number }>(
+    `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation, is_active, account_type)
+     VALUES ('RE-AGM', 'Reactivation AGM', 're-activation@test.local', 'reagm', $1, 'Admin', 'AGM', FALSE, 'INDIVIDUAL')
+     RETURNING id`,
+    [hashed],
+  );
+  const empId = inserted.rows[0].id;
+  try {
+    const activateRes = await api<{ role: string; isActive: boolean; designation: string }>(`/api/employees/${empId}/activate`, {
+      method: 'POST',
+    }, adminToken);
+    assert.equal(activateRes.status, 200, JSON.stringify(activateRes.body));
+    assert.equal(activateRes.body.role, 'AGM', 'reactivated AGM should derive role AGM from designation');
+    assert.equal(activateRes.body.isActive, true);
+    assert.equal(activateRes.body.designation, 'AGM');
+
+    const getRes = await api<{ role: string; isActive: boolean }>(`/api/employees/${empId}`, {}, adminToken);
+    assert.equal(getRes.status, 200, JSON.stringify(getRes.body));
+    assert.equal(getRes.body.role, 'AGM');
+    assert.equal(getRes.body.isActive, true);
+  } finally {
+    await pool.query('DELETE FROM employees WHERE id = $1', [empId]);
+  }
+});
