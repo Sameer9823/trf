@@ -249,29 +249,37 @@ describe('ChangeAnalystDialog', () => {
     unmount();
   });
 
-  test('cannot pick an analyst already on the test (same person guard)', async () => {
-    const assignment = makeAssignment({ id: 104 });
+  test('current analyst is excluded from the replacement picker', async () => {
+    const assignment = makeAssignment({ id: 104 }); // analystIds: [1]
 
     const { unmount } = mountChangeAnalystDialog(assignment);
 
-    // Try to pick the same analyst
+    // Current analyst (id=1) must NOT appear in the replacement picker
+    const newAnalystSelect = screen.getByLabelText(/New analyst/);
     await act(async () => {
-      fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '1' } });
+      fireEvent.mouseDown(newAnalystSelect);
     });
+    const options = newAnalystSelect.querySelectorAll('option');
+    const optionValues = Array.from(options).map(o => o.getAttribute('value')).filter(v => v !== '');
+    expect(optionValues).not.toContain('1'); // current analyst excluded
+    expect(optionValues).toContain('2'); // Analyst B available
+    expect(optionValues).toContain('3'); // Analyst C available
 
-    // Error should show
-    await waitFor(() => expect(screen.getByText(/already the assigned analyst/)).toBeTruthy());
-
-    // Submit should remain disabled
+    // Selecting a non-current analyst works
+    await act(async () => {
+      fireEvent.change(newAnalystSelect, { target: { value: '2' } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Absent' }));
+    });
     const submitBtn = screen.getByRole('button', { name: /Change analyst/ });
-    expect(submitBtn).toBeDisabled();
+    expect(submitBtn).not.toBeDisabled();
     unmount();
   });
 
-  test('picker excludes current analysts when there are multiple (parent component filters)', async () => {
-    // The parent component (TrfForm) filters the employees list before passing to the dialog
-    // So the dialog receives only non-current analysts. This test verifies the dialog
-    // works correctly with a pre-filtered list.
+  test('picker excludes current analysts when there are multiple (dialog filters internally)', async () => {
+    // The parent component (TrfForm) now passes the full employee list.
+    // The dialog excludes current analysts from the replacement picker itself.
     const assignment = makeAssignment({
       id: 105,
       analysts: [
@@ -281,9 +289,8 @@ describe('ChangeAnalystDialog', () => {
       analystIds: [1, 2],
     });
 
-    // Simulate parent filtering: only pass Analyst C (not A or B)
-    const filteredEmployees = mockEmployees.filter(e => ![1, 2].includes(e.id));
-    const { unmount } = mountChangeAnalystDialog(assignment, filteredEmployees);
+    // Pass the full list (as the caller now does)
+    const { unmount } = mountChangeAnalystDialog(assignment, mockEmployees);
 
     // Select which analyst to replace (A)
     await act(async () => {

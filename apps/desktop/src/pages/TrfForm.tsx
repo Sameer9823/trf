@@ -1361,7 +1361,7 @@ body.specialInstructions = form.specialInstructions.trim() || null;
       {changeTarget && (
         <ChangeAnalystDialog
           assignment={changeTarget}
-          employees={ardEmployees.filter((e) => !(changeTarget.analystIds ?? []).includes(e.id))}
+          employees={ardEmployees}
           workload={workload}
           onClose={() => setChangeTarget(null)}
           onSaved={async () => { setChangeTarget(null); await reloadAssignments(); }}
@@ -1387,7 +1387,7 @@ export function ChangeAnalystDialog({ assignment, employees, workload, onClose, 
     const emp = employees.find(e => e.id === id);
     return emp ? emp.fullName : `Analyst #${id}`;
   });
-  const [replaceId, setReplaceId] = useState<string>('');
+  const [replaceId, setReplaceId] = useState(() => (currentIds.length === 1 ? String(currentIds[0]) : ''));
   const [toId, setToId] = useState('');
   const [reasonKind, setReasonKind] = useState<string>('');
   const [reasonText, setReasonText] = useState('');
@@ -1395,14 +1395,6 @@ export function ChangeAnalystDialog({ assignment, employees, workload, onClose, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const awaitingReview = assignment.reviewStatus === 'Submitted';
-
-  // Preselect the only analyst when there is exactly one
-  const [, setReplaceIdInternal] = useState(() => {
-    if (currentIds.length === 1) {
-      setReplaceId(String(currentIds[0]));
-    }
-    return currentIds.length === 1 ? String(currentIds[0]) : '';
-  });
 
   const reason = reasonKind === 'Other' ? reasonText.trim() : reasonKind;
   const samePerson = toId !== '' && currentIds.includes(Number(toId));
@@ -1463,7 +1455,7 @@ export function ChangeAnalystDialog({ assignment, employees, workload, onClose, 
           <Field htmlFor="reassign-to" label="New analyst">
             <select id="reassign-to" value={toId} disabled={busy || needsReplaceChoice && !replaceId} onChange={(e) => setToId(e.target.value)}>
               <option value="">Select an analyst…</option>
-              {employees.map((e) => (
+              {employees.filter((e) => !currentIds.includes(e.id)).map((e) => (
                 <option key={e.id} value={e.id} disabled={samePerson && String(e.id) === toId}>
                   {e.fullName} — {workload[e.id] ?? 0} open
                 </option>
