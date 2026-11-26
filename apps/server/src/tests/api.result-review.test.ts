@@ -32,58 +32,11 @@ before(async () => {
   server = buildApp().listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-});
 
-after(async () => {
-  if (server) await new Promise((resolve) => server.close(resolve));
-  await pool.end();
-});
-
-async function api<T = any>(path: string, init: RequestInit = {}, token?: string) {
-  const res = await fetch(baseUrl + path, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) },
-  });
-  const text = await res.text();
-  return { status: res.status, body: (text ? JSON.parse(text) : null) as T };
-}
-const post = (path: string, body: unknown, token?: string) => api(path, { method: 'POST', body: JSON.stringify(body) }, token);
-const patch = (path: string, body: unknown, token?: string) => api(path, { method: 'PATCH', body: JSON.stringify(body) }, token);
-
-const SUFFIX = Math.random().toString(36).slice(2, 7);
-const PASSWORD = 'Result-Review-Pass-42';
-let adminToken = '';
-let adminId = 0;
-let agmToken = '';
-let agmId = 0;
-let analystToken = '';
-let analystId = 0;
-let otherToken = '';
-let customerId = 0;
-let productId = 0;
-let optionIds: number[] = [];
-let dosageOptId = 0;
-const trfIds: number[] = [];
-
-async function seedEmployee(code: string, username: string, role: string, designation: string) {
-  const row = await pool.query<{ id: number }>(
-    `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, role = EXCLUDED.role,
-       designation = EXCLUDED.designation, failed_login_count = 0, locked_until = NULL
-     RETURNING id`,
-    [code, `Review ${username}`, `${username}@test.local`, username, await hashPassword(PASSWORD), role, designation]);
-  const signedIn = await post('/api/auth/login', { username, password: PASSWORD });
-  assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
-  return { id: row.rows[0].id, token: signedIn.body.accessToken as string };
-}
-
-before(async () => {
-  if (!(await dbReachable)) return;
-const agm = await seedEmployee(`RR-AGM-${SUFFIX}`, 'rragm', 'AGM', 'AGM');
-agmToken = agm.token; agmId = agm.id;
-const admin = await seedEmployee(`RR-ADM-${SUFFIX}`, 'rradmin', 'Admin', 'GM');
-adminToken = admin.token; adminId = admin.id;
+  const agm = await seedEmployee(`RR-AGM-${SUFFIX}`, 'rragm', 'AGM', 'AGM');
+  agmToken = agm.token; agmId = agm.id;
+  const admin = await seedEmployee(`RR-ADM-${SUFFIX}`, 'rradmin', 'Admin', 'GM');
+  adminToken = admin.token; adminId = admin.id;
   const analyst = await seedEmployee(`RR-ANA-${SUFFIX}`, 'rranalyst', 'Analyst', 'Junior Analyst');
   analystToken = analyst.token; analystId = analyst.id;
   const other = await seedEmployee(`RR-OTH-${SUFFIX}`, 'rrother', 'Analyst', 'Junior Analyst');
@@ -102,9 +55,50 @@ adminToken = admin.token; adminId = admin.id;
   dosageOptId = (await pool.query<{ id: number }>('SELECT id FROM dosage_form_options ORDER BY id LIMIT 1')).rows[0].id;
 });
 
+const SUFFIX = Math.random().toString(36).slice(2, 7);
+const PASSWORD = 'Result-Review-Pass-42';
+let adminToken = '';
+let adminId = 0;
+let agmToken = '';
+let agmId = 0;
+let analystToken = '';
+let analystId = 0;
+let otherToken = '';
+let customerId = 0;
+let productId = 0;
+let optionIds: number[] = [];
+let dosageOptId = 0;
+const trfIds: number[] = [];
+
+async function api<T = any>(path: string, init: RequestInit = {}, token?: string) {
+  const res = await fetch(baseUrl + path, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) },
+  });
+  const text = await res.text();
+  return { status: res.status, body: (text ? JSON.parse(text) : null) as T };
+}
+const post = (path: string, body: unknown, token?: string) => api(path, { method: 'POST', body: JSON.stringify(body) }, token);
+const patch = (path: string, body: unknown, token?: string) => api(path, { method: 'PATCH', body: JSON.stringify(body) }, token);
+
+async function seedEmployee(code: string, username: string, role: string, designation: string) {
+  const row = await pool.query<{ id: number }>(
+    `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, role = EXCLUDED.role,
+       designation = EXCLUDED.designation, failed_login_count = 0, locked_until = NULL
+     RETURNING id`,
+    [code, `Review ${username}`, `${username}@test.local`, username, await hashPassword(PASSWORD), role, designation]);
+  const signedIn = await post('/api/auth/login', { username, password: PASSWORD });
+  assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
+  return { id: row.rows[0].id, token: signedIn.body.accessToken as string };
+}
+
 after(async () => {
   if (!(await dbReachable)) return;
   for (const id of trfIds) await pool.query('DELETE FROM trfs WHERE id = $1', [id]).catch(() => undefined);
+  if (server) await new Promise((resolve) => server.close(resolve));
+  await pool.end();
 });
 
 /** A TRF whose Formulation request is approved and that has one assignment per requested test, all given to the analyst. */

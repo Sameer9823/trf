@@ -24,38 +24,6 @@ before(async () => {
   server = buildApp().listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-});
-
-after(async () => {
-  if (server) await new Promise((resolve) => server.close(resolve));
-  await pool.end();
-});
-
-async function api<T = any>(path: string, init: RequestInit = {}, token?: string) {
-  const res = await fetch(baseUrl + path, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) },
-  });
-  const text = await res.text();
-  return { status: res.status, body: (text ? JSON.parse(text) : null) as T };
-}
-
-const post = (path: string, body: unknown, token?: string) => api(path, { method: 'POST', body: JSON.stringify(body) }, token);
-
-const ADMIN_PASSWORD = 'AgmRole-Admin-42';
-const AGM_PASSWORD = 'AgmRole-AGM-42';
-const ANALYST_PASSWORD = 'AgmRole-Analyst-42';
-
-let adminToken = '';
-let agmToken = '';
-let analystToken = '';
-let customerId = 0;
-let productId = 0;
-let testOptionId = 0;
-let analystEmpId = 0;
-
-before(async () => {
-  if (!(await dbReachable)) return;
 
   // Admin with GM designation -> role Admin
   await pool.query(
@@ -106,6 +74,34 @@ before(async () => {
   }
   testOptionId = (await pool.query<{ id: number }>('SELECT id FROM test_requested_options ORDER BY id LIMIT 1')).rows[0].id;
 });
+
+after(async () => {
+  if (server) await new Promise((resolve) => server.close(resolve));
+  await pool.end();
+});
+
+async function api<T = any>(path: string, init: RequestInit = {}, token?: string) {
+  const res = await fetch(baseUrl + path, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers ?? {}) },
+  });
+  const text = await res.text();
+  return { status: res.status, body: (text ? JSON.parse(text) : null) as T };
+}
+
+const post = (path: string, body: unknown, token?: string) => api(path, { method: 'POST', body: JSON.stringify(body) }, token);
+
+const ADMIN_PASSWORD = 'AgmRole-Admin-42';
+const AGM_PASSWORD = 'AgmRole-AGM-42';
+const ANALYST_PASSWORD = 'AgmRole-Analyst-42';
+
+let adminToken = '';
+let agmToken = '';
+let analystToken = '';
+let customerId = 0;
+let productId = 0;
+let testOptionId = 0;
+let analystEmpId = 0;
 
 const trfIds: number[] = [];
 

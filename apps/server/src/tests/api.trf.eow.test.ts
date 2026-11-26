@@ -19,18 +19,18 @@ function maybe(name: string, fn: (t: TestContext) => Promise<void>) {
   });
 }
 
-before(async () => {
-  if (!(await dbReachable)) return;
-  await runMigrations();
-  server = buildApp().listen(0, '127.0.0.1');
-  await new Promise((resolve) => server.once('listening', resolve));
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-});
+const ADMIN_PASSWORD = 'Trf-EndOfWork-Admin-42';
+const AGM_PASSWORD = 'Trf-EndOfWork-AGM-42';
+const ANALYST_PASSWORD = 'Trf-EndOfWork-Analyst-42';
 
-after(async () => {
-  if (server) await new Promise((resolve) => server.close(resolve));
-  await pool.end();
-});
+let adminToken = '';
+let agmToken = '';
+let analystToken = '';
+
+let baseCustomerId = 0;
+let baseProductId = 0;
+let testOptionId = 0;
+let analystEmpId = 0;
 
 async function api<T = unknown>(path: string, init: RequestInit = {}, token?: string) {
   const res = await fetch(baseUrl + path, {
@@ -45,21 +45,12 @@ async function api<T = unknown>(path: string, init: RequestInit = {}, token?: st
   return { status: res.status, body: (text ? JSON.parse(text) : null) as T & { error?: { code: string; message: string; fields?: Record<string, string> }; requestId?: string } };
 }
 
-const ADMIN_PASSWORD = 'Trf-EndOfWork-Admin-42';
-const AGM_PASSWORD = 'Trf-EndOfWork-AGM-42';
-const ANALYST_PASSWORD = 'Trf-EndOfWork-Analyst-42';
-
-let adminToken = '';
-let agmToken = '';
-let analystToken = '';
-
-let baseCustomerId = 0;
-let baseProductId = 0;
-let testOptionId = 0;
-let analystEmpId = 0;
-
 before(async () => {
   if (!(await dbReachable)) return;
+  await runMigrations();
+  server = buildApp().listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
   await pool.query(
     `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation)
@@ -119,6 +110,11 @@ before(async () => {
   // Get the analyst employee ID for assignment tests
   const analystEmpRes = await pool.query<{ id: number }>(`SELECT id FROM employees WHERE username = 'eowana'`);
   analystEmpId = analystEmpRes.rows[0].id;
+});
+
+after(async () => {
+  if (server) await new Promise((resolve) => server.close(resolve));
+  await pool.end();
 });
 
 async function createApprovedTrf(): Promise<{ trf: TrfDetail; id: number; version: number }> {
