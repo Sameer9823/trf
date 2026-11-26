@@ -52,6 +52,8 @@ const patch = (path: string, body: unknown, token?: string) => api(path, { metho
 
 const SUFFIX = Math.random().toString(36).slice(2, 7);
 const PASSWORD = 'Result-Review-Pass-42';
+let adminToken = '';
+let adminId = 0;
 let agmToken = '';
 let agmId = 0;
 let analystToken = '';
@@ -78,8 +80,10 @@ async function seedEmployee(code: string, username: string, role: string, design
 
 before(async () => {
   if (!(await dbReachable)) return;
-  const agm = await seedEmployee(`RR-AGM-${SUFFIX}`, 'rragm', 'Admin', 'AGM');
-  agmToken = agm.token; agmId = agm.id;
+const agm = await seedEmployee(`RR-AGM-${SUFFIX}`, 'rragm', 'AGM', 'AGM');
+agmToken = agm.token; agmId = agm.id;
+const admin = await seedEmployee(`RR-ADM-${SUFFIX}`, 'rradmin', 'Admin', 'GM');
+adminToken = admin.token; adminId = admin.id;
   const analyst = await seedEmployee(`RR-ANA-${SUFFIX}`, 'rranalyst', 'Analyst', 'Junior Analyst');
   analystToken = analyst.token; analystId = analyst.id;
   const other = await seedEmployee(`RR-OTH-${SUFFIX}`, 'rrother', 'Analyst', 'Junior Analyst');
@@ -109,11 +113,11 @@ async function approvedTrfWithAssignments(tests: number) {
     trfDate: new Date().toISOString().slice(0, 10), customerId, productId, priority: 'Normal',
     batchNumber: `RR-${SUFFIX}-${Math.random().toString(36).slice(2, 6)}`,
     testRequestedOptionIds: optionIds.slice(0, tests), dosageFormOptionIds: [dosageOptId],
-  }, agmToken);
+  }, adminToken);
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const trf = created.body as TrfDetail;
   trfIds.push(trf.id);
-  const approved = await post(`/api/trfs/${trf.id}/decision`, { track: 'FORMULATION', decision: 'Approved', version: trf.version }, agmToken);
+  const approved = await post(`/api/trfs/${trf.id}/decision`, { track: 'FORMULATION', decision: 'Approved', version: trf.version }, adminToken);
   assert.equal(approved.status, 200, JSON.stringify(approved.body));
   const assignments: ArdTestAssignment[] = [];
   for (const optionId of optionIds.slice(0, tests)) {
@@ -198,7 +202,8 @@ maybe('results cannot be submitted before the Formulation request is approved', 
   const created = await post('/api/trfs', {
     trfDate: new Date().toISOString().slice(0, 10), customerId, productId, priority: 'Normal',
     batchNumber: `RR-${SUFFIX}-pre`, testRequestedOptionIds: [optionIds[0]], dosageFormOptionIds: [dosageOptId],
-  }, agmToken);
+  }, adminToken);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
   trfIds.push(created.body.id);
   // The assignment screens only open once approved, so create the assignment directly.
   const row = await pool.query<{ id: number; version: number }>(
@@ -268,15 +273,15 @@ maybe('an AGM rejects a result with a reason, the employee corrects it, the AGM 
   assert.equal(waiting.finalApprovalStatus, 'Pending');
   assert.equal(waiting.workflowStatus, 'Completed');
   assert.ok(waiting.ardSubmittedAt);
-  const ready = await pool.query(`SELECT 1 FROM notifications WHERE recipient_employee_id = $1 AND type = 'final_approval_needed' AND related_trf_id = $2`, [agmId, trfId]);
+  const ready = await pool.query(`SELECT 1 FROM notifications WHERE recipient_employee_id = $1 AND type = 'final_approval_needed' AND related_trf_id = $2`, [adminId, trfId]);
   assert.equal(ready.rowCount, 1);
 
   // The AGM completes the TRF: it is approved and locked.
-  const done = await post(`/api/trfs/${trfId}/agm-complete`, { decision: 'Approved', version: waiting.version }, agmToken);
+  const done = await post(`/api/trfs/${trfId}/agm-complete`, { decision: 'Approved', version: waiting.version }, adminToken);
   assert.equal(done.status, 200, JSON.stringify(done.body));
   assert.equal(done.body.finalApprovalStatus, 'Approved');
   assert.ok(done.body.lockedAt);
-  assert.equal(done.body.completedByAgmName, 'Review rragm');
+  assert.equal(done.body.completedByAgmName, 'Review rradmin');
 
   // The history keeps the whole trail.
   const history = await pool.query<{ action: string }>(`SELECT action FROM ard_test_assignment_history WHERE assignment_id = $1 ORDER BY id`, [a.id]);

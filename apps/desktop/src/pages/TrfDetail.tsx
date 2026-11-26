@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { ArdWorkflowStatus, EmployeeProfile, TrfDetail, TrfStatus, TrfStatusHistoryEntry, ArdStatusHistoryEntry, TrfDocument } from '@trf/shared';
-import { MESSAGES, canEditTrfPartA, canEditTrfPartB, canDeleteTrf, isAdminDesignation, bulletList, analystNameList } from '@trf/shared';
+import { MESSAGES, canEditTrfPartA, canEditTrfPartB, canDeleteTrf, canReviewArdResults, bulletList, analystNameList } from '@trf/shared';
 import { messageOf } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { OverdueBadge, PriorityBadge, StatusBadge, ArdCoaBadge, ArdReportingBadge, allowedNextStatuses, allowedNextArdStatuses, formatDate } from '../components/Badges';
@@ -580,7 +580,7 @@ const load = useCallback(async () => {
             <TestResultsCard
               trfId={currentTrf.id}
               trfNumber={currentTrf.trfNumber}
-              canReview={employee?.role === 'Admin' && isAdminDesignation(employee?.designation) && !currentTrf.lockedAt}
+              canReview={canReviewArdResults(employee) && !currentTrf.lockedAt}
               onChanged={load}
             />
           )}

@@ -39,6 +39,10 @@ The migration runner (`migrate.ts`) tracks applied migrations in the `schema_mig
 - **Use transactions** where appropriate (the runner wraps each file in a transaction)
 - **Test on a copy of production data** before applying to production
 - **Back up the database** before running migrations in production
+- **Migration 038 reverses migration 017's designation folding:** migration 017
+  folded AGM into the Admin role; migration 038 gives AGM its own role. Run
+  migration 038 only after ensuring at least one active Admin exists (it aborts
+  otherwise).
 
 ## Rollback
 

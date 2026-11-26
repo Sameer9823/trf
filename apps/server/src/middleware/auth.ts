@@ -85,7 +85,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
         `SELECT ${EMPLOYEE_SELECT} ${EMPLOYEE_FROM} WHERE e.id = $1`, [actingId]);
       const member = result.rows[0];
       if (!member || !member.is_active) throw unauthorized(MESSAGES.MEMBER_INACTIVE);
-      if (member.account_type !== 'SHARED_TEAM' || member.role === 'Admin') throw unauthorized('The selected user is not a team member.');
+      if (member.account_type !== 'SHARED_TEAM' || member.role === 'Admin' || member.role === 'AGM') throw unauthorized('The selected user is not a team member.');
       if (member.team !== account.team) throw unauthorized(MESSAGES.MEMBER_WRONG_TEAM);
 
       req.employee = toProfile(member);

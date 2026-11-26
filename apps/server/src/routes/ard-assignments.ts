@@ -13,11 +13,11 @@ import type {
   EmployeeProfile,
   ANALYTICAL_DEPARTMENTS,
 } from '@trf/shared';
-import { ARD_TEST_ASSIGNMENT_STATUSES, ARD_RESULT_OUTCOMES, roleHasPermission, canAccessAnalytical, isAdminDesignation } from '@trf/shared';
+import { ARD_TEST_ASSIGNMENT_STATUSES, ARD_RESULT_OUTCOMES, roleHasPermission, canAccessAnalytical, canReviewArdResults } from '@trf/shared';
 import { pool, withTransaction } from '../db.js';
 import { AppError, badRequest, conflict, forbidden, notFound, versionConflict } from '../lib/errors.js';
 import { writeAudit } from '../lib/audit.js';
-import { createNotification, notifyEmployee } from '../lib/notifications.js';
+import { createNotification, notifyEmployee, notifyFinalApprovalNeeded } from '../lib/notifications.js';
 import { authenticate, currentEmployee, requirePermission, requireAssignmentsManage, requireReassign, validateBody } from '../middleware/auth.js';
 import { DOCUMENT_DIR } from '../config.js';
 import { testOverdueSql, TEST_OVERDUE_SQL } from '../lib/ard-workload-sql.js';
@@ -877,7 +877,7 @@ const blank = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null
 /** The active administrators who hold an AGM-level designation: the people who review results and complete a TRF. */
 async function agmReviewers(client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: { id: number }[] }> }) {
   const rows = await client.query(
-    `SELECT id FROM employees WHERE role = 'Admin' AND designation IN ('AGM','GM','COO') AND is_active = TRUE`);
+    `SELECT id FROM employees WHERE (role = 'AGM' OR (role = 'Admin' AND designation IN ('AGM','GM','COO'))) AND is_active = TRUE`);
   return rows.rows.map((r) => r.id);
 }
 
@@ -1132,9 +1132,9 @@ ardAssignmentsRouter.get('/:id/result-file', async (req, res, next) => {
     if (!row) throw notFound('No PDF file has been uploaded for this test yet.');
 
     // Check access: assigned analyst, assignments.viewAll, or AGM reviewer.
-    const isAgm = viewer.role === 'Admin' && isAdminDesignation(viewer.designation);
+    const canReview = canReviewArdResults(viewer);
     const canViewAll = roleHasPermission(viewer.role, 'assignments.viewAll');
-    if (!isAgm && !canViewAll) {
+    if (!canReview && !canViewAll) {
       const mine = await pool.query(
         `SELECT 1 FROM ard_test_assignment_analysts WHERE assignment_id = $1 AND analyst_id = $2`, [assignmentId, viewer.id]);
       if (!mine.rowCount) throw notFound('No PDF file has been uploaded for this test yet.');
@@ -1186,8 +1186,8 @@ ardAssignmentsRouter.post('/:id/result/review', validateBody(reviewResultSchema)
     const body = req.body as z.infer<typeof reviewResultSchema>;
 
     if (req.accountId) throw forbidden('Team accounts cannot review test results.');
-    if (reviewer.role !== 'Admin' || !isAdminDesignation(reviewer.designation)) {
-      throw forbidden('Only an Admin with AGM, GM, or COO designation can approve or reject a test result.');
+    if (!canReviewArdResults(reviewer)) {
+      throw forbidden('Only an Admin or AGM with AGM, GM, or COO designation can approve or reject a test result.');
     }
     const reason = body.reason?.trim() ?? '';
     if (body.decision === 'Rejected' && reason.length < 10) {
@@ -1287,10 +1287,7 @@ ardAssignmentsRouter.post('/:id/result/review', validateBody(reviewResultSchema)
             oldValue: { finalApprovalStatus: trf.final_approval_status, workflowStatus: trf.workflow_status },
             newValue: { finalApprovalStatus: 'Pending', workflowStatus: 'Completed', note },
           });
-          for (const agmId of await agmReviewers(client)) {
-            await notifyEmployee(client, agmId, 'final_approval_needed', 'TRF ready to complete',
-              `Every test result on TRF ${trf.trf_number} is approved. It is ready for you to complete.`, assignment.trf_id);
-          }
+          await notifyFinalApprovalNeeded(client, assignment.trf_id, trf.trf_number);
           ready = true;
         }
       }
@@ -1305,8 +1302,8 @@ ardAssignmentsRouter.post('/:id/result/review', validateBody(reviewResultSchema)
 ardAssignmentsRouter.get('/result-reviews', async (req, res, next) => {
   try {
     const viewer = currentEmployee(req);
-    if (req.accountId || viewer.role !== 'Admin' || !isAdminDesignation(viewer.designation)) {
-      throw forbidden('Only an Admin with AGM, GM, or COO designation can review test results.');
+    if (req.accountId || !canReviewArdResults(viewer)) {
+      throw forbidden('Only an Admin or AGM with AGM, GM, or COO designation can review test results.');
     }
     const rows = await pool.query<{
       assignment_id: number; assignment_version: number; trf_id: number; trf_number: string; ard_number: string | null; product_name: string | null;

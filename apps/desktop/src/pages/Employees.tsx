@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import type { EmployeeProfile, Department, Paginated, Role } from '@trf/shared';
-import { ROLES, MESSAGES, DESIGNATIONS, isAdminDesignation } from '@trf/shared';
+import { ROLES, MESSAGES, DESIGNATIONS, isAdminRoleDesignation, isSeniorDesignation } from '@trf/shared';
 import { useAuth } from '../lib/auth';
 import { TeamLogins } from '../components/TeamLogins';
 import { Modal } from '../components/Modal';
@@ -267,7 +267,14 @@ export function Employees() {
             <select id="emp-designation" value={form.designation}
               onChange={(e) => {
                 const designation = e.target.value;
-                setForm({ ...form, designation, ...(isAdminDesignation(designation) ? { role: 'Admin' as Role, accountType: 'INDIVIDUAL' as const, team: '' as const } : {}) });
+                let nextRole = form.role;
+                if (isAdminRoleDesignation(designation)) {
+                  nextRole = 'Admin';
+                } else if (designation === 'AGM') {
+                  nextRole = 'AGM';
+                }
+                setForm({ ...form, designation, role: nextRole,
+                  ...(isAdminRoleDesignation(designation) || designation === 'AGM' ? { accountType: 'INDIVIDUAL' as const, team: '' as const } : {}) });
               }}>
               <option value="">Not set</option>
               {form.designation && !(DESIGNATIONS as readonly string[]).includes(form.designation) && (
@@ -278,11 +285,12 @@ export function Employees() {
             {fieldErrors.designation && <p className="field-error">{fieldErrors.designation}</p>}
 
             <label htmlFor="emp-role">Role</label>
-            <select id="emp-role" value={form.role} disabled={isAdminDesignation(form.designation)}
+            <select id="emp-role" value={form.role} disabled={isAdminRoleDesignation(form.designation) || form.designation === 'AGM'}
               onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
-              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+              {ROLES.filter((r) => r !== 'GM').map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
-            {isAdminDesignation(form.designation) && <p className="muted">{form.designation} is an administrator. Administrators approve, lock and unlock TRFs.</p>}
+            {isAdminRoleDesignation(form.designation) && <p className="muted">{form.designation} is an administrator. Administrators approve, lock and unlock TRFs.</p>}
+            {form.designation === 'AGM' && <p className="muted">AGM has its own role. AGM reviews test results and edits ARD details, but cannot give the final approval or lock a TRF.</p>}
 
             <label htmlFor="emp-dept">Department</label>
             <select id="emp-dept" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
@@ -291,7 +299,7 @@ export function Employees() {
             </select>
 
             <label htmlFor="emp-account">Sign-in</label>
-            <select id="emp-account" value={form.accountType} disabled={isAdminDesignation(form.designation) || form.role === 'Admin'}
+            <select id="emp-account" value={form.accountType} disabled={isAdminRoleDesignation(form.designation) || form.designation === 'AGM' || form.role === 'Admin'}
               onChange={(e) => setForm({ ...form, accountType: e.target.value as 'INDIVIDUAL' | 'SHARED_TEAM' })}>
               <option value="INDIVIDUAL">Own username and password</option>
               <option value="SHARED_TEAM">Member of a team login (name and PIN)</option>

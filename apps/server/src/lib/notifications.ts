@@ -63,3 +63,14 @@ export async function notifyEmployee(client: PoolClient, employeeId: number, typ
     link: trfId ? `/trfs/${trfId}` : null,
   });
 }
+
+/** Notify all active Admin-role employees that a TRF is ready for final approval. */
+export async function notifyFinalApprovalNeeded(client: PoolClient, trfId: number, trfNumber: string) {
+  const adminRows = await client.query<{ id: number }>(
+    `SELECT id FROM employees WHERE role = 'Admin' AND is_active = TRUE`
+  );
+  for (const admin of adminRows.rows) {
+    await notifyEmployee(client, admin.id, 'final_approval_needed', 'TRF ready for final approval',
+      `TRF ${trfNumber} is ready for final approval.`, trfId);
+  }
+}

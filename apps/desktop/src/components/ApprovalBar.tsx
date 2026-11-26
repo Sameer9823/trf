@@ -1,6 +1,6 @@
 ﻿import { useState } from 'react';
 import type { EmployeeProfile, TrfDetail } from '@trf/shared';
-import { canApproveFormulation, canApproveArd, canReopenLockedTrf, isAdminDesignation } from '@trf/shared';
+import { canApproveFormulation, canApproveArd, canReopenLockedTrf, canGiveFinalApproval } from '@trf/shared';
 import { messageOf } from '../lib/api';
 import { Icons } from './Icons';
 import { Modal } from './Modal';
@@ -24,7 +24,7 @@ function canPerform(action: Action, employee: EmployeeProfile | null): boolean {
   if (track === 'FORMULATION') return canApproveFormulation(employee?.role);
   if (track === 'ARD') {
     if (action === 'agm-complete' || action === 'agm-reject' || action === 'complete-and-lock') {
-      return employee?.role === 'Admin' && isAdminDesignation(employee?.designation);
+      return canGiveFinalApproval(employee?.role);
     }
     return canApproveArd(employee?.role);
   }
@@ -79,12 +79,15 @@ export function ApprovalBar({ trf, employee, onChanged }: { trf: TrfDetail; empl
   } else if (finalPending) {
     tone = 'pending';
     title = 'ARD is complete: waiting for final approval';
-    detail = 'Approving locks the TRF.';
+    const isAdmin = employee?.role === 'Admin';
+    detail = isAdmin
+      ? 'Approving locks the TRF.'
+      : 'Waiting for an Admin to give the final approval.';
     // If workflowStatus is not yet Completed, show submit-to-agm and complete-and-lock
     if (trf.workflowStatus !== 'Completed') {
       buttons = [{ action: 'complete-and-lock', label: 'Complete & Lock', primary: true }, { action: 'submit-to-agm', label: 'Submit to AGM' }, { action: 'agm-reject', label: 'Send back' }];
     } else {
-      // WorkflowStatus is Completed: AGM can complete or reject
+      // WorkflowStatus is Completed: Admin can complete or reject
       buttons = [{ action: 'agm-complete', label: 'Complete & Lock', primary: true }, { action: 'agm-reject', label: 'Send back' }];
     }
   } else if (trf.finalApprovalStatus === 'Rejected') {

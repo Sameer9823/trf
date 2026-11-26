@@ -311,14 +311,14 @@ maybe('ARD completes, the administrator approves, and the TRF locks for everyone
 });
 
 maybe('AGM, GM and COO are administrators and cannot be team members', async () => {
-  for (const designation of ['AGM', 'GM', 'COO']) {
+  for (const [designation, expectedRole] of [['AGM', 'AGM'], ['GM', 'Admin'], ['COO', 'Admin']]) {
     const s = Math.random().toString(36).slice(2, 8);
     const res = await post('/api/employees', {
       employeeCode: `AD-${s}`, fullName: `Director ${s}`, email: `ad-${s}@test.local`, username: `ad${s}`,
       role: 'Viewer', designation, password: 'Director-Pass-42',
     }, adminToken);
     assert.equal(res.status, 201, JSON.stringify(res.body));
-    assert.equal(res.body.role, 'Admin', `${designation} is an administrator whatever role was sent`);
+    assert.equal(res.body.role, expectedRole, `${designation} resolves to ${expectedRole}`);
     employeeIds.push(res.body.id);
   }
   const s = Math.random().toString(36).slice(2, 8);

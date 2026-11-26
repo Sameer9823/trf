@@ -12,7 +12,7 @@ afterEach(() => {
 
 const ADMIN: EmployeeProfile = {
   id: 9, employeeCode: 'EMP009', fullName: 'Asha Rao', designation: 'AGM', email: 'asha@example.com', username: 'asha',
-  role: 'Admin', departmentId: 2, departmentName: 'ARD', isActive: true, mustChangePassword: false, lastLoginAt: null, version: 1,
+  role: 'AGM', departmentId: 2, departmentName: 'ARD', isActive: true, mustChangePassword: false, lastLoginAt: null, version: 1,
   createdAt: '2026-01-01T00:00:00Z', accountType: 'INDIVIDUAL', team: null, pinFailedAttempts: 0, pinLockedUntil: null,
 };
 

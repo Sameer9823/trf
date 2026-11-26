@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { TrfListItem, Paginated, ResultReviewQueueItem } from '@trf/shared';
-import { MESSAGES, isAdminDesignation } from '@trf/shared';
+import { MESSAGES, canReviewArdResults } from '@trf/shared';
 import { formatDate } from '../components/Badges';
 import { Icons } from '../components/Icons';
 import { EmptyState } from '../components/StatStrip';
@@ -38,7 +38,7 @@ export function Approvals() {
   const [results, setResults] = useState<ResultReviewQueueItem[] | null>(null);
   const [reviewing, setReviewing] = useState<ReviewTarget | null>(null);
   const [search, setSearch] = useState('');
-  const isAgm = employee?.role === 'Admin' && isAdminDesignation(employee?.designation);
+  const isAgm = canReviewArdResults(employee);
   const query = search.trim().toLowerCase();
   const visibleResults = (results ?? []).filter((r) => !query
     || [r.trfNumber, r.arNumber, r.productName, r.testName, r.resultValue, r.resultText, r.submittedByName].filter(Boolean).join(' ').toLowerCase().includes(query));

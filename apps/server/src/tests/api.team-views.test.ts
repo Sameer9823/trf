@@ -122,8 +122,8 @@ maybe('FRD endpoints are forbidden for Manager, Analyst and Viewer', async () =>
 });
 
 maybe('FRD endpoints are allowed for a higher authority (Admin)', async () => {
-  // GM/AGM were folded into Admin (migration 017), so Admin is the higher-
-  // authority role that can exist; requireHigherAuthority also accepts GM/AGM.
+  // AGM is its own role now (migration 038); Admin is the role for GM/COO
+  // designations. requireHigherAuthority accepts Admin, GM and AGM roles.
   const res = await api('/api/frd/employees', {}, adminToken);
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.ok(Array.isArray(res.body.items));

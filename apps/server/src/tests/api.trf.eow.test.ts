@@ -63,8 +63,8 @@ before(async () => {
 
   await pool.query(
     `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation)
-     VALUES ('EOW-ADMIN', 'EndOfWork Admin', 'eow-admin@test.local', 'eowadmin', $1, 'Admin', 'AGM')
-     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, role = 'Admin', designation = 'AGM'`,
+     VALUES ('EOW-ADMIN', 'EndOfWork Admin', 'eow-admin@test.local', 'eowadmin', $1, 'Admin', 'GM')
+     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, role = 'Admin', designation = 'GM'`,
     [await hashPassword(ADMIN_PASSWORD)],
   );
   const adminRes = await api<{ accessToken: string }>('/api/auth/login', {
@@ -74,8 +74,8 @@ before(async () => {
 
   await pool.query(
     `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation)
-     VALUES ('EOW-AGM', 'EndOfWork AGM', 'eow-agm@test.local', 'eowagm', $1, 'Admin', 'AGM')
-     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, role = 'Admin', designation = 'AGM'`,
+     VALUES ('EOW-AGM', 'EndOfWork AGM', 'eow-agm@test.local', 'eowagm', $1, 'AGM', 'AGM')
+     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, role = 'AGM', designation = 'AGM'`,
     [await hashPassword(AGM_PASSWORD)],
   );
   const agmRes = await api<{ accessToken: string }>('/api/auth/login', {
@@ -256,7 +256,7 @@ maybe('ard-submit: succeeds when all assignments are completed with results', as
   await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
 });
 
-maybe('agm-complete: AGM can approve a submitted TRF and lock it', async () => {
+maybe('agm-complete: Admin can approve a submitted TRF and lock it', async () => {
   const { id } = await createApprovedTrf();
 
   await createCompletedAssignmentWithResult(id);
@@ -269,12 +269,12 @@ maybe('agm-complete: AGM can approve a submitted TRF and lock it', async () => {
   }, adminToken);
   assert.equal(submitRes.status, 200, JSON.stringify(submitRes.body));
 
-  // AGM completes
+  // Admin completes
   const afterSubmit = await api<TrfDetail>(`/api/trfs/${id}`, {}, adminToken);
   const completeRes = await api(`/api/trfs/${id}/agm-complete`, {
     method: 'POST',
     body: JSON.stringify({ decision: 'Approved', version: afterSubmit.body.version }),
-  }, agmToken);
+  }, adminToken);
   assert.equal(completeRes.status, 200, JSON.stringify(completeRes.body));
   assert.equal(completeRes.body.finalApprovalStatus, 'Approved');
   assert.ok(completeRes.body.lockedAt, 'TRF should be locked');
@@ -283,7 +283,7 @@ maybe('agm-complete: AGM can approve a submitted TRF and lock it', async () => {
   await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
 });
 
-maybe('agm-complete: AGM can reject a submitted TRF', async () => {
+maybe('agm-complete: Admin can reject a submitted TRF', async () => {
   const { id } = await createApprovedTrf();
 
   await createCompletedAssignmentWithResult(id);
@@ -298,7 +298,7 @@ maybe('agm-complete: AGM can reject a submitted TRF', async () => {
   const rejectRes = await api(`/api/trfs/${id}/agm-complete`, {
     method: 'POST',
     body: JSON.stringify({ decision: 'Rejected', version: afterSubmit.body.version, reason: 'Results need re-checking' }),
-  }, agmToken);
+  }, adminToken);
   assert.equal(rejectRes.status, 200, JSON.stringify(rejectRes.body));
   assert.equal(rejectRes.body.finalApprovalStatus, 'Rejected');
   assert.equal(rejectRes.body.workflowStatus, 'In Progress');
@@ -328,12 +328,12 @@ maybe('workflow: locked TRF cannot be edited', async () => {
     body: JSON.stringify({ version: trfRes.body.version }),
   }, adminToken);
 
-  // AGM completes and locks
+  // Admin completes and locks
   const afterSubmit = await api<TrfDetail>(`/api/trfs/${id}`, {}, adminToken);
   const completeRes = await api(`/api/trfs/${id}/agm-complete`, {
     method: 'POST',
     body: JSON.stringify({ decision: 'Approved', version: afterSubmit.body.version }),
-  }, agmToken);
+  }, adminToken);
   assert.equal(completeRes.status, 200);
 
   // Try to PATCH a locked TRF - should fail
@@ -375,18 +375,18 @@ maybe('workflow: full end-to-end submit and complete', async () => {
   assert.ok(submitRes.body.ardSubmittedAt);
   assert.equal(submitRes.body.finalApprovalStatus, 'Pending');
 
-  // AGM approves
+  // Admin approves
   const afterSubmit = await api<TrfDetail>(`/api/trfs/${id}`, {}, adminToken);
   const completeRes = await api(`/api/trfs/${id}/agm-complete`, {
     method: 'POST',
     body: JSON.stringify({ decision: 'Approved', version: afterSubmit.body.version }),
-  }, agmToken);
+  }, adminToken);
   assert.equal(completeRes.status, 200, JSON.stringify(completeRes.body));
   assert.equal(completeRes.body.finalApprovalStatus, 'Approved');
   assert.ok(completeRes.body.lockedAt);
   assert.ok(completeRes.body.completedByAgm);
   assert.ok(completeRes.body.completedAt);
-  assert.equal(completeRes.body.completedByAgmName, 'EndOfWork AGM');
+  assert.equal(completeRes.body.completedByAgmName, 'EndOfWork Admin');
 
   await pool.query('DELETE FROM trfs WHERE id = $1', [id]);
 });

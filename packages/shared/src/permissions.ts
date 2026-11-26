@@ -1,5 +1,7 @@
 /** Single source of truth for what each role may do. The server enforces this; the UI only hides what it knows. */
 
+import { isSeniorDesignation } from './designations.js';
+
 export const ROLES = ['Admin', 'GM', 'AGM', 'Manager', 'Analyst', 'Viewer'] as const;
 export type Role = (typeof ROLES)[number];
 
@@ -192,7 +194,7 @@ export function canEditTrfPartA(employee: RoleAndDepartment): boolean {
  * Admin carries GM/AGM designations, so both have full ARD authority.
  */
 export function canEditTrfPartB(employee: RoleAndDepartment): boolean {
-  return employee.role === 'Admin' || employee.role === 'Manager'
+  return employee.role === 'Admin' || employee.role === 'Manager' || employee.role === 'AGM'
     || employee.team === 'ARD' || employee.departmentName === ARD_DEPARTMENT;
 }
 
@@ -329,6 +331,19 @@ export function canApproveFormulation(role: Role | undefined): boolean {
  */
 export function canReopenLockedTrf(role: Role | undefined): boolean {
   return role === 'Admin' || role === 'GM';
+}
+
+/** Only an Admin-role employee may give the final approval and lock a TRF. */
+export function canGiveFinalApproval(role: Role | undefined): boolean {
+  return role === 'Admin';
+}
+
+/** A person holding an AGM, GM or COO designation with role Admin or AGM may review ARD test results. */
+export function canReviewArdResults(employee: { role?: Role | string | null; designation?: string | null } | null | undefined): boolean {
+  if (!employee) return false;
+  const role = employee.role;
+  const designation = employee.designation;
+  return (role === 'Admin' || role === 'AGM') && isSeniorDesignation(designation);
 }
 
 export function requiresNameSelection(accountType: AccountType): boolean {

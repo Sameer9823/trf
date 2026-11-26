@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { QueryResult, QueryResultRow } from 'pg';
-import { ACCOUNT_TYPES, DESIGNATIONS, EmployeeOption, EmployeeProfile, MESSAGES, Paginated, ROLES, TEAM_TYPES, TeamType, Role, isAdminDesignation, isDesignation } from '@trf/shared';
+import { ACCOUNT_TYPES, DESIGNATIONS, EmployeeOption, EmployeeProfile, MESSAGES, Paginated, ROLES, TEAM_TYPES, TeamType, Role, isAdminRoleDesignation, isDesignation } from '@trf/shared';
 import { pool, withTransaction } from '../db.js';
 import { AppError, badRequest, conflict, duplicateError, forbidden, notFound } from '../lib/errors.js';
 import { EMPLOYEE_FROM, EMPLOYEE_SELECT, EmployeeRow, toProfile } from '../lib/employees.js';
@@ -102,15 +102,21 @@ const COLUMN_TO_FIELD: Record<string, string> = {
 
 /**
  * One place decides what a designation and an account type allow, so creating and
- * editing a person cannot disagree. AGM, GM and COO are administrators: choosing one
- * makes the person an Admin who signs in as themselves. An Admin can never be a
- * member of a shared team login, because an approval must name one person.
+ * editing a person cannot disagree. GM and COO are administrator designations:
+ * choosing one makes the person an Admin. AGM is a senior designation with its
+ * own AGM role. An Admin or AGM can never be a member of a shared team login,
+ * because an approval must name one person.
  */
 function resolveAccess(input: {
   designation: string | null | undefined; role: Role; accountType: 'INDIVIDUAL' | 'SHARED_TEAM'; team: 'FRD' | 'ARD' | null | undefined;
 }): { role: Role; accountType: 'INDIVIDUAL' | 'SHARED_TEAM'; team: 'FRD' | 'ARD' | null } {
-  const role: Role = isAdminDesignation(input.designation) ? 'Admin' : input.role;
-  if (role === 'Admin' && input.accountType === 'SHARED_TEAM') {
+  let role: Role = input.role;
+  if (isAdminRoleDesignation(input.designation)) {
+    role = 'Admin';
+  } else if (input.designation === 'AGM') {
+    role = 'AGM';
+  }
+  if ((role === 'Admin' || role === 'AGM') && input.accountType === 'SHARED_TEAM') {
     throw badRequest('An administrator signs in as themselves and cannot be a shared team member.', {
       accountType: 'Administrators (AGM, GM, COO) use their own sign-in.',
     });

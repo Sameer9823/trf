@@ -632,7 +632,7 @@ async function userAgm(): Promise<{ token: string; id: number; fullName: string 
   const fullName = `TRF ARD AGM ${suffix}`;
   await pool.query(
     `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation)
-     VALUES ($1, $2, $3, $4, $5, 'Admin', 'AGM')`,
+     VALUES ($1, $2, $3, $4, $5, 'AGM', 'AGM')`,
     [`TRF-AGM-${suffix}`, fullName, `${username}@test.local`, username, await hashPassword(password)],
   );
   const res = await api<{ accessToken: string }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });

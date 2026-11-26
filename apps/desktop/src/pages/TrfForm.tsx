@@ -424,7 +424,7 @@ export function TrfForm() {
   const canEditA = canEditAByRole && !locked;
   const canEditB = canEditBByRole && !locked;
   const isAdmin = employee?.role === 'Admin';
-  const isAgm = employee?.designation === 'AGM';
+  const isAgm = employee?.role === 'AGM';
   // AGM or Admin can approve Reporting, COA, ARD Remarks Status, and Final Status
   const canEditArdApproval = (isAdmin || isAgm) && !locked;
   // ARD analysts can edit: Analyst Name, Date of Analysis, Stage, ARD Remark

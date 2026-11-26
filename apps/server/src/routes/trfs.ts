@@ -9,14 +9,14 @@ import {
    TERMINAL_ARD_STATUSES, roleHasPermission, canEditTrfPartA, canEditTrfPartB,
    ArdWorkflowStatus, ArdRemarksStatus, ARD_REMARKS_STATUSES,
    FINAL_APPROVAL_STATUSES,
-   isAdminDesignation,
+   isAdminRoleDesignation,
    canSetRequiredCompletionDate,
 } from '@trf/shared';
 import { PoolClient } from 'pg';
 import { pool, withTransaction } from '../db.js';
 import { AppError, badRequest, conflict, forbidden, notFound, versionConflict } from '../lib/errors.js';
 import { writeAudit } from '../lib/audit.js';
-import { notifyEmployee, createNotification } from '../lib/notifications.js';
+import { notifyEmployee, createNotification, notifyFinalApprovalNeeded } from '../lib/notifications.js';
 import { nextNumber, trfDuplicateError } from '../lib/numbers.js';
 import { dateOnly } from '../lib/dates.js';
 import {
@@ -946,12 +946,9 @@ if (workflowChanged) {
            VALUES ($1, $2, $3, $4, $5)`,
           [id, current.workflow_status, body.workflowStatus, user.id, body.note ?? null],
         );
-        // When ARD work is completed, the final approval waits on an AGM.
+        // When ARD work is completed, the final approval waits on an Admin.
         if (body.workflowStatus === 'Completed') {
-          const agmRows = await client.query<{ id: number }>('SELECT id FROM employees WHERE designation = $1 AND is_active = TRUE', ['AGM']);
-          for (const agm of agmRows.rows) {
-            await notifyEmployee(client, agm.id, 'final_approval_needed', 'TRF ready for final approval', `${current.trf_number} is ready for final approval.`, id);
-          }
+          await notifyFinalApprovalNeeded(client, id, current.trf_number);
         }
       }
 
@@ -1285,10 +1282,7 @@ trfsRouter.post('/:id/ard-status', requireArdEdit(), validateBody(ardStatusSchem
       });
       // When ARD work is completed via Final Status, notify all Admins for final approval
       if (body.status === 'Completed') {
-        const adminRows = await client.query<{ id: number }>('SELECT id FROM employees WHERE role = $1 AND is_active = TRUE', ['Admin']);
-        for (const admin of adminRows.rows) {
-          await notifyEmployee(client, admin.id, 'final_approval_needed', 'TRF ready for final approval', `${current.trf_number} is ready for final approval.`, id);
-        }
+        await notifyFinalApprovalNeeded(client, id, current.trf_number);
       }
       return id;
     });
@@ -1699,9 +1693,9 @@ trfsRouter.post('/:id/ard-submit', requirePermission('trf.changeStatus'), valida
         newValue: { finalApprovalStatus: 'Pending', workflowStatus: 'Completed', note: body.note ?? null },
       });
 
-      // Notify AGM/GM admins (designation AGM or GM)
+      // Notify AGM-role reviewers and Admins with AGM/GM/COO designation
       const agmRows = await client.query<{ id: number }>(
-        `SELECT id FROM employees WHERE role = 'Admin' AND designation IN ('AGM','GM','COO') AND is_active = TRUE`
+        `SELECT id FROM employees WHERE (role = 'AGM' OR (role = 'Admin' AND designation IN ('AGM','GM','COO'))) AND is_active = TRUE`
       );
       for (const agm of agmRows.rows) {
         await notifyEmployee(client, agm.id, 'final_approval_needed', 'TRF ready for final approval',
@@ -1756,12 +1750,7 @@ trfsRouter.post('/:id/agm-complete', requireAdminApproval(), validateBody(agmCom
     if (!Number.isInteger(id) || id <= 0) throw notFound();
     const body = req.body as z.infer<typeof agmCompleteSchema>;
 
-    // Check designation: must be AGM, GM, or COO
-    if (!isAdminDesignation(admin.designation)) {
-      throw forbidden('Only an Admin with AGM, GM, or COO designation can complete the final approval.');
-    }
-
-    // Shared team login cannot do this
+    // Shared team login cannot give the final approval
     if (req.accountId) {
       throw forbidden('Team accounts cannot perform final approval.');
     }

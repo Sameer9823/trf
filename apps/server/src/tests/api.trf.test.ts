@@ -86,8 +86,8 @@ async function createAgm(): Promise<{ id: number; username: string; password: st
   const password = 'Agm-Test-Pass-42';
   await pool.query(
     `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation)
-     VALUES ($1, $2, $3, $4, $5, 'Admin', 'AGM')
-     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, role = 'Admin', designation = 'AGM'`,
+     VALUES ($1, $2, $3, $4, $5, 'AGM', 'AGM')
+     ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = TRUE, role = 'AGM', designation = 'AGM'`,
     [`P3-AGM-${suffix}`, `Phase3 AGM ${suffix}`, `p3agm${suffix}@test.local`, `p3agm${suffix}`, await hashPassword(password)],
   );
   const found = await pool.query<{ id: number }>(`SELECT id FROM employees WHERE username = $1`, [`p3agm${suffix}`]);
@@ -1356,7 +1356,7 @@ async function userAgm(): Promise<{ token: string; id: number; fullName: string 
   const fullName = `TRF AGM ${suffix}`;
   await pool.query(
     `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation)
-     VALUES ($1, $2, $3, $4, $5, 'Admin', 'AGM')`,
+     VALUES ($1, $2, $3, $4, $5, 'AGM', 'AGM')`,
     [`TRF-AGM-${suffix}`, fullName, `${username}@test.local`, username, await hashPassword(password)],
   );
   const res = await api<{ accessToken: string }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
