@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "TRF Management System desktop client",
+  "author": "Kawman ExAct <digital@kawmanexact.com>",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "node electron/build.cjs && concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 node electron-start.js .\"",
@@ -13,8 +14,9 @@
     "typecheck": "node electron/build.cjs && tsc --noEmit -p tsconfig.json"
   },
   "build": {
-    "appId": "com.company.trf",
+    "appId": "com.kawmanexact.trf",
     "productName": "TRF Management System",
+    "electronVersion": "33.4.11",
     "directories": {
       "output": "release"
     },
@@ -29,17 +31,16 @@
         "to": "default-config.json"
       }
     ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "artifactName": "TRF-Setup-${version}.${ext}"
-    },
+   "win": {
+  "signAndEditExecutable": false,
+  "target": [
+    {
+      "target": "nsis",
+      "arch": ["x64"]
+    }
+  ],
+  "artifactName": "TRF-Setup-${version}.${ext}"
+},
     "nsis": {
       "oneClick": false,
       "perMachine": false,
