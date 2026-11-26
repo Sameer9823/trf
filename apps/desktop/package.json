@@ -5,7 +5,7 @@
   "type": "module",
   "description": "TRF Management System desktop client",
   "main": "dist-electron/main.js",
-"scripts": {
+  "scripts": {
     "dev": "node electron/build.cjs && concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 node electron-start.js .\"",
     "build": "node electron/build.cjs && tsc --noEmit -p tsconfig.json && vite build",
     "package": "npm run build && electron-builder --win --publish never",
@@ -59,6 +59,7 @@
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.8",
     "@types/node": "^22.7.0",
