@@ -2003,9 +2003,23 @@ trfsRouter.get('/:id/ard-history', requirePermission('trf.view'), async (req, re
         ORDER BY h.changed_at DESC, h.id DESC`,
       [id],
     );
+
+    // Collect distinct analyst IDs from the reassignment rows only
+    const analystIdSet = new Set<number>();
+    for (const r of reassignResult.rows) {
+      for (const id of r.old_ids) analystIdSet.add(id);
+      for (const id of r.new_ids) analystIdSet.add(id);
+    }
+    const analystIds = Array.from(analystIdSet);
+
     const nameMap = new Map<number, string>();
-    const idRows = await pool.query<{ id: number; full_name: string }>(`SELECT id, full_name FROM employees`);
-    for (const r of idRows.rows) nameMap.set(r.id, r.full_name);
+    if (analystIds.length > 0) {
+      const idRows = await pool.query<{ id: number; full_name: string }>(
+        `SELECT id, full_name FROM employees WHERE id = ANY($1::int[])`,
+        [analystIds]
+      );
+      for (const r of idRows.rows) nameMap.set(r.id, r.full_name);
+    }
     const names = (ids: number[]) => ids.map((i) => nameMap.get(i) ?? `#${i}`).join(', ');
     const reassignments = reassignResult.rows.map((r) => ({
       id: r.id,

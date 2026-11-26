@@ -989,3 +989,48 @@ maybe('PATCH with exact current ids repeated [A,A] changes nothing (no history, 
   await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
   await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
 });
+
+maybe('GET /:id/history reassignments only queries needed employee IDs and shows deactivated analyst names', async () => {
+  const agm = await userAgm();
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const analystB = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `HISTORY-EMP-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  // Create assignment with analyst A
+  const created = await api<{ assignmentId: number; version: number }>('/api/ard-assignments', {
+    method: 'POST',
+    body: JSON.stringify({ trfId, testRequestedOptionId: 1, testName: 'Assay', analystIds: [analystA.id] }),
+  }, adminToken);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const assignmentId = created.body.assignmentId;
+  const initialVersion = created.body.version;
+
+  // Reassign from A to B
+  const patch = await api<{ analystIds: number[]; version: number }>(`/api/ard-assignments/${assignmentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: initialVersion, analystIds: [analystB.id], reason: 'Absent' }),
+  }, agm.token);
+  assert.equal(patch.status, 200, JSON.stringify(patch.body));
+
+  // Deactivate analyst A (simulate employee leaving)
+  await pool.query(`UPDATE employees SET is_active = FALSE WHERE id = $1`, [analystA.id]);
+
+  // Call history endpoint - should not load all employees, only A and B
+  const history = await api<{ items: any[]; reassignments: any[] }>(`/api/trfs/${trfId}/history`, {}, adminToken);
+  assert.equal(history.status, 200, JSON.stringify(history.body));
+
+  // The reassignment should show both names (A and B) even though A is deactivated
+  const reassignment = history.body.reassignments.find((r) => r.testName === 'Assay');
+  assert.ok(reassignment, 'reassignment entry must exist');
+  // fromNames should contain analyst A's name (deactivated but still in employees table)
+  assert.ok(reassignment.fromNames.includes(analystA.fullName), `fromNames should include deactivated analyst A: ${reassignment.fromNames}`);
+  // toNames should contain analyst B's name
+  assert.ok(reassignment.toNames.includes(analystB.fullName), `toNames should include analyst B: ${reassignment.toNames}`);
+
+  // Reactivate A for cleanup
+  await pool.query(`UPDATE employees SET is_active = TRUE WHERE id = $1`, [analystA.id]);
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
