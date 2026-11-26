@@ -860,3 +860,132 @@ maybe('reassigning one of multiple analysts keeps the other and updates history 
   await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
   await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
 });
+
+maybe('duplicate analystIds in PATCH are deduplicated: [B,B] on test with A -> [B], one history row, B notified once', async () => {
+  const agm = await userAgm();
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const analystB = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `DEDUP-PATCH-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  // Create assignment with analyst A
+  const created = await api<{ assignmentId: number; version: number }>('/api/ard-assignments', {
+    method: 'POST',
+    body: JSON.stringify({ trfId, testRequestedOptionId: 1, testName: 'Assay', analystIds: [analystA.id] }),
+  }, adminToken);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const assignmentId = created.body.assignmentId;
+  const initialVersion = created.body.version;
+
+  // PATCH with duplicate analystIds [B, B]
+  const patch = await api<{ analystIds: number[]; version: number }>(`/api/ard-assignments/${assignmentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: initialVersion, analystIds: [analystB.id, analystB.id], reason: 'Absent' }),
+  }, agm.token);
+  assert.equal(patch.status, 200, JSON.stringify(patch.body));
+  assert.deepEqual(patch.body.analystIds, [analystB.id]);
+
+  // Database has only B assigned once
+  const assigned = await pool.query<{ analyst_id: number }>(
+    `SELECT analyst_id FROM ard_test_assignment_analysts WHERE assignment_id = $1 ORDER BY analyst_id`, [assignmentId]);
+  assert.deepEqual(assigned.rows.map(r => r.analyst_id), [analystB.id]);
+
+  // One history row for REASSIGNED
+  const history = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM ard_test_assignment_history WHERE assignment_id = $1 AND action = 'REASSIGNED'`, [assignmentId]);
+  assert.equal(history.rows[0].count, '1', 'exactly one reassignment history row');
+
+  // B notified once (ASSIGNED), A notified once (REASSIGNED)
+  const notifications = await pool.query<{ recipient_employee_id: number; type: string }>(
+    `SELECT recipient_employee_id, type FROM notifications WHERE recipient_employee_id IN ($1, $2) AND type IN ('ARD_TEST_ASSIGNED', 'ARD_TEST_REASSIGNED') ORDER BY created_at DESC`, [analystA.id, analystB.id]);
+  const notifiedTypes = new Map<number, string[]>();
+  for (const n of notifications.rows) {
+    if (!notifiedTypes.has(n.recipient_employee_id)) notifiedTypes.set(n.recipient_employee_id, []);
+    notifiedTypes.get(n.recipient_employee_id)!.push(n.type);
+  }
+  assert.ok(notifiedTypes.has(analystA.id) && notifiedTypes.get(analystA.id)!.includes('ARD_TEST_REASSIGNED'), 'analyst A (removed) should get REASSIGNED notification');
+  assert.ok(notifiedTypes.has(analystB.id) && notifiedTypes.get(analystB.id)!.includes('ARD_TEST_ASSIGNED'), 'analyst B (added) should get ASSIGNED notification');
+  // B should only have one notification
+  const bNotifications = notifiedTypes.get(analystB.id) ?? [];
+  assert.equal(bNotifications.filter(t => t === 'ARD_TEST_ASSIGNED').length, 1, 'analyst B should be notified exactly once');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
+maybe('duplicate analystIds in reassign-bulk are deduplicated', async () => {
+  const agm = await userAgm();
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const analystB = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `DEDUP-BULK-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  const created = await api<{ assignmentId: number; version: number }>('/api/ard-assignments', {
+    method: 'POST',
+    body: JSON.stringify({ trfId, testRequestedOptionId: 1, testName: 'Assay', analystIds: [analystA.id] }),
+  }, adminToken);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const assignmentId = created.body.assignmentId;
+  const initialVersion = created.body.version;
+
+  // POST /reassign-bulk with duplicate analystIds [B, B]
+  const bulk = await api<{ items: { assignmentId: number; changed: boolean; version: number }[] }>('/api/ard-assignments/reassign-bulk', {
+    method: 'POST',
+    body: JSON.stringify({ reason: 'On leave', items: [{ assignmentId, version: initialVersion, analystIds: [analystB.id, analystB.id] }] }),
+  }, agm.token);
+  assert.equal(bulk.status, 200, JSON.stringify(bulk.body));
+  assert.equal(bulk.body.items[0].changed, true);
+
+  // Database has only B assigned once
+  const assigned = await pool.query<{ analyst_id: number }>(
+    `SELECT analyst_id FROM ard_test_assignment_analysts WHERE assignment_id = $1 ORDER BY analyst_id`, [assignmentId]);
+  assert.deepEqual(assigned.rows.map(r => r.analyst_id), [analystB.id]);
+
+  // One history row
+  const history = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM ard_test_assignment_history WHERE assignment_id = $1 AND action = 'REASSIGNED'`, [assignmentId]);
+  assert.equal(history.rows[0].count, '1', 'exactly one reassignment history row');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
+maybe('PATCH with exact current ids repeated [A,A] changes nothing (no history, version unchanged)', async () => {
+  const agm = await userAgm();
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `DEDUP-SAME-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  const created = await api<{ assignmentId: number; version: number }>('/api/ard-assignments', {
+    method: 'POST',
+    body: JSON.stringify({ trfId, testRequestedOptionId: 1, testName: 'Assay', analystIds: [analystA.id] }),
+  }, adminToken);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const assignmentId = created.body.assignmentId;
+  const initialVersion = created.body.version;
+
+  // PATCH with same analystIds [A, A] (duplicates of current)
+  const patch = await api<{ analystIds: number[]; version: number }>(`/api/ard-assignments/${assignmentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: initialVersion, analystIds: [analystA.id, analystA.id] }),
+  }, agm.token);
+  assert.equal(patch.status, 200, JSON.stringify(patch.body));
+  assert.deepEqual(patch.body.analystIds, [analystA.id]);
+
+  // Version should NOT increment (no change)
+  const after = await pool.query<{ version: number }>(`SELECT version FROM ard_test_assignments WHERE id = $1`, [assignmentId]);
+  assert.equal(after.rows[0].version, initialVersion, 'version must not change when analyst set is identical');
+
+  // No REASSIGNED history row
+  const history = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM ard_test_assignment_history WHERE assignment_id = $1 AND action = 'REASSIGNED'`, [assignmentId]);
+  assert.equal(history.rows[0].count, '0', 'no reassignment history when nothing changed');
+
+  // No notifications
+  const notifications = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM notifications WHERE recipient_employee_id = $1 AND type IN ('ARD_TEST_ASSIGNED', 'ARD_TEST_REASSIGNED')`, [analystA.id]);
+  assert.equal(notifications.rows[0].count, '0', 'no notifications when nothing changed');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});

@@ -37,7 +37,7 @@ const createAssignmentSchema = z.object({
   trfId: z.number().int().positive(),
   testRequestedOptionId: z.number().int().positive(),
   testName: z.string().trim().min(2, 'Enter the test name.').max(120),
-  analystIds: z.array(z.number().int().positive()).default([]),
+  analystIds: z.array(z.number().int().positive()).transform((ids) => [...new Set(ids)]).default([]),
   dueDate: ISO_DATE.nullable().optional(),
   reason: z.string().trim().max(500).nullable().optional(),
 });
@@ -47,7 +47,7 @@ const bulkAssignmentSchema = z.object({
   assignments: z.array(z.object({
     testRequestedOptionId: z.number().int().positive(),
     testName: z.string().trim().min(2).max(120),
-    analystIds: z.array(z.number().int().positive()).default([]),
+    analystIds: z.array(z.number().int().positive()).transform((ids) => [...new Set(ids)]).default([]),
     dueDate: ISO_DATE.nullable().optional(),
     reason: z.string().trim().max(500).nullable().optional(),
   })).min(1, 'At least one test assignment is required.'),
@@ -56,7 +56,7 @@ const bulkAssignmentSchema = z.object({
 const updateAssignmentSchema = z.object({
   version: z.number().int().positive(),
   status: z.enum(ARD_TEST_ASSIGNMENT_STATUSES).optional(),
-  analystIds: z.array(z.number().int().positive()).optional(),
+  analystIds: z.array(z.number().int().positive()).transform((ids) => [...new Set(ids)]).optional(),
   dueDate: ISO_DATE.nullable().optional(),
   reason: z.string().trim().max(500).nullable().optional(),
   /** AGM confirmation to reassign a test whose result is already awaiting review. */
@@ -75,7 +75,7 @@ const reassignBulkSchema = z.object({
   items: z.array(z.object({
     assignmentId: z.number().int().positive(),
     version: z.number().int().positive(),
-    analystIds: z.array(z.number().int().positive()),
+    analystIds: z.array(z.number().int().positive()).transform((ids) => [...new Set(ids)]),
   })).min(1, 'At least one test is required.'),
 });
 
@@ -124,7 +124,8 @@ async function applyAnalystChange(client: QueryRunner, params: {
   confirmAwaitingReview?: boolean;
 }): Promise<{ addedIds: number[]; removedIds: number[]; changed: boolean }> {
   const { assignmentId, trfId, trfNumber, testName, currentAnalystIds } = params;
-  const newAnalystIds = params.newAnalystIds;
+  // Deduplicate incoming analyst IDs to avoid UNIQUE constraint violations and duplicate notifications
+  const newAnalystIds = [...new Set(params.newAnalystIds)];
   const reason = params.reason?.trim() ? params.reason.trim() : null;
   const addedIds = newAnalystIds.filter((id) => !currentAnalystIds.includes(id));
   const removedIds = currentAnalystIds.filter((id) => !newAnalystIds.includes(id));
