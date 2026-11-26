@@ -825,6 +825,9 @@ maybe('reassigning one of multiple analysts keeps the other and updates history 
   const assignmentId = created.body.assignmentId;
   const initialVersion = created.body.version;
 
+  // Clear notifications from initial assignment so we only see reassignment notifications
+  await pool.query(`DELETE FROM notifications WHERE recipient_employee_id IN ($1, $2, $3)`, [analystA.id, analystB.id, analystC.id]);
+
   // PATCH to replace B with C: analystIds [A, C]
   const patch = await api<{ analystIds: number[]; version: number }>(`/api/ard-assignments/${assignmentId}`, {
     method: 'PATCH',
@@ -931,7 +934,7 @@ maybe('duplicate analystIds in reassign-bulk are deduplicated', async () => {
   // POST /reassign-bulk with duplicate analystIds [B, B]
   const bulk = await api<{ items: { assignmentId: number; changed: boolean; version: number }[] }>('/api/ard-assignments/reassign-bulk', {
     method: 'POST',
-    body: JSON.stringify({ reason: 'On leave', items: [{ assignmentId, version: initialVersion, analystIds: [analystB.id, analystB.id] }] }),
+    body: JSON.stringify({ reason: 'On leave', items: [{ assignmentId: Number(assignmentId), version: initialVersion, analystIds: [analystB.id, analystB.id] }] }),
   }, agm.token);
   assert.equal(bulk.status, 200, JSON.stringify(bulk.body));
   assert.equal(bulk.body.items[0].changed, true);
@@ -964,6 +967,9 @@ maybe('PATCH with exact current ids repeated [A,A] changes nothing (no history, 
   const assignmentId = created.body.assignmentId;
   const initialVersion = created.body.version;
 
+  // Clear notifications from initial assignment so we only see reassignment notifications
+  await pool.query(`DELETE FROM notifications WHERE recipient_employee_id = $1`, [analystA.id]);
+
   // PATCH with same analystIds [A, A] (duplicates of current)
   const patch = await api<{ analystIds: number[]; version: number }>(`/api/ard-assignments/${assignmentId}`, {
     method: 'PATCH',
@@ -990,7 +996,7 @@ maybe('PATCH with exact current ids repeated [A,A] changes nothing (no history, 
   await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
 });
 
-maybe('GET /:id/history reassignments only queries needed employee IDs and shows deactivated analyst names', async () => {
+maybe('GET /:id/ard-history reassignments only queries needed employee IDs and shows deactivated analyst names', async () => {
   const agm = await userAgm();
   const analystA = await userInDepartment('Analyst', 'ARD');
   const analystB = await userInDepartment('Analyst', 'ARD');
@@ -1016,8 +1022,8 @@ maybe('GET /:id/history reassignments only queries needed employee IDs and shows
   // Deactivate analyst A (simulate employee leaving)
   await pool.query(`UPDATE employees SET is_active = FALSE WHERE id = $1`, [analystA.id]);
 
-  // Call history endpoint - should not load all employees, only A and B
-  const history = await api<{ items: any[]; reassignments: any[] }>(`/api/trfs/${trfId}/history`, {}, adminToken);
+  // Call ard-history endpoint - should not load all employees, only A and B
+  const history = await api<{ items: any[]; reassignments: any[] }>(`/api/trfs/${trfId}/ard-history`, {}, adminToken);
   assert.equal(history.status, 200, JSON.stringify(history.body));
 
   // The reassignment should show both names (A and B) even though A is deactivated

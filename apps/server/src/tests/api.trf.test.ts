@@ -1367,14 +1367,24 @@ async function userAgm(): Promise<{ token: string; id: number; fullName: string 
 maybe('AGM changing Required Completion Date backfills due_date and audit logs old/new correctly', async () => {
   const agm = await userAgm();
   const analyst = await userInDepartment('Analyst', 'ARD');
-  const trf = await createTrf({
+  // Create TRF using helper (sets all required fields) and approve via Formulation decision
+  const created = await createTrf({
     batchNumber: `RCD-BACKFILL-${Date.now()}`,
     requiredCompletionDate: '2026-11-30',
-    testRequestedOptionIds: [1, 2, 3], // three tests
+    testRequestedOptionIds: [1, 2, 3],
     remarksStatus: 'Approved',
-  });
-  assert.equal(trf.status, 201, JSON.stringify(trf.body));
-  const trfId = trf.body.id;
+  }, adminToken);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const trf = created.body;
+  const trfId = trf.id;
+
+  // Approve via Formulation decision (required before AGM can change required completion date)
+  const approved = await api<TrfDetail>(`/api/trfs/${trfId}/decision`, {
+    method: 'POST',
+    body: JSON.stringify({ track: 'FORMULATION', decision: 'Approved', version: trf.version }),
+  }, adminToken);
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+  const trfApproved = approved.body;
 
   // Get the test option IDs we used
   const testOptions = await pool.query<{ id: number }>(`SELECT id FROM test_requested_options ORDER BY id LIMIT 3`);
@@ -1408,14 +1418,14 @@ maybe('AGM changing Required Completion Date backfills due_date and audit logs o
   // AGM changes Required Completion Date from 2026-11-30 to 2026-12-20
   const patch = await api<TrfDetail>(`/api/trfs/${trfId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ version: trf.body.version, requiredCompletionDate: '2026-12-20' }),
+    body: JSON.stringify({ version: trfApproved.version, requiredCompletionDate: '2026-12-20' }),
   }, agm.token);
   assert.equal(patch.status, 200, JSON.stringify(patch.body));
 
   // Check audit log for trf.required_date_backfill
   const audit = await pool.query<{ old_value: any; new_value: any }>(
-    `SELECT old_value, new_value FROM audit_log WHERE record_ref = $1 AND action = 'trf.required_date_backfill' ORDER BY id DESC LIMIT 1`,
-    [trf.body.trf_number]
+    `SELECT old_value, new_value FROM audit_logs WHERE record_ref = $1 AND action = 'trf.required_date_backfill' ORDER BY id DESC LIMIT 1`,
+    [trfApproved.trfNumber]
   );
   assert.equal(audit.rowCount, 1, 'audit row for required_date_backfill must exist');
   const oldVal = audit.rows[0].old_value;

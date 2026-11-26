@@ -149,7 +149,7 @@ async function assertTrfNotLocked(client: PoolClient, trfId: number) {
  */
 const EDITABLE_FORMULATION = [
   'trfDate', 'customerId', 'productId', 'batchNumber', 'sampleQuantity',
-  'requiredCompletionDate', 'requestedAnalysis', 'specialInstructions', 'remarks',
+  'requestedAnalysis', 'specialInstructions', 'remarks',
   'batchSize', 'dosageForm', 'manufacturingLocation', 'labelClaim', 'packSize',
   'packType', 'storageCondition', 'storagePeriod', 'manufacturingDate', 'expiryDate',
   'analysisPurpose', 'sampleGivenBy', 'sampleSubmittedById', 'signatureDate',
@@ -446,7 +446,11 @@ trfsRouter.post('/', requireTrfCreate(), validateBody(createSchema), async (req,
         sampleReceivedDate: 'The sample received date cannot be earlier than the TRF date.',
       });
     }
-     if (body.expiryDate && body.manufacturingDate && body.expiryDate <= body.manufacturingDate) {
+    // Required Completion Date: drop if it's before the TRF date (historical behavior)
+    if (body.requiredCompletionDate && body.trfDate && body.requiredCompletionDate < body.trfDate) {
+      body.requiredCompletionDate = null;
+    }
+    if (body.expiryDate && body.manufacturingDate && body.expiryDate <= body.manufacturingDate) {
        throw badRequest('The expiry date must be after the manufacturing date.', {
          expiryDate: 'The expiry date must be later than the manufacturing date.',
        });
@@ -518,9 +522,9 @@ const inserted = await client.query<{ id: number }>(
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
              $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, ${initialLockedAt}, ${initialLockedBy}, $31, $32, $33, $34, $35)
            RETURNING id`,
-         [trfNumber, body.trfDate, body.customerId, body.productId,
-           body.batchNumber ?? null, body.sampleQuantity ?? null, body.sampleReceivedDate ?? null,
-           null, body.priority, body.requestedAnalysis ?? null,
+[trfNumber, body.trfDate, body.customerId, body.productId,
+            body.batchNumber ?? null, body.sampleQuantity ?? null, body.sampleReceivedDate ?? null,
+            body.requiredCompletionDate ?? null, body.priority, body.requestedAnalysis ?? null,
            body.specialInstructions ?? null, body.departmentId ?? user.departmentId ?? null,
            body.remarks ?? null, body.batchSize ?? null, body.dosageForm ?? null,
            body.manufacturingLocation ?? null, body.labelClaim ?? null, body.packSize ?? null,

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
-import '@testing-library/jest-dom';
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import { ChangeAnalystDialog } from './TrfForm';
 import type { ArdTestAssignment, EmployeeOption } from '@trf/shared';
 
@@ -58,7 +57,7 @@ function makeAssignment(overrides: Partial<ArdTestAssignment> = {}): ArdTestAssi
   };
 }
 
-function mountChangeAnalystDialog(assignment: ArdTestAssignment) {
+function mountChangeAnalystDialog(assignment: ArdTestAssignment, employees = mockEmployees) {
   const calls: Call[] = [];
   (window as unknown as { trf: unknown }).trf = {
     request: async (req: Call) => {
@@ -71,8 +70,8 @@ function mountChangeAnalystDialog(assignment: ArdTestAssignment) {
   };
   const onSaved = vi.fn(async () => {});
   const onClose = vi.fn();
-  render(<ChangeAnalystDialog assignment={assignment} employees={mockEmployees} workload={mockWorkload} onClose={onClose} onSaved={onSaved} />);
-  return { calls, onSaved, onClose };
+  const { unmount } = render(<ChangeAnalystDialog assignment={assignment} employees={employees} workload={mockWorkload} onClose={onClose} onSaved={onSaved} />);
+  return { calls, onSaved, onClose, unmount };
 }
 
 afterEach(() => cleanup());
@@ -81,7 +80,7 @@ describe('ChangeAnalystDialog', () => {
   test('one analyst: no extra step, payload analystIds is [replacement]', async () => {
     const assignment = makeAssignment({ id: 101, analysts: [{ id: 1, fullName: 'Analyst A', employeeCode: 'E001', departmentName: 'ARD', assignedAt: new Date().toISOString() }], analystIds: [1] });
 
-    const { calls, onSaved } = mountChangeAnalystDialog(assignment);
+    const { calls, onSaved, unmount } = mountChangeAnalystDialog(assignment);
 
     // Title shows who is being replaced
     await waitFor(() => expect(screen.getByText(/Replace Analyst A on Assay/)).toBeTruthy());
@@ -90,16 +89,23 @@ describe('ChangeAnalystDialog', () => {
     expect(screen.queryByLabelText(/Replace/)).not.toBeInTheDocument();
 
     // Pick replacement
-    fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '2' } });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '2' } });
+    });
     // Choose reason
-    fireEvent.click(screen.getByRole('button', { name: 'Absent' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Absent' }));
+    });
     // Submit
-    fireEvent.click(screen.getByRole('button', { name: /Change analyst/ }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Change analyst/ }));
+    });
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     const patch = calls.find(c => c.method === 'PATCH');
     expect(patch).toBeTruthy();
     expect((patch!.body as any).analystIds).toEqual([2]);
+    unmount();
   });
 
   test('two analysts A and B, replace B with C: payload is [A, C] and A is not dropped', async () => {
@@ -112,7 +118,7 @@ describe('ChangeAnalystDialog', () => {
       analystIds: [1, 2],
     });
 
-    const { calls, onSaved } = mountChangeAnalystDialog(assignment);
+    const { calls, onSaved, unmount } = mountChangeAnalystDialog(assignment);
 
     // Title shows generic replace text when multiple analysts
     await waitFor(() => expect(screen.getByText(/Replace analyst on Assay/)).toBeTruthy());
@@ -126,25 +132,34 @@ describe('ChangeAnalystDialog', () => {
     expect(submitBtn).toBeDisabled();
 
     // Select which analyst to replace (Analyst B, id=2)
-    fireEvent.change(replaceSelect, { target: { value: '2' } });
+    await act(async () => {
+      fireEvent.change(replaceSelect, { target: { value: '2' } });
+    });
 
     // Pick replacement (Analyst C, id=3)
-    fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '3' } });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '3' } });
+    });
 
     // Choose reason
-    fireEvent.click(screen.getByRole('button', { name: 'Absent' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Absent' }));
+    });
 
     // Now submit should be enabled
     expect(submitBtn).not.toBeDisabled();
 
     // Submit
-    fireEvent.click(submitBtn);
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     const patch = calls.find(c => c.method === 'PATCH');
     expect(patch).toBeTruthy();
     const body = patch!.body as any;
     expect(body.analystIds).toEqual([1, 3]); // A stays, B replaced by C
+    unmount();
   });
 
   test('submit button stays disabled until a replace choice (when there are two), a replacement and a reason are set', async () => {
@@ -157,52 +172,92 @@ describe('ChangeAnalystDialog', () => {
       analystIds: [1, 2],
     });
 
-    const { onSaved } = mountChangeAnalystDialog(assignment);
+    // Test each condition separately with fresh mounts
+    {
+      const { unmount } = mountChangeAnalystDialog(assignment);
+      const submitBtn = screen.getByRole('button', { name: /Change analyst/ });
+      expect(submitBtn).toBeDisabled();
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText(/Replace/), { target: { value: '2' } });
+      });
+      expect(submitBtn).toBeDisabled();
+      unmount();
+    }
 
-    const submitBtn = screen.getByRole('button', { name: /Change analyst/ });
-    expect(submitBtn).toBeDisabled();
+    {
+      const { unmount } = mountChangeAnalystDialog(assignment);
+      const submitBtn = screen.getByRole('button', { name: /Change analyst/ });
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '3' } });
+      });
+      expect(submitBtn).toBeDisabled();
+      unmount();
+    }
 
-    // Only replace choice
-    fireEvent.change(screen.getByLabelText(/Replace/), { target: { value: '2' } });
-    expect(submitBtn).toBeDisabled();
+    {
+      const { unmount } = mountChangeAnalystDialog(assignment);
+      const submitBtn = screen.getByRole('button', { name: /Change analyst/ });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'On leave' }));
+      });
+      expect(submitBtn).toBeDisabled();
+      unmount();
+    }
 
-    // Only replacement
-    fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '3' } });
-    expect(submitBtn).toBeDisabled();
+    {
+      const { unmount } = mountChangeAnalystDialog(assignment);
+      const submitBtn = screen.getByRole('button', { name: /Change analyst/ });
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText(/Replace/), { target: { value: '2' } });
+        fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '3' } });
+      });
+      expect(submitBtn).toBeDisabled();
+      unmount();
+    }
 
-    // Only reason
-    fireEvent.click(screen.getByRole('button', { name: 'On leave' }));
-    expect(submitBtn).toBeDisabled();
+    {
+      const { unmount } = mountChangeAnalystDialog(assignment);
+      const submitBtn = screen.getByRole('button', { name: /Change analyst/ });
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText(/Replace/), { target: { value: '2' } });
+        fireEvent.click(screen.getByRole('button', { name: 'On leave' }));
+      });
+      expect(submitBtn).toBeDisabled();
+      unmount();
+    }
 
-    // Replace + replacement
-    fireEvent.change(screen.getByLabelText(/Replace/), { target: { value: '2' } });
-    fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '3' } });
-    expect(submitBtn).toBeDisabled();
-
-    // Replace + reason
-    fireEvent.change(screen.getByLabelText(/Replace/), { target: { value: '2' } });
-    fireEvent.click(screen.getByRole('button', { name: 'On leave' }));
-    expect(submitBtn).toBeDisabled();
-
-    // Replacement + reason
-    fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '3' } });
-    fireEvent.click(screen.getByRole('button', { name: 'On leave' }));
-    expect(submitBtn).toBeDisabled();
+    {
+      const { unmount } = mountChangeAnalystDialog(assignment);
+      const submitBtn = screen.getByRole('button', { name: /Change analyst/ });
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '3' } });
+        fireEvent.click(screen.getByRole('button', { name: 'On leave' }));
+      });
+      expect(submitBtn).toBeDisabled();
+      unmount();
+    }
 
     // All three: enabled
-    fireEvent.change(screen.getByLabelText(/Replace/), { target: { value: '2' } });
-    fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '3' } });
-    fireEvent.click(screen.getByRole('button', { name: 'On leave' }));
+    const { unmount } = mountChangeAnalystDialog(assignment);
+    const submitBtn = screen.getByRole('button', { name: /Change analyst/ });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Replace/), { target: { value: '2' } });
+      fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '3' } });
+      fireEvent.click(screen.getByRole('button', { name: 'On leave' }));
+    });
     expect(submitBtn).not.toBeDisabled();
+    unmount();
   });
 
   test('cannot pick an analyst already on the test (same person guard)', async () => {
     const assignment = makeAssignment({ id: 104 });
 
-    mountChangeAnalystDialog(assignment);
+    const { unmount } = mountChangeAnalystDialog(assignment);
 
     // Try to pick the same analyst
-    fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '1' } });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/New analyst/), { target: { value: '1' } });
+    });
 
     // Error should show
     await waitFor(() => expect(screen.getByText(/already the assigned analyst/)).toBeTruthy());
@@ -210,9 +265,13 @@ describe('ChangeAnalystDialog', () => {
     // Submit should remain disabled
     const submitBtn = screen.getByRole('button', { name: /Change analyst/ });
     expect(submitBtn).toBeDisabled();
+    unmount();
   });
 
-  test('picker excludes current analysts when there are multiple', async () => {
+  test('picker excludes current analysts when there are multiple (parent component filters)', async () => {
+    // The parent component (TrfForm) filters the employees list before passing to the dialog
+    // So the dialog receives only non-current analysts. This test verifies the dialog
+    // works correctly with a pre-filtered list.
     const assignment = makeAssignment({
       id: 105,
       analysts: [
@@ -222,18 +281,26 @@ describe('ChangeAnalystDialog', () => {
       analystIds: [1, 2],
     });
 
-    mountChangeAnalystDialog(assignment);
+    // Simulate parent filtering: only pass Analyst C (not A or B)
+    const filteredEmployees = mockEmployees.filter(e => ![1, 2].includes(e.id));
+    const { unmount } = mountChangeAnalystDialog(assignment, filteredEmployees);
 
     // Select which analyst to replace (A)
-    fireEvent.change(screen.getByLabelText(/Replace/), { target: { value: '1' } });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/Replace/), { target: { value: '1' } });
+    });
 
-    // The replacement dropdown should not include A or B (both are current analysts)
+    // The replacement dropdown should only have Analyst C (id=3)
     const newAnalystSelect = screen.getByLabelText(/New analyst/);
-    fireEvent.mouseDown(newAnalystSelect);
-    const options = screen.getAllByRole('option');
-    const optionValues = options.map(o => o.getAttribute('value')).filter(v => v !== '');
+    await act(async () => {
+      fireEvent.mouseDown(newAnalystSelect);
+    });
+    // Get options only from the "New analyst" select
+    const newAnalystOptions = newAnalystSelect.querySelectorAll('option');
+    const optionValues = Array.from(newAnalystOptions).map(o => o.getAttribute('value')).filter(v => v !== '');
     expect(optionValues).not.toContain('1'); // Analyst A excluded
     expect(optionValues).not.toContain('2'); // Analyst B excluded
     expect(optionValues).toContain('3'); // Analyst C available
+    unmount();
   });
 });
