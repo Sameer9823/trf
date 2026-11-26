@@ -1375,7 +1375,7 @@ const REASSIGN_REASONS = ['Absent', 'On leave', 'Overloaded', 'Other'] as const;
 
 /** Change the analyst on one ARD test: a replacement, a required reason, and the
  *  same-person guard. The server enforces the reason and the awaiting-review confirm. */
-function ChangeAnalystDialog({ assignment, employees, workload, onClose, onSaved }: {
+export function ChangeAnalystDialog({ assignment, employees, workload, onClose, onSaved }: {
   assignment: ArdTestAssignment;
   employees: EmployeeOption[];
   workload: Record<number, number>;
@@ -1383,6 +1383,11 @@ function ChangeAnalystDialog({ assignment, employees, workload, onClose, onSaved
   onSaved: () => Promise<void>;
 }) {
   const currentIds = assignment.analystIds ?? [];
+  const currentAnalystNames = currentIds.map(id => {
+    const emp = employees.find(e => e.id === id);
+    return emp ? emp.fullName : `Analyst #${id}`;
+  });
+  const [replaceId, setReplaceId] = useState<string>('');
   const [toId, setToId] = useState('');
   const [reasonKind, setReasonKind] = useState<string>('');
   const [reasonText, setReasonText] = useState('');
@@ -1391,9 +1396,29 @@ function ChangeAnalystDialog({ assignment, employees, workload, onClose, onSaved
   const [error, setError] = useState<string | null>(null);
   const awaitingReview = assignment.reviewStatus === 'Submitted';
 
+  // Preselect the only analyst when there is exactly one
+  const [, setReplaceIdInternal] = useState(() => {
+    if (currentIds.length === 1) {
+      setReplaceId(String(currentIds[0]));
+    }
+    return currentIds.length === 1 ? String(currentIds[0]) : '';
+  });
+
   const reason = reasonKind === 'Other' ? reasonText.trim() : reasonKind;
   const samePerson = toId !== '' && currentIds.includes(Number(toId));
-  const canSubmit = !!toId && !samePerson && !!reason && (!awaitingReview || confirmReview) && !busy;
+  const needsReplaceChoice = currentIds.length > 1;
+  const hasReplaceChoice = !needsReplaceChoice || replaceId !== '';
+  const canSubmit = hasReplaceChoice && !!toId && !samePerson && !!reason && (!awaitingReview || confirmReview) && !busy;
+
+  // Compute the new analystIds: current ids with the chosen one removed and the replacement added
+  const newAnalystIds = (() => {
+    if (!toId) return currentIds;
+    const replacementId = Number(toId);
+    const removeId = Number(replaceId);
+    const filtered = currentIds.filter(id => id !== removeId);
+    if (filtered.includes(replacementId)) return filtered;
+    return [...filtered, replacementId];
+  })();
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -1403,7 +1428,7 @@ function ChangeAnalystDialog({ assignment, employees, workload, onClose, onSaved
       method: 'PATCH', path: `/api/ard-assignments/${assignment.id}`,
       body: {
         version: assignment.version,
-        analystIds: [Number(toId)],
+        analystIds: newAnalystIds,
         reason,
         confirm: confirmReview,
       },
@@ -1413,16 +1438,30 @@ function ChangeAnalystDialog({ assignment, employees, workload, onClose, onSaved
     await onSaved();
   };
 
+  const replaceLabel = currentIds.length === 1
+    ? `Replace ${currentAnalystNames[0]} on ${assignment.testName}`
+    : `Replace analyst on ${assignment.testName}`;
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Change analyst">
       <div className="modal">
         <div className="modal__head">
-          <h3>Change analyst — {assignment.testName}</h3>
+          <h3>{replaceLabel}</h3>
           <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>✕</button>
         </div>
         <div className="modal__body">
+          {needsReplaceChoice && (
+            <Field htmlFor="reassign-replace" label="Replace">
+              <select id="reassign-replace" value={replaceId} disabled={busy} onChange={(e) => setReplaceId(e.target.value)}>
+                <option value="">Select the analyst to replace…</option>
+                {currentIds.map((id, idx) => (
+                  <option key={id} value={id}>{currentAnalystNames[idx]}</option>
+                ))}
+              </select>
+            </Field>
+          )}
           <Field htmlFor="reassign-to" label="New analyst">
-            <select id="reassign-to" value={toId} disabled={busy} onChange={(e) => setToId(e.target.value)}>
+            <select id="reassign-to" value={toId} disabled={busy || needsReplaceChoice && !replaceId} onChange={(e) => setToId(e.target.value)}>
               <option value="">Select an analyst…</option>
               {employees.map((e) => (
                 <option key={e.id} value={e.id} disabled={samePerson && String(e.id) === toId}>

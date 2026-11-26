@@ -807,3 +807,56 @@ maybe('reassigning removes the TRF from the previous analyst and shows it to the
   await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
   await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
 });
+
+maybe('reassigning one of multiple analysts keeps the other and updates history and notifications correctly', async () => {
+  const agm = await userAgm();
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const analystB = await userInDepartment('Analyst', 'ARD');
+  const analystC = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `REASSIGN-MULTI-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  // Create assignment with two analysts A and B
+  const created = await api<{ assignmentId: number; version: number }>('/api/ard-assignments', {
+    method: 'POST',
+    body: JSON.stringify({ trfId, testRequestedOptionId: 1, testName: 'Assay', analystIds: [analystA.id, analystB.id] }),
+  }, adminToken);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const assignmentId = created.body.assignmentId;
+  const initialVersion = created.body.version;
+
+  // PATCH to replace B with C: analystIds [A, C]
+  const patch = await api<{ analystIds: number[]; version: number }>(`/api/ard-assignments/${assignmentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: initialVersion, analystIds: [analystA.id, analystC.id], reason: 'Absent' }),
+  }, agm.token);
+  assert.equal(patch.status, 200, JSON.stringify(patch.body));
+  assert.deepEqual(patch.body.analystIds.sort((a: number, b: number) => a - b), [analystA.id, analystC.id].sort((a: number, b: number) => a - b));
+
+  // Verify database: A and C assigned, B not
+  const assigned = await pool.query<{ analyst_id: number }>(
+    `SELECT analyst_id FROM ard_test_assignment_analysts WHERE assignment_id = $1 ORDER BY analyst_id`, [assignmentId]);
+  assert.deepEqual(assigned.rows.map(r => r.analyst_id).sort((a: number, b: number) => a - b), [analystA.id, analystC.id].sort((a: number, b: number) => a - b));
+
+  // History row has old_analyst_ids [A,B] and new_analyst_ids [A,C]
+  const history = await pool.query<{ old_analyst_ids: number[]; new_analyst_ids: number[] }>(
+    `SELECT old_analyst_ids, new_analyst_ids FROM ard_test_assignment_history WHERE assignment_id = $1 AND action = 'REASSIGNED' ORDER BY id DESC LIMIT 1`, [assignmentId]);
+  assert.equal(history.rowCount, 1, 'one reassignment history row');
+  assert.deepEqual(history.rows[0].old_analyst_ids.sort((a: number, b: number) => a - b), [analystA.id, analystB.id].sort((a: number, b: number) => a - b));
+  assert.deepEqual(history.rows[0].new_analyst_ids.sort((a: number, b: number) => a - b), [analystA.id, analystC.id].sort((a: number, b: number) => a - b));
+
+  // Notifications: only C (added) and B (removed) get notified, A gets none
+  const notifications = await pool.query<{ recipient_employee_id: number; type: string }>(
+    `SELECT recipient_employee_id, type FROM notifications WHERE recipient_employee_id IN ($1, $2, $3) AND type IN ('ARD_TEST_ASSIGNED', 'ARD_TEST_REASSIGNED') ORDER BY created_at DESC`, [analystA.id, analystB.id, analystC.id]);
+  const notifiedTypes = new Map<number, string[]>();
+  for (const n of notifications.rows) {
+    if (!notifiedTypes.has(n.recipient_employee_id)) notifiedTypes.set(n.recipient_employee_id, []);
+    notifiedTypes.get(n.recipient_employee_id)!.push(n.type);
+  }
+  assert.ok(!notifiedTypes.has(analystA.id) || notifiedTypes.get(analystA.id)!.length === 0, 'analyst A (unchanged) should not be notified');
+  assert.ok(notifiedTypes.has(analystB.id) && notifiedTypes.get(analystB.id)!.includes('ARD_TEST_REASSIGNED'), 'analyst B (removed) should get REASSIGNED notification');
+  assert.ok(notifiedTypes.has(analystC.id) && notifiedTypes.get(analystC.id)!.includes('ARD_TEST_ASSIGNED'), 'analyst C (added) should get ASSIGNED notification');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
