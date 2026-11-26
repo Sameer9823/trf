@@ -839,20 +839,27 @@ if (workflowChanged) {
       if (requiredDateChanged) {
         const newDueDate = body.requiredCompletionDate ?? null;
         const oldDueDate = current.required_completion_date;
-        const backfillResult = await client.query<{ id: number; due_date: string | null }>(
-          `UPDATE ard_test_assignments
-             SET due_date = $1, version = version + 1
-           WHERE trf_id = $2
-             AND status NOT IN ('Completed', 'Cancelled')
-             AND (due_date IS NULL OR due_date = $3)
-           RETURNING id, due_date`,
+        const backfillResult = await client.query<{ id: number; old_due_date: string | null; new_due_date: string | null }>(
+          `WITH before AS (
+             SELECT id, due_date AS old_due_date
+             FROM ard_test_assignments
+             WHERE trf_id = $2
+               AND status NOT IN ('Completed', 'Cancelled')
+               AND (due_date IS NULL OR due_date = $3)
+             FOR UPDATE
+           )
+           UPDATE ard_test_assignments a
+           SET due_date = $1, version = version + 1
+           FROM before
+           WHERE a.id = before.id
+           RETURNING a.id, before.old_due_date, a.due_date AS new_due_date`,
           [newDueDate, id, oldDueDate]
         );
         if (backfillResult.rowCount && backfillResult.rowCount > 0) {
           const changedAssignments = backfillResult.rows.map(r => ({
             assignmentId: r.id,
-            oldDueDate: r.due_date,
-            newDueDate,
+            oldDueDate: r.old_due_date,
+            newDueDate: r.new_due_date,
           }));
           await writeAudit(client, {
             userId: user.id,

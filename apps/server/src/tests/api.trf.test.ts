@@ -1348,3 +1348,109 @@ maybe('both approval paths record formulation_decided_at', async () => {
 
   await pool.query('DELETE FROM trfs WHERE id = ANY($1)', [[patchId, decisionId]]);
 });
+
+async function userAgm(): Promise<{ token: string; id: number; fullName: string }> {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const password = 'Trf-Test-Pass-42';
+  const username = `trfagm${suffix}`;
+  const fullName = `TRF AGM ${suffix}`;
+  await pool.query(
+    `INSERT INTO employees (employee_code, full_name, email, username, password_hash, role, designation)
+     VALUES ($1, $2, $3, $4, $5, 'Admin', 'AGM')`,
+    [`TRF-AGM-${suffix}`, fullName, `${username}@test.local`, username, await hashPassword(password)],
+  );
+  const res = await api<{ accessToken: string }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+  const found = await pool.query<{ id: number }>(`SELECT id FROM employees WHERE username = $1`, [username]);
+  return { token: res.body.accessToken, id: found.rows[0].id, fullName };
+}
+
+maybe('AGM changing Required Completion Date backfills due_date and audit logs old/new correctly', async () => {
+  const agm = await userAgm();
+  const analyst = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({
+    batchNumber: `RCD-BACKFILL-${Date.now()}`,
+    requiredCompletionDate: '2026-11-30',
+    testRequestedOptionIds: [1, 2, 3], // three tests
+    remarksStatus: 'Approved',
+  });
+  assert.equal(trf.status, 201, JSON.stringify(trf.body));
+  const trfId = trf.body.id;
+
+  // Get the test option IDs we used
+  const testOptions = await pool.query<{ id: number }>(`SELECT id FROM test_requested_options ORDER BY id LIMIT 3`);
+  const opt1 = testOptions.rows[0].id;
+  const opt2 = testOptions.rows[1].id;
+  const opt3 = testOptions.rows[2].id;
+
+  // Create assignments:
+  // - Test 1: due_date = old required date (2026-11-30) -> should be backfilled
+  // - Test 2: due_date = different hand-set date (2026-12-10) -> should NOT be backfilled
+  // - Test 3: status = Completed -> should NOT be backfilled
+  const a1 = await api<{ assignmentId: number; version: number }>('/api/ard-assignments', {
+    method: 'POST', body: JSON.stringify({ trfId, testRequestedOptionId: opt1, testName: 'Assay', analystIds: [analyst.id], dueDate: '2026-11-30' }),
+  }, adminToken);
+  assert.equal(a1.status, 201);
+  const a2 = await api<{ assignmentId: number; version: number }>('/api/ard-assignments', {
+    method: 'POST', body: JSON.stringify({ trfId, testRequestedOptionId: opt2, testName: 'Moisture', analystIds: [analyst.id], dueDate: '2026-12-10' }),
+  }, adminToken);
+  assert.equal(a2.status, 201);
+  const a3 = await api<{ assignmentId: number; version: number }>('/api/ard-assignments', {
+    method: 'POST', body: JSON.stringify({ trfId, testRequestedOptionId: opt3, testName: 'pH', analystIds: [analyst.id], dueDate: '2026-11-30' }),
+  }, adminToken);
+  assert.equal(a3.status, 201);
+
+  // Complete test 3
+  await pool.query(`UPDATE ard_test_assignments SET status = 'Completed' WHERE id = $1`, [a3.body.assignmentId]);
+
+  const v1 = a1.body.version;
+  const v2 = a2.body.version;
+
+  // AGM changes Required Completion Date from 2026-11-30 to 2026-12-20
+  const patch = await api<TrfDetail>(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: trf.body.version, requiredCompletionDate: '2026-12-20' }),
+  }, agm.token);
+  assert.equal(patch.status, 200, JSON.stringify(patch.body));
+
+  // Check audit log for trf.required_date_backfill
+  const audit = await pool.query<{ old_value: any; new_value: any }>(
+    `SELECT old_value, new_value FROM audit_log WHERE record_ref = $1 AND action = 'trf.required_date_backfill' ORDER BY id DESC LIMIT 1`,
+    [trf.body.trf_number]
+  );
+  assert.equal(audit.rowCount, 1, 'audit row for required_date_backfill must exist');
+  const oldVal = audit.rows[0].old_value;
+  const newVal = audit.rows[0].new_value;
+
+  // Only test 1 (assignment a1) should be in changedAssignments
+  assert.ok(Array.isArray(oldVal.changedAssignments), 'oldValue.changedAssignments must be array');
+  assert.ok(Array.isArray(newVal.changedAssignments), 'newValue.changedAssignments must be array');
+  assert.equal(oldVal.changedAssignments.length, 1, 'only the test with due_date matching old required date should be backfilled');
+  assert.equal(newVal.changedAssignments.length, 1, 'only the test with due_date matching old required date should be backfilled');
+
+  const changed1 = oldVal.changedAssignments[0];
+  const changed1New = newVal.changedAssignments[0];
+  assert.equal(changed1.id, a1.body.assignmentId, 'changed assignment must be test 1');
+  assert.equal(changed1.oldDueDate, '2026-11-30', 'old due date must be the previous TRF required date');
+  assert.equal(changed1New.newDueDate, '2026-12-20', 'new due date must be the new TRF required date');
+
+  // Test 2 (hand-set date) must be untouched
+  const a2After = await pool.query<{ due_date: string | null; version: number }>(
+    `SELECT due_date, version FROM ard_test_assignments WHERE id = $1`, [a2.body.assignmentId]);
+  assert.equal(a2After.rows[0].due_date, '2026-12-10', 'hand-set due date must not change');
+  assert.equal(a2After.rows[0].version, v2, 'version of hand-set test must not increment');
+
+  // Test 3 (Completed) must be untouched
+  const a3After = await pool.query<{ due_date: string | null; version: number; status: string }>(
+    `SELECT due_date, version, status FROM ard_test_assignments WHERE id = $1`, [a3.body.assignmentId]);
+  assert.equal(a3After.rows[0].due_date, '2026-11-30', 'Completed test due date must not change');
+  assert.equal(a3After.rows[0].status, 'Completed', 'Completed test status must not change');
+
+  // Test 1 version must have incremented
+  const a1After = await pool.query<{ version: number; due_date: string | null }>(
+    `SELECT version, due_date FROM ard_test_assignments WHERE id = $1`, [a1.body.assignmentId]);
+  assert.equal(a1After.rows[0].version, v1 + 1, 'version of backfilled test must increment by 1');
+  assert.equal(a1After.rows[0].due_date, '2026-12-20', 'backfilled test must have new due date');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
