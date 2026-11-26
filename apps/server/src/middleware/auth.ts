@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { ZodSchema } from 'zod';
-import { Role, canEditTrfPartA, canEditTrfPartB, canDeleteTrf, permissionsForRole, roleHasPermission, isHigherAuthority, Permission, EmployeeProfile, TeamType, MESSAGES, isAdminDesignation } from '@trf/shared';
+import { Role, canEditTrfPartA, canEditTrfPartB, canDeleteTrf, permissionsForRole, roleHasPermission, isHigherAuthority, Permission, EmployeeProfile, TeamType, MESSAGES } from '@trf/shared';
 import { AppError, badRequest, forbidden, notFound, unauthorized } from '../lib/errors.js';
 import { verifyAccessToken } from '../lib/tokens.js';
 import { pool } from '../db.js';
@@ -247,18 +247,15 @@ export function requireAssignmentsManage() {
 }
 
 /**
- * Changing the analyst on an ARD test (reassign). Allowed for anyone who already
- * holds assignments.manage (Admin, Manager) and for an Admin carrying an AGM
- * designation. Shared team accounts, ARD analysts and Viewers are refused.
+ * Changing the analyst on an ARD test (reassign). Allowed for anyone who holds
+ * assignments.manage (Admin, GM, AGM, Manager). Shared team accounts, ARD
+ * analysts and Viewers are refused.
  */
 export function requireReassign() {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.employee) return next(unauthorized('Sign in to continue.'));
     if (req.accountId) return next(forbidden('Team accounts cannot reassign analysis work.'));
-    const role = req.employee.role;
-    const allowed = roleHasPermission(role, 'assignments.manage')
-      || (role === 'Admin' && isAdminDesignation(req.employee.designation));
-    if (!allowed) return next(forbidden('Only an AGM or a manager may change the assigned analyst.'));
+    if (!roleHasPermission(req.employee.role, 'assignments.manage')) return next(forbidden('Only an AGM or a manager may change the assigned analyst.'));
     next();
   };
 }
