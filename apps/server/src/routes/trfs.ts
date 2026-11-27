@@ -993,6 +993,7 @@ trfsRouter.post('/:id/assign', requireTrfEdit(), validateBody(assignSchema), asy
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) throw notFound();
+    await loadVisibleTrf(id, user);
     const body = req.body as z.infer<typeof assignSchema>;
 
     const updatedId = await withTransaction(async (client) => {
@@ -1052,6 +1053,7 @@ trfsRouter.post('/:id/status', requirePermission('trf.changeStatus'), validateBo
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) throw notFound();
+    await loadVisibleTrf(id, user);
     const body = req.body as z.infer<typeof statusSchema>;
 
     const result = await withTransaction(async (client) => {
@@ -1183,6 +1185,7 @@ trfsRouter.post('/:id/ard-status', requireArdEdit(), validateBody(ardStatusSchem
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) throw notFound();
+    await loadVisibleTrf(id, user);
     const body = req.body as z.infer<typeof ardStatusSchema>;
 
     const result = await withTransaction(async (client) => {
@@ -1584,6 +1587,7 @@ trfsRouter.post('/:id/ard-submit', requirePermission('trf.changeStatus'), valida
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) throw notFound();
+    await loadVisibleTrf(id, user);
     const body = req.body as z.infer<typeof ardSubmitSchema>;
 
     const actingEmployeeId = req.actingEmployeeId ?? user.id;
@@ -2070,6 +2074,7 @@ trfsRouter.post('/:id/document', requireTrfEdit(), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) throw notFound();
+    await loadVisibleTrf(id, user);
 
     // Check TRF exists and user has access
     const trf = await pool.query<{ version: number; trf_number: string; locked_at: Date | null; deleted_at: Date | null }>(

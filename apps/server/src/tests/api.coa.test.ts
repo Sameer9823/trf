@@ -411,6 +411,8 @@ maybe('an unauthenticated request cannot read any certificate', async () => {
 });
 
 maybe('cleanup: the TRFs, certificates and users created above are removed', async () => {
+  await pool.query('DELETE FROM coa_lines WHERE coa_id IN (SELECT id FROM coas WHERE trf_id = ANY($1))', [trfIds]);
+  await pool.query('DELETE FROM coas WHERE trf_id = ANY($1)', [trfIds]);
   await pool.query('DELETE FROM trfs WHERE id = ANY($1)', [trfIds]);
   await pool.query('DELETE FROM employees WHERE id = ANY($1)', [employeeIds]);
   await pool.query(`DELETE FROM audit_logs WHERE module = 'coa' AND record_ref LIKE 'TRF-%'`);

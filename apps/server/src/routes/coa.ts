@@ -10,6 +10,7 @@ import {
   COA_FROM, COA_SELECT, COA_SORT_SQL, CoaLineRow, CoaRow, buildCoaWhere,
   coaListQuerySchema, toCoa, toCoaFilters,
 } from '../lib/coa-query.js';
+import { OUTCOME_SQL } from '../lib/analysis-query.js';
 import { authenticate, currentEmployee, requirePermission, validateBody } from '../middleware/auth.js';
 
 export const coaRouter = Router();
@@ -194,12 +195,7 @@ coaRouter.post('/', requirePermission('coa.prepare'), validateBody(createSchema)
       }>(
         `SELECT a.id AS analysis_test_id, a.test_name, a.test_method, a.specification,
                 r.result_value, r.result_text, r.unit, r.lower_limit, r.upper_limit,
-                CASE
-                  WHEN r.id IS NULL THEN 'Not Tested'
-                  WHEN (r.lower_limit IS NULL AND r.upper_limit IS NULL) OR r.result_value IS NULL THEN 'Not Specified'
-                  WHEN r.result_value BETWEEN r.lower_limit AND r.upper_limit THEN 'Pass'
-                  ELSE 'Fail'
-                END AS outcome
+                (${OUTCOME_SQL}) AS outcome
          FROM analysis_tests a LEFT JOIN analysis_results r ON r.analysis_test_id = a.id
          WHERE a.trf_id = $1 ORDER BY a.test_name ASC`,
         [trfId]);

@@ -20,6 +20,10 @@ export const STATUS_VIEWS: readonly AnalysisStatusView[] = [...ANALYSIS_STATUSES
 export const OUTCOME_SQL = `CASE
   WHEN r.id IS NULL THEN 'Not Tested'
   WHEN (r.lower_limit IS NULL AND r.upper_limit IS NULL) OR r.result_value IS NULL THEN 'Not Specified'
+  WHEN r.lower_limit IS NULL THEN
+    CASE WHEN r.result_value <= r.upper_limit THEN 'Pass' ELSE 'Fail' END
+  WHEN r.upper_limit IS NULL THEN
+    CASE WHEN r.result_value >= r.lower_limit THEN 'Pass' ELSE 'Fail' END
   WHEN r.result_value BETWEEN r.lower_limit AND r.upper_limit THEN 'Pass'
   ELSE 'Fail'
 END`;
