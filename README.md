@@ -1,12 +1,34 @@
 # TRF & Analysis Management System
 
-Status: **all 12 phases complete**, plus the TRF screen rework that reorders the fields and separates the Stage from the Final Status (Phase 13 below) — scaffold, API skeleton, database migrations, connection-status shell, authentication, employees, roles and permissions, TRF management, work assignment, analysis results, certificates of analysis, dashboard, Excel reports and export, audit log, deployment, logging, backups, installer packaging, ARD tracking, the TRF form rework, and the final integration pass.
-Deployment is documented in `docs/deployment.md`, packaging in `docs/installer.md`, and testing in `docs/testing.md`.
+The TRF &amp; Analysis Management System tracks a Test Request Form (TRF) from the moment Formulation raises it until the Certificate of Analysis (COA) is issued. Formulation raises a TRF, the GM approves it, ARD assigns tests and records results, the AGM reviews results and submits for final approval, Admin gives the final approval that locks the TRF, and then the COA is drafted, reviewed, approved and issued.
+
+Deployment is documented in `docs/deployment.md`, packaging in `docs/installer.md`, and testing in `docs/testing.md`. Everyday users should start with [`USER_MANUAL.md`](USER_MANUAL.md).
 
 ## Documentation
-- [`docs/deployment.md`](docs/deployment.md) — installing the server, creating the first administrator, running it as a service, health checks, backups and restores, upgrading, troubleshooting.
+- [`USER_MANUAL.md`](USER_MANUAL.md) — the guide for everyday users (Formulation, ARD, managers, GM/AGM): signing in, creating TRFs, approvals, results, COAs, reports and troubleshooting.
+- [`docs/deployment.md`](docs/deployment.md) — installing the server, creating the first administrator, running it as a service, health checks, backups and restores, upgrading, troubleshooting. `DOCUMENT_DIR` must be an absolute path; generated TRF PDFs and uploaded result PDFs live there and are part of the backup.
 - [`docs/installer.md`](docs/installer.md) — building the per-PC installer and pointing it at a server.
 - [`docs/testing.md`](docs/testing.md) — running the tests, including how to point them at a throwaway database.
+
+## Roles
+- **Admin** (GM and COO designations): everything, including final approval and locking a TRF, managing employees, settings and team accounts.
+- **GM**: approves or rejects formulation and ARD, submits for final approval. Cannot give final approval or reopen a locked TRF (Admin only).
+- **AGM** (ARD): reviews test results, submits ARD for final approval. Cannot approve formulation or give final approval.
+- **Manager**: edits ARD block, changes status, manages assignments, approves COA. Cannot approve formulation or give final approval.
+- **Analyst**: creates TRFs, enters and submits test results, sees own assignments. Cannot approve anything.
+- **Viewer**: sees TRFs, analysis, COAs, reports and exports. Cannot create, edit or approve anything.
+
+Full details: [`USER_MANUAL.md`](USER_MANUAL.md#roles-and-what-each-can-do).
+
+## Approval and lock flow
+1. Formulation raises a TRF (Formulation status: Pending).
+2. GM approves, rejects or returns it (Formulation approval track).
+3. ARD assigns tests and analysts; analysts enter results; AGM reviews results.
+4. AGM submits the TRF for final approval.
+5. **Admin** gives the final approval, which locks the TRF. Only Admin can give final approval.
+6. A Certificate of Analysis (COA) is drafted, reviewed, approved and issued.
+
+Final approval and locking is an Admin-only action (`canGiveFinalApproval`). Reopening a locked, Formulation-approved TRF is Admin or GM only.
 
 ## Layout
 - `packages/shared` – types and constants used by both sides (roles, statuses, permissions)
@@ -29,12 +51,12 @@ Set `JWT_SECRET` (32+ characters) and the `ADMIN_*` values in `apps/server/.env`
 It creates the first Admin only when no active Admin exists, marks the password as "must change at first sign-in", and never runs on server start. Remove `ADMIN_PASSWORD` from `.env` afterwards.
 
 ## ⚠️ Security Notice
-Several files in this repository previously contained hardcoded credentials (PostgreSQL password, admin password, JWT_SECRET). **These credentials were exposed publicly and MUST be rotated immediately:**
-- Database password (`DATABASE_PASSWORD`)
-- Admin password (`ADMIN_PASSWORD`)
-- JWT secret (`JWT_SECRET`)
+`apps/server/.env` holds the database password and the token secret. It is in `.gitignore` and is not tracked in this repository. Generate fresh values for every deployment and never commit them:
 
-The files have been removed, but any deployment that used the old values must generate new ones. Update `apps/server/.env` with fresh values and run `npm run seed:admin` if needed.
+- `DATABASE_PASSWORD` — the PostgreSQL password for the `trf_app` user.
+- `JWT_SECRET` — generate with `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`, minimum 32 characters. Rotating it signs every employee out.
+
+If any deployment used older values, rotate them immediately. Update `apps/server/.env` with fresh values and run `npm run seed:admin` if needed. Never write real passwords or values anywhere in this repository.
 
 ## Checks
 - `npm run typecheck` runs TypeScript checks for all workspaces.
