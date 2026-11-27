@@ -35,7 +35,7 @@ export function trfScopeClause(scope: TrfScope | null, params: unknown[]): strin
   const me = params.length;
   const own = `(t.assigned_employee_id = $${me} OR t.created_by = $${me})`;
   const analystExists = `EXISTS (SELECT 1 FROM ard_test_assignments a JOIN ard_test_assignment_analysts x ON x.assignment_id = a.id WHERE a.trf_id = t.id AND x.analyst_id = $${me})`;
-  const noAnalyst = `NOT EXISTS (SELECT 1 FROM ard_test_assignments a JOIN ard_test_assignment_analysts x ON x.assignment_id = a.id WHERE a.trf_id = t.id AND x.analyst_id = $${me})`;
+  const noAnalyst = `NOT EXISTS (SELECT 1 FROM ard_test_assignments a JOIN ard_test_assignment_analysts x ON x.assignment_id = a.id WHERE a.trf_id = t.id)`;
   const base = `(${own} OR ${analystExists})`;
   return scope.includeApproved
     ? `(${base} OR (t.remarks_status = 'Approved' AND t.locked_at IS NULL AND ${noAnalyst}))`

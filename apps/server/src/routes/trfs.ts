@@ -400,21 +400,21 @@ trfsRouter.get('/:id', requirePermission('trf.view'), async (req, res, next) => 
 
 /** Loads one TRF and enforces the same visibility rule as the list. */
 async function loadVisibleTrf(id: number, employee: EmployeeProfile): Promise<TrfRow & { is_overdue: boolean }> {
+  const exists = await pool.query<{ id: number; deleted_at: Date | null }>(
+    `SELECT id, deleted_at FROM trfs WHERE id = $1`, [id],
+  );
+  if (!exists.rows[0] || exists.rows[0].deleted_at) throw notFound();
+
+  const params: unknown[] = [id];
+  const scope = scopeFor(employee);
+  const scopeSql = scope ? trfScopeClause(scope, params) : '';
+  const whereClause = scopeSql ? `WHERE t.id = $1 AND ${scopeSql}` : `WHERE t.id = $1`;
   const result = await pool.query<TrfRow & { is_overdue: boolean }>(
-    `SELECT ${TRF_DETAIL_SELECT}, (${OVERDUE_SQL}) AS is_overdue ${TRF_DETAIL_FROM} WHERE t.id = $1`, [id],
+    `SELECT ${TRF_DETAIL_SELECT}, (${OVERDUE_SQL}) AS is_overdue ${TRF_DETAIL_FROM} ${whereClause}`, params,
   );
   const row = result.rows[0];
-  if (!row || row.deleted_at) throw notFound();
-  const scope = scopeFor(employee);
-  if (scope === null) return row;
-  if (row.assigned_employee_id === employee.id || row.created_by === employee.id) return row;
-  // Rule 2: analyst on any test of this TRF
-  const analystCheck = await pool.query<{ exists: boolean }>(
-    `SELECT EXISTS (SELECT 1 FROM ard_test_assignments a JOIN ard_test_assignment_analysts x ON x.assignment_id = a.id WHERE a.trf_id = $1 AND x.analyst_id = $2)`, [id, employee.id]);
-  if (analystCheck.rows[0].exists) return row;
-  // Rule 3: ARD team, approved, unlocked, no analyst assigned yet
-  if (scope.includeApproved && row.remarks_status === 'Approved' && !row.locked_at) return row;
-  throw forbidden();
+  if (!row) throw forbidden();
+  return row;
 }
 
 trfsRouter.get('/:id/history', requirePermission('trf.view'), async (req, res, next) => {
