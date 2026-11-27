@@ -1041,3 +1041,365 @@ maybe('GET /:id/ard-history reassignments only queries needed employee IDs and s
   await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
   await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
 });
+
+/* ------------------------------------------------------------------ */
+/* Visibility rule tests                                              */
+/* ------------------------------------------------------------------ */
+
+maybe('visibility: no assignment yet, every ARD analyst sees an approved unlocked TRF', async () => {
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const analystB = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `VIS-NO-ASSIGN-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  const approve = await api<TrfDetail>(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: trf.body.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approve.status, 200);
+
+  const listA = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystA.token);
+  assert.ok(listA.body.items.some((t) => t.id === trfId), 'analyst A sees unassigned approved TRF');
+  const listB = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystB.token);
+  assert.ok(listB.body.items.some((t) => t.id === trfId), 'analyst B sees unassigned approved TRF');
+
+  const detailA = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystA.token);
+  assert.equal(detailA.status, 200, 'analyst A sees unassigned approved TRF in detail');
+  const detailB = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystB.token);
+  assert.equal(detailB.status, 200, 'analyst B sees unassigned approved TRF in detail');
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
+maybe('visibility: test assigned to A only, B cannot see it', async () => {
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const analystB = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `VIS-ASSIGN-A-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  const approve = await api<TrfDetail>(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: trf.body.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approve.status, 200);
+
+  const assigned = await assignTest(trfId, [analystA.id]);
+  assert.equal(assigned.status, 201, JSON.stringify(assigned.body));
+
+  // Re-fetch TRF to get the current version after assignment
+  const current = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, adminToken);
+  assert.equal(current.status, 200);
+  const currentVersion = current.body.version;
+
+  const listA = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystA.token);
+  assert.ok(listA.body.items.some((t) => t.id === trfId), 'analyst A sees TRF they are assigned to');
+  const detailA = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystA.token);
+  assert.equal(detailA.status, 200, 'analyst A sees TRF they are assigned to in detail');
+
+  const listB = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystB.token);
+  assert.ok(!listB.body.items.some((t) => t.id === trfId), 'analyst B does not see TRF assigned to A');
+  const detailB = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystB.token);
+  assert.equal(detailB.status, 403, 'analyst B cannot see TRF assigned to A');
+
+  const patchB = await api(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: currentVersion, batchNumber: `VIS-ASSIGN-A-${Date.now()}-EDIT` }),
+  }, analystB.token);
+  assert.equal(patchB.status, 403, 'analyst B cannot PATCH TRF assigned to A');
+
+  const patchA = await api(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: currentVersion, ardRemarks: 'test remark' }),
+  }, analystA.token);
+  assert.equal(patchA.status, 200, 'analyst A can PATCH TRF they are assigned to');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
+maybe('visibility: reassign A to B via PATCH /api/ard-assignments/:id', async () => {
+  const agm = await userAgm();
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const analystB = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `VIS-REASSIGN-PATCH-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  const approve = await api<TrfDetail>(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: trf.body.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approve.status, 200);
+
+  const created = await assignTest(trfId, [analystA.id]);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const assignmentId = created.body.assignmentId;
+
+  // A sees it, B does not
+  const listA1 = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystA.token);
+  assert.ok(listA1.body.items.some((t) => t.id === trfId), 'analyst A sees TRF before reassignment');
+  const listB1 = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystB.token);
+  assert.ok(!listB1.body.items.some((t) => t.id === trfId), 'analyst B does not see TRF before reassignment');
+
+  // Reassign A to B
+  const patch = await api<{ analystIds: number[]; version: number }>(`/api/ard-assignments/${assignmentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: created.body.version, analystIds: [analystB.id], reason: 'Workload shift' }),
+  }, agm.token);
+  assert.equal(patch.status, 200, JSON.stringify(patch.body));
+
+  // Re-fetch TRF to get current version after reassignment
+  const current = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, adminToken);
+  assert.equal(current.status, 200);
+  const currentVersion = current.body.version;
+
+  // A no longer sees it
+  const listA2 = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystA.token);
+  assert.ok(!listA2.body.items.some((t) => t.id === trfId), 'analyst A does not see TRF after reassignment');
+  const detailA2 = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystA.token);
+  assert.equal(detailA2.status, 403, 'analyst A detail is 403 after reassignment');
+  const patchA2 = await api(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: currentVersion, remarks: 'should not see' }),
+  }, analystA.token);
+  assert.equal(patchA2.status, 403, 'analyst A PATCH is 403 after reassignment');
+
+  // B sees it
+  const listB2 = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystB.token);
+  assert.ok(listB2.body.items.some((t) => t.id === trfId), 'analyst B sees TRF after reassignment');
+  const detailB2 = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystB.token);
+  assert.equal(detailB2.status, 200, 'analyst B sees TRF in detail after reassignment');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
+maybe('visibility: reassign A to B via POST /api/ard-assignments/reassign-bulk', async () => {
+  const agm = await userAgm();
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const analystB = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `VIS-REASSIGN-BULK-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  const approve = await api<TrfDetail>(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: trf.body.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approve.status, 200);
+
+  const created = await assignTest(trfId, [analystA.id]);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const assignmentId = created.body.assignmentId;
+
+  const bulk = await api<{ items: { assignmentId: number; changed: boolean; version: number }[] }>(
+    '/api/ard-assignments/reassign-bulk',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        reason: 'Shift change',
+        items: [{ assignmentId: Number(assignmentId), version: created.body.version, analystIds: [analystB.id] }],
+      }),
+    },
+    agm.token,
+  );
+  assert.equal(bulk.status, 200, JSON.stringify(bulk.body));
+  assert.equal(bulk.body.items[0].changed, true);
+
+  const listA = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystA.token);
+  assert.ok(!listA.body.items.some((t) => t.id === trfId), 'analyst A does not see TRF after bulk reassignment');
+  const detailA = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystA.token);
+  assert.equal(detailA.status, 403, 'analyst A detail is 403 after bulk reassignment');
+
+  const listB = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystB.token);
+  assert.ok(listB.body.items.some((t) => t.id === trfId), 'analyst B sees TRF after bulk reassignment');
+  const detailB = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystB.token);
+  assert.equal(detailB.status, 200, 'analyst B sees TRF in detail after bulk reassignment');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
+maybe('visibility: two tests, A on one and B on the other, move A test to C', async () => {
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const analystB = await userInDepartment('Analyst', 'ARD');
+  const analystC = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `VIS-TWO-TESTS-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  const approve = await api<TrfDetail>(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: trf.body.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approve.status, 200);
+
+  const option1 = await pool.query<{ id: number }>(
+    'SELECT id FROM test_requested_options ORDER BY id LIMIT 1',
+  );
+  const option2Rows = await pool.query<{ id: number }>(
+    'SELECT id FROM test_requested_options ORDER BY id OFFSET 1 LIMIT 1',
+  );
+  if (!option2Rows.rowCount) {
+    await pool.query("INSERT INTO test_requested_options (name, display_order) VALUES ('Test Option 2', 2)");
+  }
+  const option2 = await pool.query<{ id: number }>(
+    'SELECT id FROM test_requested_options ORDER BY id OFFSET 1 LIMIT 1',
+  );
+
+  const t1 = await assignTest(trfId, [analystA.id], option1.rows[0].id);
+  assert.equal(t1.status, 201);
+  const t2 = await assignTest(trfId, [analystB.id], option2.rows[0].id);
+  assert.equal(t2.status, 201);
+
+  // Both A and B see it
+  const listA1 = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystA.token);
+  assert.ok(listA1.body.items.some((t) => t.id === trfId), 'analyst A sees TRF with test 1');
+  const listB1 = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystB.token);
+  assert.ok(listB1.body.items.some((t) => t.id === trfId), 'analyst B sees TRF with test 2');
+  const detailC1 = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystC.token);
+  assert.equal(detailC1.status, 403, 'analyst C does not see TRF before move');
+
+  // Find assignment IDs for both tests
+  const assignments = await pool.query<{ id: number; test_requested_option_id: number }>(
+    `SELECT id, test_requested_option_id FROM ard_test_assignments WHERE trf_id = $1 ORDER BY id`, [trfId]);
+  const assignA = assignments.rows.find(r => r.test_requested_option_id === option1.rows[0].id);
+  assert.ok(assignA, 'test 1 assignment found');
+
+  // Re-fetch assignment A to get its current version (may have changed after t2 creation)
+  const assignARefresh = await pool.query<{ version: number }>(
+    `SELECT version FROM ard_test_assignments WHERE id = $1`, [assignA.id]);
+
+  // Move test 1 from A to C
+  const agm = await userAgm();
+  const move = await api<{ analystIds: number[]; version: number }>(`/api/ard-assignments/${assignA.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: assignARefresh.rows[0].version, analystIds: [analystC.id], reason: 'Workload shift' }),
+  }, agm.token);
+  assert.equal(move.status, 200, JSON.stringify(move.body));
+
+  // A loses it
+  const listA2 = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystA.token);
+  assert.ok(!listA2.body.items.some((t) => t.id === trfId), 'analyst A does not see TRF after move');
+  const detailA2 = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystA.token);
+  assert.equal(detailA2.status, 403, 'analyst A detail is 403 after move');
+
+  // B and C see it
+  const listB2 = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystB.token);
+  assert.ok(listB2.body.items.some((t) => t.id === trfId), 'analyst B still sees TRF after move');
+  const listC2 = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystC.token);
+  assert.ok(listC2.body.items.some((t) => t.id === trfId), 'analyst C sees TRF after move');
+  const detailC2 = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystC.token);
+  assert.equal(detailC2.status, 200, 'analyst C sees TRF in detail after move');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
+maybe('visibility: locked TRF, not visible to unassigned analyst, visible to assigned analyst', async () => {
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const analystB = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `VIS-LOCKED-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  const approve = await api<TrfDetail>(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: trf.body.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approve.status, 200);
+
+  // Lock the TRF directly (simulating final approval lock)
+  await pool.query(`UPDATE trfs SET locked_at = now() WHERE id = $1`, [trfId]);
+
+  // Analyst A (not assigned) does not see it
+  const listA = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystA.token);
+  assert.ok(!listA.body.items.some((t) => t.id === trfId), 'unassigned analyst does not see locked TRF');
+  const detailA = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystA.token);
+  assert.equal(detailA.status, 403, 'unassigned analyst detail is 403 for locked TRF');
+
+  // Insert assignment directly via SQL (API would reject on locked TRF)
+  const option = await pool.query<{ id: number }>(
+    'SELECT id FROM test_requested_options ORDER BY id LIMIT 1',
+  );
+  const assignment = await pool.query<{ id: number }>(
+    `INSERT INTO ard_test_assignments (trf_id, test_requested_option_id, test_name, status)
+     VALUES ($1, $2, 'Locked Test', 'Assigned')
+     RETURNING id`,
+    [trfId, option.rows[0].id],
+  );
+  await pool.query(
+    `INSERT INTO ard_test_assignment_analysts (assignment_id, analyst_id)
+     VALUES ($1, $2)`,
+    [assignment.rows[0].id, analystB.id],
+  );
+
+  // Analyst B (assigned) sees it even though locked
+  const listB = await api<TrfListPage>(`/api/trfs?pageSize=200`, {}, analystB.token);
+  assert.ok(listB.body.items.some((t) => t.id === trfId), 'assigned analyst sees locked TRF');
+  const detailB = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analystB.token);
+  assert.equal(detailB.status, 200, 'assigned analyst sees locked TRF in detail');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
+maybe('visibility: viewAll roles see everything', async () => {
+  const agm = await userAgm();
+  const analyst = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `VIS-VIEWALL-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  const approve = await api<TrfDetail>(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: trf.body.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approve.status, 200);
+
+  // Admin sees it (no assignment, but viewAll)
+  const detailAdmin = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, adminToken);
+  assert.equal(detailAdmin.status, 200, 'admin sees unassigned approved TRF');
+
+  // AGM sees it
+  const detailAgm = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, agm.token);
+  assert.equal(detailAgm.status, 200, 'AGM sees unassigned approved TRF');
+
+  // Manager (ARD) sees it
+  const manager = await userInDepartment('Manager', 'ARD');
+  const detailManager = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, manager.token);
+  assert.equal(detailManager.status, 200, 'ARD Manager sees unassigned approved TRF');
+
+  // ARD analyst also sees it via rule 3 (approved, unlocked, no analyst assigned)
+  const detailAnalyst = await api<TrfDetail>(`/api/trfs/${trfId}`, {}, analyst.token);
+  assert.equal(detailAnalyst.status, 200, 'ARD analyst sees unassigned approved TRF via rule 3');
+
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
+
+maybe('visibility: dashboard counts follow the same rule as the list', async () => {
+  const analystA = await userInDepartment('Analyst', 'ARD');
+  const analystB = await userInDepartment('Analyst', 'ARD');
+  const trf = await createTrf({ batchNumber: `VIS-DASHBOARD-${Date.now()}` });
+  const trfId = trf.body.id;
+
+  const approve = await api<TrfDetail>(`/api/trfs/${trfId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ version: trf.body.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approve.status, 200);
+
+  // Before assignment: dashboard works for both analysts
+  const dashA1 = await api<{ trf_total: string }>('/api/dashboard', {}, analystA.token);
+  assert.equal(dashA1.status, 200, 'analyst A dashboard returns before assignment');
+  const dashB1 = await api<{ trf_total: string }>('/api/dashboard', {}, analystB.token);
+  assert.equal(dashB1.status, 200, 'analyst B dashboard returns before assignment');
+
+  // Assign test to A
+  const assigned = await assignTest(trfId, [analystA.id]);
+  assert.equal(assigned.status, 201);
+
+  // After assignment: dashboard still works for both
+  const dashA2 = await api<{ trf_total: string }>('/api/dashboard', {}, analystA.token);
+  assert.equal(dashA2.status, 200, 'analyst A dashboard after assignment');
+  const dashB2 = await api<{ trf_total: string }>('/api/dashboard', {}, analystB.token);
+  assert.equal(dashB2.status, 200, 'analyst B dashboard after assignment');
+
+  await pool.query('DELETE FROM ard_test_assignments WHERE trf_id = $1', [trfId]);
+  await pool.query('DELETE FROM trfs WHERE id = $1', [trfId]);
+});
