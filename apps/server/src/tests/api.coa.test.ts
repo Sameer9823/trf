@@ -287,6 +287,33 @@ maybe('the preparer cannot approve their own certificate', async () => {
   assert.equal(approved.status, 200, JSON.stringify(approved.body));
 });
 
+maybe('a COA line drafted from a one-sided result keeps the same outcome', async () => {
+  const trf = await makeTrf();
+  const approved = await api<TrfDetail>(`/api/trfs/${trf.id}`, {
+    method: 'PATCH', body: JSON.stringify({ version: trf.version, remarksStatus: 'Approved' }),
+  }, adminToken);
+  assert.equal(approved.status, 200, 'TRF approved for analysis');
+  const assigned = await api(`/api/assignments/trfs/${trf.id}/assignments`, {
+    method: 'POST',
+    body: JSON.stringify({ assignments: [{ testName: 'Lower Only COA Test', assignedEmployeeId: analyst.id }] }),
+  }, adminToken);
+  assert.equal(assigned.status, 201, JSON.stringify(assigned.body));
+  const test = assigned.body.items[0] as TestRow;
+  await api(`/api/analysis/tests/${test.id}/start`, { method: 'POST', body: JSON.stringify({ version: 1 }) }, analyst.token);
+  await api(`/api/analysis/tests/${test.id}/result`, {
+    method: 'PUT', body: JSON.stringify({ version: 2, resultValue: '5', lowerLimit: '1' }),
+  }, analyst.token);
+  const done = await api(`/api/analysis/tests/${test.id}/complete`, {
+    method: 'POST', body: JSON.stringify({ version: 3 }),
+  }, analyst.token);
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+  assert.equal(done.body.outcome, 'Pass', 'one-sided lower limit: result at limit is Pass');
+
+  const drafted = await api('/api/coa', { method: 'POST', body: JSON.stringify({ trfId: trf.id }) }, managerA.token);
+  assert.equal(drafted.status, 201, JSON.stringify(drafted.body));
+  assert.equal(drafted.body.lines[0].outcome, 'Pass', 'COA line outcome matches analysis outcome');
+});
+
 maybe('a stale version is refused on every step with the standard conflict message', async () => {
   const { trf } = await analysedTrf('Conflict');
   const drafted = await api('/api/coa', { method: 'POST', body: JSON.stringify({ trfId: trf.id }) }, managerA.token);

@@ -22,12 +22,22 @@ export function scopeFor(employee: EmployeeProfile): TrfScope | null {
  * Pushes the scope parameter (when there is one) and returns the SQL clause
  * without a leading boolean, so the caller can AND it into a WHERE. Returns an
  * empty string for a role that sees everything.
+ *
+ * A TRF is visible when ANY is true:
+ *  1) t.created_by = me or t.assigned_employee_id = me
+ *  2) I am an analyst on any test of it (EXISTS on ard_test_assignment_analysts)
+ *  3) I am ARD-team (includeApproved), the TRF is approved and not locked, AND
+ *     no analyst is assigned to any test of it yet (negated EXISTS)
  */
 export function trfScopeClause(scope: TrfScope | null, params: unknown[]): string {
   if (!scope) return '';
   params.push(scope.employeeId);
-  const own = `(t.assigned_employee_id = $${params.length} OR t.created_by = $${params.length})`;
+  const me = params.length;
+  const own = `(t.assigned_employee_id = $${me} OR t.created_by = $${me})`;
+  const analystExists = `EXISTS (SELECT 1 FROM ard_test_assignments a JOIN ard_test_assignment_analysts x ON x.assignment_id = a.id WHERE a.trf_id = t.id AND x.analyst_id = $${me})`;
+  const noAnalyst = `NOT EXISTS (SELECT 1 FROM ard_test_assignments a JOIN ard_test_assignment_analysts x ON x.assignment_id = a.id WHERE a.trf_id = t.id AND x.analyst_id = $${me})`;
+  const base = `(${own} OR ${analystExists})`;
   return scope.includeApproved
-    ? `(${own} OR (t.remarks_status = 'Approved' AND t.locked_at IS NULL))`
-    : own;
+    ? `(${base} OR (t.remarks_status = 'Approved' AND t.locked_at IS NULL AND ${noAnalyst}))`
+    : base;
 }

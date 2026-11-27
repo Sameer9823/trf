@@ -503,9 +503,10 @@ maybe('the ownership matrix: Formulation edits Part A, ARD edits the ARD block',
   const formulationArd = await ardEdit(formulationViewer.token);
   assert.equal(formulationArd.status, 409, 'a Formulation user does not edit the ARD block');
 
-  // An ARD Analyst owns the ARD block ... (409 because ARD block is locked until approval)
+  // An ARD Analyst owns the ARD block ... (403 because they cannot see this TRF:
+  // not creator, not assignee, no test assignments, TRF not yet approved)
   const ardArdEdit = await ardEdit(ardAnalyst.token);
-  assert.equal(ardArdEdit.status, 409, 'an ARD user cannot edit the ARD block before approval');
+  assert.equal(ardArdEdit.status, 403, 'an ARD user cannot see or edit the ARD block before approval');
 
   // ... and not Part A.
   const ardPartA = await partAEdit(ardAnalyst.token);

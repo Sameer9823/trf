@@ -408,6 +408,11 @@ async function loadVisibleTrf(id: number, employee: EmployeeProfile): Promise<Tr
   const scope = scopeFor(employee);
   if (scope === null) return row;
   if (row.assigned_employee_id === employee.id || row.created_by === employee.id) return row;
+  // Rule 2: analyst on any test of this TRF
+  const analystCheck = await pool.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM ard_test_assignments a JOIN ard_test_assignment_analysts x ON x.assignment_id = a.id WHERE a.trf_id = $1 AND x.analyst_id = $2)`, [id, employee.id]);
+  if (analystCheck.rows[0].exists) return row;
+  // Rule 3: ARD team, approved, unlocked, no analyst assigned yet
   if (scope.includeApproved && row.remarks_status === 'Approved' && !row.locked_at) return row;
   throw forbidden();
 }
@@ -614,6 +619,7 @@ trfsRouter.patch('/:id', requireTrfEdit(), validateBody(updateSchema), async (re
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) throw notFound();
+    await loadVisibleTrf(id, user);
     const body = req.body as z.infer<typeof updateSchema>;
 
     const updatedId = await withTransaction(async (client) => {

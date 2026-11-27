@@ -158,6 +158,41 @@ maybe('a result with no limits is Not Specified, not a pass', async () => {
   assert.ok(!filtered.body.items.some((i: { testName: string }) => i.testName === 'No Limits Test'));
 });
 
+maybe('one-sided limits judge correctly', async () => {
+  // Only a lower limit: inside is Pass, below is Fail.
+  const { items: lowerOnly } = await assignedTests([{ name: 'Lower Only Test', employeeId: analyst.id }]);
+  const lowerInside = await api(`/api/analysis/tests/${lowerOnly[0].id}/result`, {
+    method: 'PUT', body: JSON.stringify({ version: 1, resultValue: '5', lowerLimit: '1' }),
+  }, analyst.token);
+  assert.equal(lowerInside.body.outcome, 'Pass', 'inside lower-only should be Pass');
+  const lowerBelow = await api(`/api/analysis/tests/${lowerOnly[0].id}/result`, {
+    method: 'PUT', body: JSON.stringify({ version: 2, resultValue: '0.5', lowerLimit: '1' }),
+  }, analyst.token);
+  assert.equal(lowerBelow.body.outcome, 'Fail', 'below lower-only should be Fail');
+
+  // Only an upper limit: inside is Pass, above is Fail.
+  const { items: upperOnly } = await assignedTests([{ name: 'Upper Only Test', employeeId: analyst.id }]);
+  const upperInside = await api(`/api/analysis/tests/${upperOnly[0].id}/result`, {
+    method: 'PUT', body: JSON.stringify({ version: 1, resultValue: '5', upperLimit: '10' }),
+  }, analyst.token);
+  assert.equal(upperInside.body.outcome, 'Pass', 'inside upper-only should be Pass');
+  const upperAbove = await api(`/api/analysis/tests/${upperOnly[0].id}/result`, {
+    method: 'PUT', body: JSON.stringify({ version: 2, resultValue: '11', upperLimit: '10' }),
+  }, analyst.token);
+  assert.equal(upperAbove.body.outcome, 'Fail', 'above upper-only should be Fail');
+
+  // Both limits: result equal to either limit is Pass.
+  const { items: both } = await assignedTests([{ name: 'Both Limits Test', employeeId: analyst.id }]);
+  const atLower = await api(`/api/analysis/tests/${both[0].id}/result`, {
+    method: 'PUT', body: JSON.stringify({ version: 1, resultValue: '1', lowerLimit: '1', upperLimit: '10' }),
+  }, analyst.token);
+  assert.equal(atLower.body.outcome, 'Pass', 'at lower limit should be Pass');
+  const atUpper = await api(`/api/analysis/tests/${both[0].id}/result`, {
+    method: 'PUT', body: JSON.stringify({ version: 2, resultValue: '10', lowerLimit: '1', upperLimit: '10' }),
+  }, analyst.token);
+  assert.equal(atUpper.body.outcome, 'Pass', 'at upper limit should be Pass');
+});
+
 maybe('a text result is allowed where a number is not', async () => {
   const { items } = await assignedTests([{ name: 'Appearance Test', employeeId: analyst.id }]);
   const res = await api(`/api/analysis/tests/${items[0].id}/result`, {

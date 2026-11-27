@@ -29,6 +29,12 @@ before(async () => {
 
 after(async () => {
   if (server) await new Promise((resolve) => server.close(resolve));
+  if (await dbReachable) {
+    if (coaIds.length) await pool.query('DELETE FROM coa_lines WHERE coa_id = ANY($1)', [coaIds]);
+    if (coaIds.length) await pool.query('DELETE FROM coas WHERE id = ANY($1)', [coaIds]);
+    if (trfIds.length) await pool.query('DELETE FROM trfs WHERE id = ANY($1)', [trfIds]);
+    if (employeeIds.length) await pool.query('DELETE FROM employees WHERE id = ANY($1)', [employeeIds]);
+  }
   await pool.end();
 });
 
@@ -64,6 +70,7 @@ async function makeEmployee(role: string) {
     }),
   }, adminToken);
   assert.equal(res.status, 201, JSON.stringify(res.body));
+  employeeIds.push(res.body.id as number);
   return { id: res.body.id as number, token: await loginAs(`p11${suffix}`, password) };
 }
 
@@ -85,6 +92,10 @@ const analystTrf: Fixture[] = [];
 let otherTrf: Fixture = { trfId: 0, trfNumber: '', testId: 0, testName: '' };
 let issuedCoa: { id: number; coaNumber: string } = { id: 0, coaNumber: '' };
 
+const trfIds: number[] = [];
+const employeeIds: number[] = [];
+const coaIds: number[] = [];
+
 async function makeAssignedTrf(createdBy: string, employeeId: number, tag: string): Promise<Fixture> {
   const lookups = await baseLookups();
   const created = await api('/api/trfs', {
@@ -93,6 +104,7 @@ async function makeAssignedTrf(createdBy: string, employeeId: number, tag: strin
   }, createdBy);
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const trfId = created.body.id as number;
+  trfIds.push(trfId);
   const trfNumber = created.body.trfNumber as string;
 
   // Approve the TRF so ARD work can begin (assigning tests, starting analysis).
@@ -142,6 +154,7 @@ async function issueCertificate(fixture: Fixture, analystToken: string) {
   const created = await api('/api/coa', { method: 'POST', body: JSON.stringify({ trfId: fixture.trfId }) }, managerToken);
   assert.equal(created.status, 201, JSON.stringify(created.body));
   const coaId = created.body.id as number;
+  coaIds.push(coaId);
   assert.equal(created.body.coaNumber, null, 'a number is only minted on issue');
 
   const submitted = await api(`/api/coa/${coaId}/submit`, {
@@ -182,6 +195,7 @@ maybe('setup: records exist for the search tests', async () => {
   const draft = await api('/api/coa', { method: 'POST', body: JSON.stringify({ trfId: analystTrf[1].trfId }) }, managerToken);
   assert.equal(draft.status, 201, JSON.stringify(draft.body));
   assert.equal(draft.body.coaNumber, null);
+  coaIds.push(draft.body.id as number);
 });
 
 maybe('search returns all three groups for a matching term', async () => {
