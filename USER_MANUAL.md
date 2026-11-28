@@ -45,31 +45,6 @@ When you first run the app, Windows may show a SmartScreen warning that the app 
 
 This is a standard Windows message for an app that is not yet widely downloaded. It does not mean the app is unsafe.
 
-### Setting the server address
-
-After the app opens, go to **Settings**. Enter the address of the central server. Example:
-
-```
-http://192.168.0.124:4000
-```
-
-Rules for the address:
-
-- It must start with `http://` (or `https://` if your server uses TLS). Do not leave the prefix out.
-- Use the server's IP address or hostname on your local network.
-- Port `4000` is the default API port.
-
-### Telling whether the app is connected
-
-At the top of every page there is a connection indicator:
-
-- **Connected**: the app can reach the server. You can work normally.
-- **Offline**: the app cannot reach the server. The page shows an offline notice and you cannot load or save anything until the connection returns.
-
-If you see "Company server is unavailable", check that the server address in Settings is correct and that your PC is on the same network as the server.
-
----
-
 ## 3. Signing in
 
 ### Employee login
