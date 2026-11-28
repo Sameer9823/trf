@@ -738,6 +738,13 @@ function createWindow() {
 
   // Nothing is downloaded or opened from the application's own origin.
   session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+    // Local files (the app bundle and the in-app PDF viewer) are trusted, so the
+    // network-oriented CSP must not be applied to them - it would block the
+    // built-in PDF viewer's resources and leave the viewer window blank.
+    if (details.url?.startsWith('file://')) {
+      cb({ responseHeaders: details.responseHeaders });
+      return;
+    }
     if (!DEV_URL) {
       cb({
         responseHeaders: {
